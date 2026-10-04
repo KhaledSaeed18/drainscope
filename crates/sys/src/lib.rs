@@ -9,6 +9,7 @@ pub mod power_supply;
 pub mod powercap;
 pub mod process;
 pub mod root;
+pub mod sleep;
 
 pub use cgroup::{read_cpu_usage, terminal_labels};
 pub use drm::DrmScanner;
@@ -16,3 +17,4 @@ pub use error::SysError;
 pub use power_supply::read_batteries;
 pub use powercap::{PowercapZone, read_zones};
 pub use root::SysRoot;
+pub use sleep::{Login1ManagerProxy, on_battery, read_mem_sleep};
