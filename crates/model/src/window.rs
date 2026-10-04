@@ -28,6 +28,53 @@ pub enum Measurement {
     BatteryOnly,
 }
 
+impl Measurement {
+    /// Where the machine's power came from during the window. Mixed windows count as AC:
+    /// only part of their energy came from the battery.
+    #[must_use]
+    pub fn power_source(self) -> PowerSource {
+        match self {
+            Self::Battery | Self::BatteryOnly => PowerSource::Battery,
+            Self::Rapl => PowerSource::Ac,
+        }
+    }
+
+    /// Name used in storage.
+    #[must_use]
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            Self::Battery => "battery",
+            Self::Rapl => "rapl",
+            Self::BatteryOnly => "battery-only",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PowerSource {
+    Battery,
+    Ac,
+}
+
+impl PowerSource {
+    /// Name used in storage and on D-Bus.
+    #[must_use]
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            Self::Battery => "battery",
+            Self::Ac => "ac",
+        }
+    }
+
+    /// Inverse of [`Self::wire_name`].
+    #[must_use]
+    pub fn from_wire_name(name: &str) -> Option<Self> {
+        [Self::Battery, Self::Ac]
+            .into_iter()
+            .find(|s| s.wire_name() == name)
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Window {
     duration: Duration,
