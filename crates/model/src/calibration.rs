@@ -23,6 +23,27 @@ pub enum Part {
     Dram,
 }
 
+impl Part {
+    pub const ALL: [Self; 4] = [Self::Core, Self::Uncore, Self::SocRest, Self::Dram];
+
+    /// Name used in storage.
+    #[must_use]
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            Self::Core => "core",
+            Self::Uncore => "uncore",
+            Self::SocRest => "soc-rest",
+            Self::Dram => "dram",
+        }
+    }
+
+    /// Inverse of [`Self::wire_name`].
+    #[must_use]
+    pub fn from_wire_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.wire_name() == name)
+    }
+}
+
 /// Splits measured domains into parts. A part is present only if its domains were measured.
 #[must_use]
 pub fn part_energy(rapl: &BTreeMap<RaplDomain, Joules>) -> BTreeMap<Part, Joules> {
@@ -134,6 +155,26 @@ impl PowerHistogram {
         self.total
     }
 
+    /// Non-empty bins as (index, count), for persistence.
+    pub fn nonzero_bins(&self) -> impl Iterator<Item = (usize, u32)> + '_ {
+        self.counts
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count > 0)
+            .map(|(bin, count)| (bin, *count))
+    }
+
+    /// Rebuilds a histogram from [`Self::nonzero_bins`]; `None` if a bin is out of range.
+    #[must_use]
+    pub fn from_bins(bins: impl IntoIterator<Item = (usize, u32)>) -> Option<Self> {
+        let mut histogram = Self::default();
+        for (bin, count) in bins {
+            *histogram.counts.get_mut(bin)? = count;
+            histogram.total += u64::from(count);
+        }
+        Some(histogram)
+    }
+
     /// The `q`-quantile (bin centre), or `None` with too few samples.
     #[must_use]
     // Bin indexes and sample counts are small; the products are exact in f64.
@@ -166,6 +207,24 @@ pub struct FloorEstimator {
 }
 
 impl FloorEstimator {
+    /// Restores an estimator from persisted histograms.
+    #[must_use]
+    pub fn from_histograms(parts: BTreeMap<Part, PowerHistogram>, battery: PowerHistogram) -> Self {
+        Self {
+            histograms: parts,
+            battery,
+        }
+    }
+
+    pub fn part_histograms(&self) -> impl Iterator<Item = (Part, &PowerHistogram)> {
+        self.histograms.iter().map(|(part, h)| (*part, h))
+    }
+
+    #[must_use]
+    pub fn battery_histogram(&self) -> &PowerHistogram {
+        &self.battery
+    }
+
     /// Records the interval's power per part if the machine was quiet.
     pub fn observe(&mut self, delta: &IntervalDelta, activity: &Activity) {
         let quiet = activity.busy_cpus(delta.duration) < QUIET_BUSY_CPUS
@@ -220,6 +279,21 @@ pub struct PsysCheck {
 }
 
 impl PsysCheck {
+    /// Restores persisted counts.
+    #[must_use]
+    pub fn from_counts(at_least_package: u32, below_package: u32) -> Self {
+        Self {
+            at_least_package,
+            below_package,
+        }
+    }
+
+    /// (intervals with `psys ≥ package`, intervals with `psys < package`).
+    #[must_use]
+    pub fn counts(&self) -> (u32, u32) {
+        (self.at_least_package, self.below_package)
+    }
+
     pub fn observe(&mut self, delta: &IntervalDelta) {
         let (Some(psys), Some(package)) = (
             delta.rapl.get(&RaplDomain::Psys),
@@ -343,6 +417,33 @@ mod tests {
         assert!(median.0 > 0.99 && median.0 < 3.01);
         histogram.add(Watts(f64::NAN));
         histogram.add(Watts(-1.0));
+    }
+
+    #[test]
+    fn estimators_survive_persistence() {
+        let mut estimator = FloorEstimator::default();
+        for i in 0..50 {
+            let mut quiet = interval(&[(RaplDomain::Core, 0.3 + f64::from(i) * 0.01)]);
+            quiet.battery = Some(BatteryDelta {
+                mean_power: Watts(5.0),
+                energy_drop: None,
+            });
+            estimator.observe(&quiet, &busy(0));
+        }
+        let parts = estimator
+            .part_histograms()
+            .map(|(part, h)| (part, PowerHistogram::from_bins(h.nonzero_bins()).unwrap()))
+            .collect();
+        let battery =
+            PowerHistogram::from_bins(estimator.battery_histogram().nonzero_bins()).unwrap();
+        let restored = FloorEstimator::from_histograms(parts, battery);
+        assert_eq!(restored, estimator);
+        assert_eq!(PowerHistogram::from_bins([(BIN_COUNT, 1)]), None);
+        for part in Part::ALL {
+            assert_eq!(Part::from_wire_name(part.wire_name()), Some(part));
+        }
+        let check = PsysCheck::from_counts(3, 40);
+        assert_eq!(check.counts(), (3, 40));
     }
 
     #[test]
