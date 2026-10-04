@@ -10,12 +10,13 @@
     object path  /io/github/khaledsaeed18/Drainscope/Sampler
 
   Every call is authorized with polkit action io.github.khaledsaeed18.Drainscope.read-energy
-  (active local sessions only), rate-limited per caller to MinIntervalMs, and quantized to
+  (active local sessions only), rate-limited per user (UID, not per connection) to
+  MinIntervalMs, and quantized to
   QuantumUj, keeping the counters far too coarse for the Platypus side channel.
 
   Errors (prefix io.github.khaledsaeed18.Drainscope.Error.):
     NotAuthorized  polkit denied the caller
-    RateLimited    called again within MinIntervalMs
+    RateLimited    the same user called again within MinIntervalMs
     Unsupported    no RAPL zones on this machine
     Failed         reading the counters failed
 -->
@@ -37,7 +38,7 @@
     </method>
     <!-- Domains: the RAPL domains this machine reports. -->
     <property name="Domains" type="as" access="read"/>
-    <!-- MinIntervalMs: the shortest allowed interval between calls from one caller. -->
+    <!-- MinIntervalMs: the shortest allowed interval between calls from one user. -->
     <property name="MinIntervalMs" type="u" access="read"/>
     <!-- QuantumUj: counters are rounded down to multiples of this many microjoules. -->
     <property name="QuantumUj" type="t" access="read"/>

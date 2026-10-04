@@ -260,7 +260,7 @@ Activation: D-Bus-activated (`Type=dbus`, `BusName=`), exits after 60 s without 
 
 Access control:
 - **D-Bus policy:** any local user may call `Sampler1`, but every call is authorized via **polkit** action `io.github.khaledsaeed18.Drainscope.read-energy` (`allow_active=yes`, `allow_inactive=no`, `allow_any=no`). Only the user at the physical seat can sample, which keeps SSH users and other sessions out of the side channel. Authorization is cached per sender unique name.
-- **Side-channel mitigation:** per-sender minimum interval of 1000 ms, and readings quantized to 10 mJ (≈ 0.1% error at 1 s / 10 W). This is far coarser than the sampling rates the Platypus attack needs. The threat model is documented in `docs/privilege-model.md`.
+- **Side-channel mitigation:** per-user (UID) minimum interval of 1000 ms, so reconnecting doesn't reset it, and readings quantized to 10 mJ (≈ 0.1% error at 1 s / 10 W). This is far coarser than the sampling rates the Platypus attack needs. The threat model is documented in `docs/privilege-model.md`.
 
 SELinux: the sampler initially runs as `unconfined_service_t` (default for `bin_t` services). M5 adds a confined `drainscope_sampler_t` policy module allowing only powercap sysfs reads and D-Bus.
 
