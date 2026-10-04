@@ -1,0 +1,16 @@
+[package]
+name = "drainscope-daemon"
+description = "User daemon: collects, attributes, stores and serves Monitor1 on the session bus."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "drainscope-daemon"
+path = "src/main.rs"
+
+[lints]
+workspace = true
