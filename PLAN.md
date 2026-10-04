@@ -73,9 +73,9 @@ Layering follows **system integration → core → interface**, with storage iso
 
 | Crate / package | Layer | Responsibility | May depend on | Must NOT |
 |---|---|---|---|---|
-| `drainscope-model` | core | Domain types (`Consumer`, `ConsumerKey`, `Interval`, `EnergyReading`), the **attribution model**, identity rules for parsing cgroup names, calibration math, rollup math. Defines **port traits** (`EnergySource`, `ActivitySource`, `PowerSupplySource`, `UsageRepository`). | std, serde, thiserror | do any I/O, depend on tokio/zbus/rusqlite |
+| `drainscope-model` | core | Domain types (`ConsumerKey`, `Snapshot`, `IntervalDelta`, `ClosedWindow`), the **attribution model**, identity rules for parsing cgroup names, calibration math. Port traits are added only where a fake is needed; the daemon tests against fixture trees and an in-memory store instead. | std, thiserror | do any I/O, depend on tokio/zbus/rusqlite |
 | `drainscope-sys` | system integration | Adapters implementing the ports: powercap reader (sampler side), cgroup v2 walker, `/proc/stat`, DRM fdinfo scanner, power_supply sysfs, D-Bus clients for UPower/logind/Sampler1. Every reader takes a `SysRoot` (base path) so it can be tested against fixture trees. | model, zbus (clients only), procfs/rustix | touch SQLite, define D-Bus servers |
-| `drainscope-store` | repository | SQLite schema, migrations, `UsageRepository` impl, rollups, retention. **The only crate that imports `rusqlite`.** | model, rusqlite, rusqlite_migration | depend on sys or dbus |
+| `drainscope-store` | repository | SQLite schema, migrations, the `Store` repository (windows, usage, rollups, retention, events, calibration). **The only crate that imports `rusqlite`.** | model, rusqlite | depend on sys or dbus |
 | `drainscope-dbus` | interface contract | Introspection XML (source of truth in `data/dbus/`), zbus interface types and server/proxy definitions for Sampler1 and Monitor1, error enums. | model, zbus, serde | contain business logic |
 | `drainscope-sampler` (bin) | interface + composition | Sampler1 server, polkit check, rate limiting, quantization, idle exit. | dbus, sys, model | read anything outside powercap |
 | `drainscope-daemon` (bin) | composition root | Wires sys → model → store, runs the tick loop, serves Monitor1, handles logind sleep inhibitor, self-accounting. | all lib crates | contain attribution logic (that lives in model) |
@@ -125,7 +125,7 @@ drainscope/
 | Daemons + CLI | **Rust** (edition 2024, stable) | Low overhead is a product requirement (an energy monitor must not burn energy); privileged code should be memory-safe; best D-Bus library available (zbus); single static-ish binaries | **Node:** D-Bus libs unmaintained (`dbus-next` last release 2022), ~40 MB idle RSS. **Go:** viable, but weaker D-Bus server ergonomics and codegen than zbus. |
 | Async runtime | tokio | zbus `tokio` feature; mature ecosystem | async-std (deprecated), smol (fine, smaller ecosystem) |
 | D-Bus | **zbus 5.x** (pure Rust) | Typed interfaces via macros, proxy codegen from XML (`zbus-xmlgen`), works on system + session bus, p2p connections for tests | dbus-rs (libdbus binding, C dependency) |
-| Storage | **SQLite via rusqlite** (bundled), WAL mode, `rusqlite_migration` | Local, single-file, zero-admin, great for time-series rollups at this scale | sqlx (compile-time DB needed, async not required), embedded TSDBs (overkill) |
+| Storage | **SQLite via rusqlite** (bundled), WAL mode, migrations tracked with `PRAGMA user_version` (no extra crate) | Local, single-file, zero-admin, great for time-series rollups at this scale | sqlx (compile-time DB needed, async not required), embedded TSDBs (overkill) |
 | /proc parsing | `procfs` crate for `/proc/stat`, `/proc/<pid>/*`; plain `std::fs` for sysfs/cgroupfs | Native, structured | shelling out to `ps`/`cat` |
 | CLI | clap 4 (derive) | standard | |
 | Logging | `tracing` + `tracing-journald` | Structured logs straight into journald | |
@@ -211,23 +211,27 @@ Degraded modes (never crash, always report the mode in `Status`):
 - On `PrepareForSleep(false)` it records a `sleep_session`: duration, Wh and % lost, drain per hour, and the `mem_sleep` mode.
 - Wake reason (`/sys/power/pm_wakeup_irq`, wakeup_sources) comes in M3.
 
-### Storage schema (initial)
+### Storage schema
+
+Authoritative in `crates/store/src/schema.rs` (migration 1). Summary:
 
 ```
-consumers      (id PK, key TEXT UNIQUE, kind TEXT, first_seen INT)
-intervals      (id PK, ts_start INT, ts_end INT, power_source TEXT, measured_j REAL,
-                battery_wh_delta REAL, model_version INT)
-usage_raw      (interval_id FK, consumer_id FK, cpu_j REAL, gpu_j REAL, other_j REAL,
-                cpu_us INT, gpu_ns INT)                      -- retention 48 h
-usage_minute   (minute_ts, consumer_id, power_source, cpu_j, gpu_j, other_j, cpu_us, gpu_ns) -- 30 d
-usage_hour     (hour_ts,  consumer_id, power_source, …)      -- 1 y
-power_events   (ts, kind: boot|plug|unplug|suspend|resume, battery_pct, energy_wh)
-sleep_sessions (start_ts, end_ts, wh_lost, pct_lost, mem_sleep, wake_reason NULL)
-calibration    (domain, power_source, baseline_w, samples, updated_at)
-battery_health (day, battery, energy_full_wh, energy_full_design_wh, cycle_count)
+consumers      (id, key UNIQUE, first_seen_ms)
+windows        (id, start_ms, end_ms, power_source battery|ac, measurement battery|rapl|battery-only,
+                measured_j, shortfall_j, model_version)                        -- retained 48 h
+usage_raw      (window_id → windows ON DELETE CASCADE, consumer_id, cpu_j, gpu_j, other_j)
+usage_minute   (bucket_ms, power_source, consumer_id, cpu_j, gpu_j, other_j)  -- retained 30 d
+usage_hour     (same as usage_minute)                                          -- retained 1 y
+power_events   (ts_ms, kind boot|plug|unplug|suspend|resume, battery_percent, energy_wh)
+sleep_sessions (start_ms, end_ms, wh_lost, percent_lost, mem_sleep, wake_reason)
+calibration    (power_source, part core|uncore|soc-rest|dram|battery, histogram BLOB)
+psys_check     (at_least_package, below_package)                               -- single row
 ```
 
-The database lives at `$XDG_STATE_HOME/drainscope/drainscope.db` (mode 0600).
+- **Rollups are written in the same transaction as each window** (window start decides the bucket), so minute and hour totals always equal the raw data they summarize; a property test checks this. Retention only deletes.
+- Queries read the finest resolution still retained for the start of their range.
+- Battery health (`energy_full` vs design, cycle count) is added by a later migration in M3.
+- The database lives at `$XDG_STATE_HOME/drainscope/drainscope.db`, created `0600` before SQLite opens it.
 
 ### D-Bus API sketch (XML in `data/dbus/` is authoritative)
 
@@ -298,7 +302,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | 1.10 | `sampler` bin: Sampler1 server, rate limit, quantization, idle exit | Unit tests for limiter/quantizer; p2p integration test |
 | 1.11 | `sampler`: polkit check (`CheckAuthorization` via zbus proxy to `org.freedesktop.PolicyKit1`) + per-sender cache | Manual: allowed from the GNOME session; denied from `ssh localhost` / `machinectl shell` |
 | 1.12 | `data/`: sampler unit, D-Bus activation file, bus policy, polkit policy | `systemd-analyze security --offline=yes` ≤ 2.0; `busctl call` works after install |
-| 1.13 | `store`: schema + migrations + `UsageRepository` impl | In-memory SQLite tests; migration-from-empty test |
+| 1.13 | `store`: schema + migrations + `Store` repository | In-memory SQLite tests; migration-from-empty test |
 | 1.14 | `store`: rollups (raw → minute → hour) + retention | Tests: rollup sums equal raw sums |
 | 1.15 | `daemon`: tick loop composition, degraded modes, `Status` | Replay test: recorded trace → golden attribution output |
 | 1.16 | `daemon`: Monitor1 server (`GetSummary`, `GetUsage`, `Tick`) | p2p tests; `busctl --user call` on the live daemon |

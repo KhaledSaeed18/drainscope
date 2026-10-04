@@ -6,9 +6,9 @@ Per-app battery and energy usage for the Linux desktop. Rust daemons plus a Type
 ## Repo map
 
 ```
-crates/model    core: domain types, identity rules, attribution model, port traits (NO I/O)
+crates/model    core: domain types, identity rules, attribution model, calibration (NO I/O)
 crates/sys      system integration: sysfs/procfs/cgroupfs readers, D-Bus clients (UPower, logind, Sampler1)
-crates/store    repository: SQLite schema, migrations, UsageRepository impl (ONLY crate importing rusqlite)
+crates/store    repository: SQLite schema, migrations, the Store repository (ONLY crate importing rusqlite)
 crates/dbus     D-Bus contracts: zbus interfaces/proxies generated from data/dbus/*.xml
 bins/sampler    privileged system service (Sampler1), D-Bus activated
 bins/daemon     user service, composition root, Monitor1 server
@@ -51,7 +51,7 @@ Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the
 ## Architecture rules (enforced in review)
 
 1. **Layering:** system integration (`sys`) → core (`model`) → interface (`dbus`, bins, `ui`). Storage is a repository layer (`store`).
-   - `model` performs **no I/O** and depends on no runtime crates (no tokio, zbus, rusqlite, procfs). It defines port traits; adapters implement them.
+   - `model` performs **no I/O** and depends on no runtime crates (no tokio, zbus, rusqlite, procfs). Add a port trait only when a fake is genuinely needed; prefer fixture trees and in-memory stores.
    - `sys` is the **only** place that reads `/sys`, `/proc`, `/dev`, or cgroupfs.
    - `store` is the **only** crate that imports `rusqlite` (the equivalent of "no ORM outside the repository layer").
    - D-Bus *server* code lives only in bins; `crates/dbus` holds contracts, not logic.
