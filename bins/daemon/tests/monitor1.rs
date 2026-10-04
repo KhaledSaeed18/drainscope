@@ -156,7 +156,7 @@ async fn usage_groups_by_kind_and_validates_arguments() {
         .get_usage(T0 / 1000, now() / 1000, "consumer", "ac")
         .await
         .unwrap();
-    assert!(on_ac.is_empty());
+    assert_eq!(on_ac, Vec::new());
     assert!(proxy.get_usage(0, 1, "colour", "any").await.is_err());
     assert!(proxy.get_usage(0, 1, "kind", "solar").await.is_err());
 }
