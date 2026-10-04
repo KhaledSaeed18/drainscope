@@ -11,6 +11,8 @@ use drainscope_dbus::sampler::{BUS_NAME, OBJECT_PATH};
 use drainscope_sampler::auth::Polkit;
 use drainscope_sampler::{Config, Powercap, Sampler};
 use drainscope_sys::SysRoot;
+use tracing::Level;
+use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -47,9 +49,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Logs to the journal when running under systemd, to stderr otherwise.
+/// Logs to the journal when running under systemd, to stderr otherwise. zbus traces every
+/// message below `warn`, which would flood the journal.
 fn init_logging() {
-    let registry = tracing_subscriber::registry();
+    let filter = Targets::new()
+        .with_default(Level::INFO)
+        .with_target("zbus", Level::WARN);
+    let registry = tracing_subscriber::registry().with(filter);
     match tracing_journald::layer() {
         Ok(journald) => registry.with(journald).init(),
         Err(_) => registry.with(tracing_subscriber::fmt::layer()).init(),
