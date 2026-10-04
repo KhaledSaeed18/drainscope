@@ -12,5 +12,18 @@ publish.workspace = true
 name = "drainscope"
 path = "src/main.rs"
 
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+drainscope-dbus.workspace = true
+drainscope-model.workspace = true
+drainscope-sys.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+zbus.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true
