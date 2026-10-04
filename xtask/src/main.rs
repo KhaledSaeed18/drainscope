@@ -42,6 +42,9 @@ enum Command {
         /// Number of consumers to list.
         #[arg(long, default_value_t = 25)]
         top: usize,
+        /// Attribution model to compare.
+        #[arg(long, value_enum, default_value_t = spike::Model::Marginal)]
+        model: spike::Model,
     },
 }
 
@@ -67,6 +70,6 @@ fn main() -> Result<()> {
             };
             record::run(repo_root()?, &options).map(|_| ())
         }
-        Command::SpikeAttribute { trace, top } => spike::run(&trace, top),
+        Command::SpikeAttribute { trace, top, model } => spike::run(&trace, top, model),
     }
 }

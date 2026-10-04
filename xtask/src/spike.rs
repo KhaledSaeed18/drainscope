@@ -28,7 +28,16 @@ const POWER_SUPPLY: &str = "sys/class/power_supply/";
 const CGROUP_ROOT: &str = "sys/fs/cgroup";
 const IDLE_PERCENTILE: f64 = 0.05;
 
-pub fn run(path: &Path, top: usize) -> Result<()> {
+/// How the idle floor is treated.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum Model {
+    /// Per-domain idle floor (5th percentile of the trace) goes to `idle`; apps get the rest.
+    Marginal,
+    /// No idle floor: all RAPL energy is split by activity share.
+    Proportional,
+}
+
+pub fn run(path: &Path, top: usize, model: Model) -> Result<()> {
     let trace = trace::read(path)?;
     if trace.snapshots.len() < 2 {
         bail!("need at least two snapshots, got {}", trace.snapshots.len());
@@ -41,12 +50,25 @@ pub fn run(path: &Path, top: usize) -> Result<()> {
             _ => None,
         })
         .collect();
-    let floors = Floors::from(&intervals);
+    let floors = match model {
+        Model::Marginal => Floors::from(&intervals),
+        Model::Proportional => Floors::default(),
+    };
+    let calibration = Calibration {
+        floors,
+        psys: PsysCheck::from(&intervals),
+    };
 
     let mut ledger = Ledger::new();
     let mut stats = Stats::default();
     for interval in &intervals {
-        attribute(interval, &floors, &mut ledger, &mut stats);
+        attribute(
+            interval,
+            &calibration.floors,
+            calibration.psys.trusted,
+            &mut ledger,
+            &mut stats,
+        );
     }
 
     println!(
@@ -55,7 +77,7 @@ pub fn run(path: &Path, top: usize) -> Result<()> {
             path,
             &trace.header,
             &intervals,
-            &floors,
+            &calibration,
             &ledger,
             &stats,
             top
@@ -82,24 +104,26 @@ struct Interval {
     /// GPU engine nanoseconds per consumer key.
     gpu_ns: Ledger,
     cpu_clamped: u32,
+    cpu_clamped_us: f64,
     cpu_root_us: f64,
     cpu_exited_us: f64,
 }
 
 impl Interval {
     fn between(a: &Snapshot, b: &Snapshot) -> Self {
-        let (cpu_us, cpu_clamped, cpu_root_us, cpu_exited_us) = cpu_by_consumer(&a.files, &b.files);
+        let cpu = cpu_by_consumer(&a.files, &b.files);
         let (battery_w, battery_energy_j) = battery(&a.files, &b.files);
         Self {
             dt_s: b.mono_ns.saturating_sub(a.mono_ns) as f64 / 1e9,
             rapl_j: rapl_delta(&a.files, &b.files),
             battery_w,
             battery_energy_j,
-            cpu_us,
             gpu_ns: gpu_by_consumer(&a.files, &b.files),
-            cpu_clamped,
-            cpu_root_us,
-            cpu_exited_us,
+            cpu_clamped: cpu.clamped,
+            cpu_clamped_us: cpu.clamped_us,
+            cpu_root_us: cpu.root_us,
+            cpu_exited_us: cpu.exited_us,
+            cpu_us: cpu.by_consumer,
         }
     }
 
@@ -259,7 +283,16 @@ fn parent(rel: &str) -> Option<&str> {
 /// Splits CPU time exactly: each cgroup's "self" time is its delta minus its live children's
 /// deltas. Leaves → their consumer; root → kernel threads; inner nodes → descendants that
 /// exited during the interval (their usage stays accounted in the parent).
-fn cpu_by_consumer(a: &Files, b: &Files) -> (Ledger, u32, f64, f64) {
+#[derive(Debug, Default)]
+struct CpuSplit {
+    by_consumer: Ledger,
+    clamped: u32,
+    clamped_us: f64,
+    root_us: f64,
+    exited_us: f64,
+}
+
+fn cpu_by_consumer(a: &Files, b: &Files) -> CpuSplit {
     let before = cgroup_usage(a);
     let after = cgroup_usage(b);
     let delta = |rel: &str| -> i128 {
@@ -275,33 +308,35 @@ fn cpu_by_consumer(a: &Files, b: &Files) -> (Ledger, u32, f64, f64) {
         }
     }
 
-    let mut ledger = Ledger::new();
-    let mut clamped = 0;
-    let mut exited = 0.0;
+    let mut split = CpuSplit {
+        root_us: delta("") as f64,
+        ..CpuSplit::default()
+    };
     for rel in after.keys() {
         let mut own = delta(rel) - children_sum.get(rel).copied().unwrap_or(0);
         if own < 0 {
             // Files are read one by one, so a child can be read "later" than its parent.
-            clamped += 1;
+            split.clamped += 1;
+            split.clamped_us += -own as f64;
             own = 0;
         }
         let own = own as f64;
         let consumer = if rel.is_empty() {
             "kernel".to_owned()
         } else if has_children.contains_key(rel) {
-            exited += own;
+            split.exited_us += own;
             format!("exited:{}", unescape(rel.rsplit('/').next().unwrap_or(rel)))
         } else {
             identity(rel, b)
         };
-        *ledger.entry(consumer).or_default() += own;
+        *split.by_consumer.entry(consumer).or_default() += own;
     }
-    (ledger, clamped, delta("") as f64, exited)
+    split
 }
 
 /// DRM client id → (pid, total engine ns). Several fds can share one client; count it once.
 fn drm_clients(files: &Files) -> BTreeMap<&str, (&str, u64)> {
-    let mut out = BTreeMap::new();
+    let mut out: BTreeMap<&str, (&str, u64)> = BTreeMap::new();
     for (path, text) in files {
         let Some((pid, tail)) = path
             .strip_prefix("proc/")
@@ -329,11 +364,31 @@ fn drm_clients(files: &Files) -> BTreeMap<&str, (&str, u64)> {
                     .unwrap_or(0);
             }
         }
-        if let Some(client) = client {
-            out.entry(client).or_insert((pid, engine_ns));
+        let Some(client) = client else {
+            continue;
+        };
+        // PID 1 (fd store) and logind hold duplicates of the compositor's DRM fd; the same
+        // client must be charged to the process actually using it.
+        match out.get(client) {
+            Some((holder, _)) if !is_fd_broker(files, holder) => {}
+            _ => {
+                out.insert(client, (pid, engine_ns));
+            }
         }
     }
     out
+}
+
+fn pid_cgroup<'a>(files: &'a Files, pid: &str) -> &'a str {
+    files
+        .get(&format!("proc/{pid}/cgroup"))
+        .and_then(|text| text.lines().find_map(|l| l.strip_prefix("0::")))
+        .map_or("", |p| p.trim().trim_matches('/'))
+}
+
+fn is_fd_broker(files: &Files, pid: &str) -> bool {
+    let cgroup = pid_cgroup(files, pid);
+    cgroup == "init.scope" || cgroup.ends_with("/systemd-logind.service")
 }
 
 fn gpu_by_consumer(a: &Files, b: &Files) -> Ledger {
@@ -345,11 +400,8 @@ fn gpu_by_consumer(a: &Files, b: &Files) -> Ledger {
         let Some((_, previous)) = before.get(client) else {
             continue;
         };
-        let cgroup = b
-            .get(&format!("proc/{pid}/cgroup"))
-            .and_then(|text| text.lines().find_map(|l| l.strip_prefix("0::")))
-            .map_or("", |p| p.trim().trim_matches('/'));
-        *ledger.entry(identity(cgroup, b)).or_default() += ns.saturating_sub(*previous) as f64;
+        *ledger.entry(identity(pid_cgroup(b, pid), b)).or_default() +=
+            ns.saturating_sub(*previous) as f64;
     }
     ledger
 }
@@ -473,6 +525,42 @@ fn percentile(values: &mut [f64], q: f64) -> f64 {
     values.get(index).copied().unwrap_or(0.0)
 }
 
+/// What the trace says about its own counters, derived once before attribution.
+#[derive(Debug)]
+struct Calibration {
+    floors: Floors,
+    psys: PsysCheck,
+}
+
+/// `psys` should cover the whole platform, so it can never be below `package`. Some firmware
+/// reports something else under that name; reject it when it's physically implausible.
+#[derive(Debug)]
+struct PsysCheck {
+    trusted: bool,
+    median_ratio: Option<f64>,
+}
+
+impl PsysCheck {
+    fn from(intervals: &[Interval]) -> Self {
+        let mut ratios: Vec<f64> = intervals
+            .iter()
+            .filter_map(|i| Some(i.domain("psys")? / i.domain("package-0")?))
+            .filter(|r| r.is_finite())
+            .collect();
+        if ratios.is_empty() {
+            return Self {
+                trusted: false,
+                median_ratio: None,
+            };
+        }
+        let median = percentile(&mut ratios, 0.5);
+        Self {
+            trusted: median >= 1.0,
+            median_ratio: Some(median),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct Stats {
     measured_j: f64,
@@ -518,7 +606,13 @@ fn split_domain(
     base + share(ledger, joules - base, weights, fallback)
 }
 
-fn attribute(interval: &Interval, floors: &Floors, ledger: &mut Ledger, stats: &mut Stats) {
+fn attribute(
+    interval: &Interval,
+    floors: &Floors,
+    trust_psys: bool,
+    ledger: &mut Ledger,
+    stats: &mut Stats,
+) {
     let dt = interval.dt_s;
     let cpu = &interval.cpu_us;
     let mut attributed = 0.0;
@@ -545,7 +639,7 @@ fn attribute(interval: &Interval, floors: &Floors, ledger: &mut Ledger, stats: &
 
     let package = interval.domain("package-0").unwrap_or(0.0);
     let dram = interval.domain("dram").unwrap_or(0.0);
-    let soc = if let Some(psys) = interval.domain("psys") {
+    let soc = if let Some(psys) = interval.domain("psys").filter(|_| trust_psys) {
         let platform = psys - package - dram;
         if platform < 0.0 {
             stats.psys_below_package += 1;
@@ -583,11 +677,12 @@ fn report(
     path: &Path,
     header: &trace::Header,
     intervals: &[Interval],
-    floors: &Floors,
+    calibration: &Calibration,
     ledger: &Ledger,
     stats: &Stats,
     top: usize,
 ) -> String {
+    let Calibration { floors, psys } = calibration;
     let total_s: f64 = intervals.iter().map(|i| i.dt_s).sum();
     let on_battery: Vec<&Interval> = intervals.iter().filter(|i| i.battery_w.is_some()).collect();
     let mut out = String::new();
@@ -621,13 +716,21 @@ fn report(
             let _ = writeln!(out, "  {name:<10} missing");
         }
     }
-    let _ = writeln!(out, "  soc-rest   floor {:.2}\n", floors.soc_rest);
+    let _ = writeln!(out, "  soc-rest   floor {:.2}", floors.soc_rest);
+    let _ = writeln!(
+        out,
+        "  psys {} (median psys/package {})\n",
+        if psys.trusted { "trusted" } else { "REJECTED" },
+        psys.median_ratio
+            .map_or("n/a".to_owned(), |r| format!("{r:.2}"))
+    );
 
     report_battery(&mut out, &on_battery);
 
     let root_s: f64 = intervals.iter().map(|i| i.cpu_root_us).sum::<f64>() / 1e6;
     let exited_s: f64 = intervals.iter().map(|i| i.cpu_exited_us).sum::<f64>() / 1e6;
     let clamped: u32 = intervals.iter().map(|i| i.cpu_clamped).sum();
+    let clamped_s: f64 = intervals.iter().map(|i| i.cpu_clamped_us).sum::<f64>() / 1e6;
     let gpu_s: f64 = intervals
         .iter()
         .flat_map(|i| i.gpu_ns.values())
@@ -635,7 +738,7 @@ fn report(
         / 1e9;
     let _ = writeln!(
         out,
-        "CPU busy {root_s:.1} s (exited processes {exited_s:.1} s, clamped reads {clamped}); GPU busy {gpu_s:.1} s\n"
+        "CPU busy {root_s:.1} s (exited processes {exited_s:.1} s, clamped reads {clamped} = {clamped_s:.2} s); GPU busy {gpu_s:.1} s\n"
     );
 
     report_activity(&mut out, intervals, top);
