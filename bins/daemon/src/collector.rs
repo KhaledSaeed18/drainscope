@@ -24,10 +24,19 @@ pub struct Collected {
 impl Collector {
     #[must_use]
     pub fn new(root: SysRoot) -> Self {
-        Self {
-            root,
-            drm: DrmScanner::default(),
-        }
+        Self::new_with_scanner(root, DrmScanner::default())
+    }
+
+    /// Reuses a DRM scanner and its cache, e.g. when replaying recorded snapshots that each
+    /// live under a different root.
+    #[must_use]
+    pub fn new_with_scanner(root: SysRoot, drm: DrmScanner) -> Self {
+        Self { root, drm }
+    }
+
+    /// Hands back the DRM scanner, leaving a fresh one.
+    pub fn take_scanner(&mut self) -> DrmScanner {
+        std::mem::take(&mut self.drm)
     }
 
     /// # Errors
