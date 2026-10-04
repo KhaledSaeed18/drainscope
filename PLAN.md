@@ -174,7 +174,8 @@ drainscope/
 | `…/app.slice/app-gnome-<appid>@<id>.service` (autostart) | `app:<appid>` | same |
 | `…/app.slice/dbus-:<addr>-<bus name>@<n>.service` (D-Bus-activated apps, e.g. Ptyxis) | `app:<bus name>` | same as apps |
 | `…/app.slice/{vte,ptyxis}-spawn-<uuid>.scope` | `term:<leader comm>` | "Terminal: pnpm" |
-| `…/session.slice/org.gnome.Shell@wayland.service` | `shell` | "GNOME Shell" |
+| `…/session.slice/org.gnome.Shell@{wayland,user}.service` | `shell` | "GNOME Shell" |
+| `/user.slice/user-<uid>.slice/session-<id>.scope` (logind sessions: sudo, ssh, tty) | `session:<id>` | labelled with the session leader's `comm` |
 | `…/user@<uid>.service/{app,session,background}.slice/<unit>.service` | `user-unit:<unit>` | "User service: pipewire" |
 | `/system.slice/<unit>.service` | `unit:<unit>` | "System: dnf-makecache" |
 | `…/libpod-<id>.scope`, `/machine.slice/*` | `container:<name>` | name from the cgroup / podman labels (later) |
@@ -187,17 +188,19 @@ drainscope/
 
 Escaping: unit names are systemd-escaped (`\x2d`); the model owns the unescape function.
 
-### Attribution model v1 (full spec goes in `docs/attribution-model.md`)
+### Attribution model v1 (full spec goes in `docs/attribution-model.md`; grounded in ADR 0001)
 Per interval, for each available domain D ∈ {core, uncore, soc-rest = package−core−uncore, dram}:
-1. `baseline_D = calibrated_idle_power_D × Δt` → attributed to `idle`.
-2. `active_D = max(0, E_D − baseline_D)` split across consumers by weight:
+1. `baseline_D = true_idle_power_D × Δt` → attributed to `idle`.
+2. `active_D = max(0, E_D − baseline_D)` split across consumers by weight. Energy above true idle (including the platform's wake-up cost) is caused by activity, so it goes to the active consumers:
    - core, soc-rest, dram: CPU-time share `Δusage_usec_i / ΣΔusage_usec` (kernel included as a consumer)
    - uncore (iGPU): GPU-time share `Δdrm_engine_ns_i / ΣΔdrm_engine_ns`. If GPU time is 0, attribute to `shell` (compositing) or `idle`.
-3. If `psys` exists: `platform = max(0, E_psys − E_package − E_dram)`.
-4. If discharging: `devices = max(0, E_battery − E_measured_soc)`, smoothed over a window because battery readings lag.
-5. **Invariant:** Σ attributed = total measured energy for the interval (battery when discharging; otherwise `psys`, falling back to package + dram). Enforced by property tests.
-6. Calibration: idle floor per domain and per power source = rolling 5th percentile of domain power over intervals with CPU utilisation < 2% and GPU busy < 1%, persisted in the DB.
+3. `psys` is used only if it passes a **plausibility check**: median `psys / package ≥ 1` over a warm-up window. On the dev machine it fails (ratio 0.74), so it is ignored there. If trusted: `platform = max(0, E_psys − E_package − E_dram)`.
+4. If discharging: `devices = max(0, E_battery − E_soc)`, where `E_soc` is `psys` if trusted, otherwise package + dram. It is computed over **windows of ≥ 10 s**, because `power_now` lags load changes by 6–8 s.
+5. **Invariant:** Σ attributed = total measured energy (battery when discharging, otherwise `E_soc`). Enforced by property tests.
+6. **True-idle floor:** a low percentile of per-domain power over intervals with < 0.25 busy CPUs and no GPU activity. It is learned over the machine's history (not per session), persisted per power source, and can be bootstrapped with `drainscope calibrate` (2 min idle).
 7. Each stored row carries `model_version` so future models never silently reinterpret history.
+8. Reported per consumer: **share of battery** and **share of attributable (above-idle) energy**.
+9. Open (ADR 0001): a conversion-overhead factor `Δbattery / Δ(package + dram)` under load, to be measured in task 1.22. If it is consistently > 1, the matching part of `devices` is attributed to active consumers.
 
 Degraded modes (never crash, always report the mode in `Status`):
 - Sampler unavailable or denied → on battery: battery energy split by CPU/GPU share; on AC: CPU/GPU time only, no joules.
@@ -270,6 +273,8 @@ Data privacy: all data is local, per user, `0600`. No network in any component (
 Each task is small and has a concrete **Verify** step. Order matters: the model first (pure, learnable Rust), privileged code later.
 
 ### M0 — Toolchain and feasibility spike (1–3 days)
+
+**Status: done (2026-10-05). Outcome: go, with model changes. See [ADR 0001](docs/adr/0001-feasibility.md).**
 | # | Task | Verify |
 |---|---|---|
 | 0.1 | Install toolchain: `rustup` (stable + clippy + rustfmt), `gcc` (linker + bundled SQLite), `stress-ng`, `rpm-build`, `rpmdevtools`, `meson`. Later (M4): `clang`, `bpftool`. No `dbus-devel` needed (zbus is pure Rust). | `cargo --version`, `stress-ng --version` |
@@ -283,10 +288,10 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 |---|---|---|
 | 1.1 | `model`: domain types, `ConsumerKey`, identity rules (cgroup path → key, systemd unescape) | Table-driven unit tests over real cgroup names from this machine |
 | 1.2 | `model`: snapshot diffing incl. counter wraparound, cgroups appearing and disappearing, PID reuse (pid + starttime) | Unit tests + proptest |
-| 1.3 | `model`: attribution v1 + calibration math | Proptest: conservation (Σ = measured ± ε), non-negativity, determinism |
+| 1.3 | `model`: attribution v1 + true-idle floor learning + `psys` plausibility check + windowed battery reconciliation | Proptest: conservation (Σ = measured ± ε), non-negativity, determinism; `psys` rejected on the M0 trace |
 | 1.4 | `sys`: cgroup v2 walker (leaf `cpu.stat`) over a `SysRoot` | Fixture tests; live test (`#[ignore]`) on this machine |
 | 1.5 | `sys`: `/proc/stat` totals + kernel residual | Fixture tests |
-| 1.6 | `sys`: DRM fdinfo scanner (find `/dev/dri/*` fds once per pid, re-read only those `fdinfo`s; dedupe by `drm-client-id`) | Fixture test; live check shows Firefox render ns increasing |
+| 1.6 | `sys`: DRM fdinfo scanner (find `/dev/dri/*` fds once per pid and rescan only new pids at a low rate; re-read only those `fdinfo`s; dedupe by `drm-client-id`, **never charging fd brokers** like PID 1 and logind) | Fixture test incl. a shared client held by PID 1, logind and gnome-shell; live check shows Firefox render ns increasing |
 | 1.7 | `sys`: power_supply reader (multi-battery sum; status mapping) | Fixture tests incl. BAT0+BAT1 |
 | 1.8 | `sys`: powercap reader (domain discovery, `max_energy_range_uj` wrap) — used by the sampler | Fixture tests |
 | 1.9 | `dbus`: Sampler1 + Monitor1 XML, zbus types, error enums | Round-trip test over a zbus p2p connection |
@@ -302,7 +307,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | 1.19 | `daemon`: self-accounting + overhead budget | `drainscope report` shows `self`; < 0.5% CPU average over 1 h |
 | 1.20 | `cli`: `status`, `top` (live via `Tick`), `report --since <unplug\|1h\|24h\|7d> --by app\|unit\|kind` | Snapshot tests of rendering; manual run |
 | 1.21 | `cli`: `doctor` (domains, sampler reachable, polkit, cgroup layout, DRM fdinfo, batteries) | Prints actionable diagnostics on this machine |
-| 1.22 | `xtask validate`: scenarios (idle 10 min; `stress-ng --cpu 1 --cpu-load {25,50,100}` in a dedicated transient scope; GPU load via a WebGL page) | `docs/validation.md` with closure error %, linearity R², leakage to other consumers |
+| 1.22 | `xtask validate`: scenarios (idle 10 min; `stress-ng --cpu {1,2,4}` and `--cpu 1 --cpu-load {25,50,100}` in dedicated transient scopes; GPU load via a WebGL page), launched by the harness itself (not a pasted shell line), recording RAPL and battery together | `docs/validation.md` with closure error %, linearity, leakage to other consumers, and the conversion-overhead factor (ADR 0001) |
 | 1.23 | Dev install path: `xtask install-dev` (units, policy, binaries to `/usr/local`) and uninstall | Fresh install → `drainscope report` works after one unplug cycle |
 
 **MVP done when:** on this laptop, unplugging for an hour and running `drainscope report --since unplug` gives a ranked list whose total matches the battery % used within the documented error, with no component running as root, the sampler scoring ≤ 2.0 exposure, and the daemon costing < 0.5% CPU.
@@ -359,10 +364,11 @@ Notes:
 | Risk / question | Mitigation |
 |---|---|
 | Attribution accuracy (frequency and C-state effects, shared caches) | Publish error bars; model v2 with frequency weighting; never present estimates as exact (UI says "estimated") |
-| Battery `power_now` lag or coarse EC updates on some laptops | Smooth over windows; reconcile with `energy_now` deltas; fall back to `psys` |
+| Battery `power_now` lag (measured 6–8 s here) or coarse EC updates on some laptops | Reconcile over ≥ 10 s windows; cross-check with `energy_now` deltas |
 | On AC there is no system-level truth | Switch the UI to "energy (Wh)" mode with `psys`, clearly labelled |
 | Short-lived processes lost between ticks | Scope-level accounting retains most of it; eBPF exit capture in M4 |
-| `psys` / `uncore` missing (AMD, some Intel) | Domain-optional model with documented fallbacks; AMD fixtures |
+| `psys` / `uncore` missing (AMD, some Intel) or implausible (dev machine: `psys` < `package`) | Domain-optional model with plausibility checks and documented fallbacks; AMD fixtures |
+| Collection overhead (M0 recorder: 8% CPU as root) | Cache DRM fd holders, read only own processes, no full snapshots; overhead budget checked in task 1.19 |
 | GNOME Shell API churn | Pin `shell-version` to `["50"]`; small extension surface |
 | polkit behaviour for D-Bus-activated system services under SELinux enforcing | Verify in task 1.11/1.12; ADR if a policy tweak is needed |
 | ~~Open: reverse-DNS / app ID prefix~~ | Resolved: `io.github.khaledsaeed18` (GitHub `KhaledSaeed18`) |
