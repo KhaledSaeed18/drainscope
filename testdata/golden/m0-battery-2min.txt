@@ -1,0 +1,13 @@
+# m0-battery-2min, model v1: top consumers (J)
+devices                                                  415.9
+idle                                                     201.2
+app:org.mozilla.firefox                                   17.3
+shell                                                     12.2
+root                                                       6.9
+kernel                                                     4.8
+app:org.gnome.Ptyxis                                       2.4
+user-unit:pipewire-pulse.service                           2.2
+user-unit:pipewire.service                                 1.7
+term:terminal                                              1.6
+app:dev.zed.Zed                                            1.0
+unit:systemd-journald.service                              0.4
