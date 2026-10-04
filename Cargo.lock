@@ -264,12 +264,19 @@ name = "drainscope-sys"
 version = "0.0.0"
 dependencies = [
  "drainscope-model",
- "flate2",
+ "drainscope-testkit",
  "rustix",
- "serde",
- "serde_json",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "drainscope-testkit"
+version = "0.0.0"
+dependencies = [
+ "flate2",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

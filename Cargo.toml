@@ -16,6 +16,7 @@ drainscope-model = { path = "crates/model" }
 drainscope-sys = { path = "crates/sys" }
 drainscope-store = { path = "crates/store" }
 drainscope-dbus = { path = "crates/dbus" }
+drainscope-testkit = { path = "crates/testkit" }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
