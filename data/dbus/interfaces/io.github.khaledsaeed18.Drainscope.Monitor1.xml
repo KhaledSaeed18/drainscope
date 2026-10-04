@@ -43,7 +43,8 @@
     </method>
     <!--
       GetSleepSessions: suspends that started at or after `since`.
-        sessions  (start, end, Wh lost, percent lost, sleep mode)
+        sessions  (start, end, Wh lost, percent lost, sleep mode); unknown amounts are NaN
+                  and an unknown mode is ""
     -->
     <method name="GetSleepSessions">
       <arg name="since" type="x" direction="in"/>
