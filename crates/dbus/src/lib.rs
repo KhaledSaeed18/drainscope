@@ -51,4 +51,44 @@ pub mod monitor {
     pub const BUS_NAME: &str = "io.github.khaledsaeed18.Drainscope.Monitor";
     pub const OBJECT_PATH: &str = "/io/github/khaledsaeed18/Drainscope/Monitor";
     pub const INTERFACE: &str = "io.github.khaledsaeed18.Drainscope.Monitor1";
+
+    /// `GetSummary` reply: (on battery, since unplug (Unix s), battery % used,
+    /// (key, joules, % of battery, % of attributable energy)).
+    pub type Summary = (bool, i64, f64, Vec<(String, f64, f64, f64)>);
+    /// `GetUsage` row: (key, kind, total J, cpu J, gpu J, other J).
+    pub type UsageRow = (String, String, f64, f64, f64, f64);
+    /// `GetSleepSessions` row: (start, end (Unix s), Wh lost, % lost, sleep mode).
+    pub type SleepRow = (i64, i64, f64, f64, String);
+
+    #[zbus::proxy(
+        interface = "io.github.khaledsaeed18.Drainscope.Monitor1",
+        default_service = "io.github.khaledsaeed18.Drainscope.Monitor",
+        default_path = "/io/github/khaledsaeed18/Drainscope/Monitor"
+    )]
+    pub trait Monitor1 {
+        fn get_summary(&self) -> zbus::Result<Summary>;
+
+        fn get_usage(
+            &self,
+            since: i64,
+            until: i64,
+            group_by: &str,
+            power_source: &str,
+        ) -> zbus::Result<Vec<UsageRow>>;
+
+        fn get_sleep_sessions(&self, since: i64) -> zbus::Result<Vec<SleepRow>>;
+
+        /// (tick length in ms, (key, watts) for consumers active during the tick).
+        #[zbus(signal)]
+        fn tick(&self, duration_ms: u32, usage: Vec<(String, f64)>) -> zbus::Result<()>;
+
+        #[zbus(property)]
+        fn status(&self) -> zbus::Result<String>;
+
+        #[zbus(property)]
+        fn model_version(&self) -> zbus::Result<u32>;
+
+        #[zbus(property)]
+        fn domains(&self) -> zbus::Result<Vec<String>>;
+    }
 }
