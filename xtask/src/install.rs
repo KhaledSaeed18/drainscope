@@ -80,8 +80,16 @@ fn reload() -> Result<()> {
     )
 }
 
+/// Stops a running sampler so reinstalling takes effect immediately; not running is fine.
+fn stop_sampler() {
+    let _ = Command::new("systemctl")
+        .args(["stop", "drainscope-sampler.service"])
+        .status();
+}
+
 pub fn install(repo_root: &Path) -> Result<()> {
     require_root()?;
+    stop_sampler();
     let binary = repo_root.join(SAMPLER_BINARY);
     ensure!(
         binary.exists(),
@@ -121,10 +129,7 @@ pub fn install(repo_root: &Path) -> Result<()> {
 
 pub fn uninstall() -> Result<()> {
     require_root()?;
-    // Not running is fine.
-    let _ = Command::new("systemctl")
-        .args(["stop", "drainscope-sampler.service"])
-        .status();
+    stop_sampler();
     for (_, destination, _) in FILES {
         match fs::remove_file(destination) {
             Ok(()) => println!("removed {destination}"),
