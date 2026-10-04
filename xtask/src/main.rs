@@ -3,6 +3,7 @@
 mod record;
 mod spike;
 mod trace;
+mod trim;
 
 use std::path::{Path, PathBuf};
 
@@ -46,6 +47,19 @@ enum Command {
         #[arg(long, value_enum, default_value_t = spike::Model::Marginal)]
         model: spike::Model,
     },
+    /// Cut a time window out of a trace into testdata/traces/, keeping only what the model reads.
+    TrimTrace {
+        /// Path to the source .jsonl.gz trace.
+        input: PathBuf,
+        /// Output name; written to testdata/traces/<name>.jsonl.gz.
+        name: String,
+        /// Window start, seconds from the first snapshot.
+        #[arg(long, default_value_t = 0.0)]
+        from: f64,
+        /// Window end, seconds from the first snapshot.
+        #[arg(long)]
+        to: f64,
+    },
 }
 
 fn repo_root() -> Result<&'static Path> {
@@ -71,5 +85,19 @@ fn main() -> Result<()> {
             record::run(repo_root()?, &options).map(|_| ())
         }
         Command::SpikeAttribute { trace, top, model } => spike::run(&trace, top, model),
+        Command::TrimTrace {
+            input,
+            name,
+            from,
+            to,
+        } => {
+            let options = trim::Options {
+                input,
+                name,
+                from_s: from,
+                to_s: to,
+            };
+            trim::run(repo_root()?, &options).map(|_| ())
+        }
     }
 }
