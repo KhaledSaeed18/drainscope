@@ -126,6 +126,8 @@ pub struct BatteryReading {
     pub power: Option<Watts>,
     /// Remaining energy (`energy_now`, or `charge_now × voltage_now`).
     pub energy: Option<Joules>,
+    /// Capacity when full (`energy_full`, or `charge_full × voltage_now`).
+    pub energy_full: Option<Joules>,
 }
 
 /// Everything read at one instant.

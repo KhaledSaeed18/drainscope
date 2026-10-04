@@ -371,6 +371,7 @@ mod tests {
             status,
             power: Some(Watts(watts)),
             energy: Some(Joules(joules)),
+            energy_full: None,
         }
     }
 

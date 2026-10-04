@@ -48,7 +48,8 @@ pub fn read_batteries(root: &SysRoot) -> Result<Vec<BatteryReading>, SysError> {
             name: entry.file_name().to_string_lossy().into_owned(),
             status,
             power: power(&number),
-            energy: energy(&number),
+            energy: energy(&number, "energy_now", "charge_now"),
+            energy_full: energy(&number, "energy_full", "charge_full"),
         });
     }
     batteries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -68,12 +69,16 @@ fn power(number: &dyn Fn(&str) -> Option<u64>) -> Option<Watts> {
 
 // Battery magnitudes (µW, µWh, µA, µV) are far below 2^52.
 #[allow(clippy::cast_precision_loss)]
-fn energy(number: &dyn Fn(&str) -> Option<u64>) -> Option<Joules> {
-    if let Some(microwatt_hours) = number("energy_now") {
+fn energy(
+    number: &dyn Fn(&str) -> Option<u64>,
+    energy_attr: &str,
+    charge_attr: &str,
+) -> Option<Joules> {
+    if let Some(microwatt_hours) = number(energy_attr) {
         return Some(Joules(microwatt_hours as f64 * JOULES_PER_MICROWATT_HOUR));
     }
     // Charge-reporting batteries: µAh × µV = 1e-12 Wh, approximated at the present voltage.
-    let microamp_hours = number("charge_now")? as f64;
+    let microamp_hours = number(charge_attr)? as f64;
     let microvolts = number("voltage_now")? as f64;
     Some(Joules(microamp_hours * microvolts / 1e12 * 3600.0))
 }
@@ -103,6 +108,7 @@ mod tests {
                 ("status", "Discharging"),
                 ("power_now", "5561000"),
                 ("energy_now", "3230000"),
+                ("energy_full", "30000000"),
             ],
         );
         supply(
@@ -132,6 +138,7 @@ mod tests {
         assert_eq!(bat1.status, BatteryStatus::Discharging);
         assert_eq!(bat1.power, Some(Watts(5.561)));
         assert!((bat1.energy.unwrap().0 - 11_628.0).abs() < 1e-6); // 3.23 Wh
+        assert!((bat1.energy_full.unwrap().0 - 108_000.0).abs() < 1e-6); // 30 Wh
     }
 
     #[test]
