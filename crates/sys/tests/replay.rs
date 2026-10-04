@@ -7,10 +7,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
-use std::fs;
-use std::io::{BufRead, BufReader};
-use std::os::unix::fs::symlink;
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use drainscope_model::snapshot::BatteryStatus;
@@ -21,51 +17,9 @@ use drainscope_model::{
 use drainscope_sys::{
     DrmScanner, SysRoot, read_batteries, read_cpu_usage, read_zones, terminal_labels,
 };
-use flate2::read::GzDecoder;
+use drainscope_testkit::{materialize, trace};
 
 const OWN_UID: u32 = 1000;
-
-#[derive(serde::Deserialize)]
-struct TraceHeader {
-    recorded_as_root: bool,
-}
-
-#[derive(serde::Deserialize)]
-struct TraceSnapshot {
-    mono_ns: u64,
-    files: BTreeMap<String, String>,
-}
-
-/// The snapshots, and whether the trace includes RAPL counters (root-only).
-fn trace(name: &str) -> (bool, Vec<TraceSnapshot>) {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../testdata/traces")
-        .join(format!("{name}.jsonl.gz"));
-    let file = fs::File::open(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let mut lines = BufReader::new(GzDecoder::new(file))
-        .lines()
-        .map(Result::unwrap);
-    let header: TraceHeader = serde_json::from_str(&lines.next().unwrap()).unwrap();
-    let snapshots = lines
-        .map(|line| serde_json::from_str(&line).unwrap())
-        .collect();
-    (header.recorded_as_root, snapshots)
-}
-
-/// Writes a snapshot's files under `dir`. Recorded fdinfo files belonged to DRM fds, so each
-/// gets the `/dev/dri` fd symlink the scanner looks for.
-fn materialize(snapshot: &TraceSnapshot, dir: &Path) {
-    for (relative, contents) in &snapshot.files {
-        let path = dir.join(relative);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, contents).unwrap();
-        if let Some((proc_dir, fd)) = relative.split_once("/fdinfo/") {
-            let link = dir.join(proc_dir).join("fd").join(fd);
-            fs::create_dir_all(link.parent().unwrap()).unwrap();
-            symlink("/dev/dri/renderD128", link).unwrap();
-        }
-    }
-}
 
 struct Replayed {
     snapshot: Snapshot,
@@ -73,9 +27,11 @@ struct Replayed {
 }
 
 fn replay(name: &str) -> Vec<Replayed> {
-    let (has_rapl, snapshots) = trace(name);
+    let trace = trace(name);
+    let has_rapl = trace.recorded_as_root;
     let mut scanner = DrmScanner::default();
-    snapshots
+    trace
+        .snapshots
         .iter()
         .map(|recorded| {
             let dir = tempfile::tempdir().unwrap();
