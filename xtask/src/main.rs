@@ -1,5 +1,6 @@
 //! Developer tooling for drainscope. Never shipped.
 
+mod install;
 mod record;
 mod spike;
 mod trace;
@@ -47,6 +48,11 @@ enum Command {
         #[arg(long, value_enum, default_value_t = spike::Model::Marginal)]
         model: spike::Model,
     },
+    /// Install the sampler and its systemd, D-Bus, polkit and sysusers files for development
+    /// (to /etc and /usr/local; needs root).
+    InstallDev,
+    /// Remove what install-dev installed (needs root).
+    UninstallDev,
     /// Cut a time window out of a trace into testdata/traces/, keeping only what the model reads.
     TrimTrace {
         /// Path to the source .jsonl.gz trace.
@@ -85,6 +91,8 @@ fn main() -> Result<()> {
             record::run(repo_root()?, &options).map(|_| ())
         }
         Command::SpikeAttribute { trace, top, model } => spike::run(&trace, top, model),
+        Command::InstallDev => install::install(repo_root()?),
+        Command::UninstallDev => install::uninstall(),
         Command::TrimTrace {
             input,
             name,
