@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use crate::attribution::{Cause, Ledger, TickAttribution, credit, share};
+use crate::calibration::IdleFloor;
 use crate::consumer::ConsumerKey;
 use crate::delta::BatteryDelta;
 use crate::units::Joules;
@@ -22,7 +23,8 @@ pub enum Measurement {
     Battery,
     /// On AC (or mixed): only RAPL energy is known.
     Rapl,
-    /// Discharging without RAPL (sampler unavailable): battery energy split by CPU time.
+    /// Discharging without RAPL (sampler unavailable): battery energy above the battery's
+    /// idle floor split by CPU time.
     BatteryOnly,
 }
 
@@ -85,8 +87,10 @@ impl Window {
         self.duration >= MIN_WINDOW
     }
 
+    /// Finishes the window. `floor` is used only without RAPL, to keep the battery's idle
+    /// power (mostly the display) from being charged to whatever happened to be running.
     #[must_use]
-    pub fn close(self) -> ClosedWindow {
+    pub fn close(self, floor: &IdleFloor) -> ClosedWindow {
         let Self {
             duration,
             mut ledger,
@@ -107,8 +111,17 @@ impl Window {
                 }
             }
             BatteryState::Discharging(battery) => {
-                share(&mut ledger, battery, &cpu_usec, Cause::Cpu);
-                (battery.non_negative(), Measurement::BatteryOnly)
+                let battery = battery.non_negative();
+                let idle = Joules(
+                    floor
+                        .battery()
+                        .for_duration(duration)
+                        .0
+                        .clamp(0.0, battery.0),
+                );
+                credit(&mut ledger, ConsumerKey::Idle, Cause::Other, idle);
+                share(&mut ledger, battery - idle, &cpu_usec, Cause::Cpu);
+                (battery, Measurement::BatteryOnly)
             }
             BatteryState::Empty | BatteryState::Mixed => (rapl, Measurement::Rapl),
         };
@@ -173,7 +186,7 @@ mod tests {
             window.push(tick(4.0, &[]), Some(discharging(5.5))); // 11 J battery, 4 J RAPL per tick
         }
         assert!(window.is_ready());
-        let closed = window.close();
+        let closed = window.close(&IdleFloor::default());
         assert_eq!(closed.measurement, Measurement::Battery);
         assert!((closed.ledger[&ConsumerKey::Devices].other.0 - 35.0).abs() < 1e-9);
         assert!((closed.measured.0 - 55.0).abs() < 1e-9);
@@ -184,7 +197,7 @@ mod tests {
     fn rapl_above_battery_is_a_shortfall_not_negative_devices() {
         let mut window = Window::default();
         window.push(tick(12.0, &[]), Some(discharging(5.0)));
-        let closed = window.close();
+        let closed = window.close(&IdleFloor::default());
         assert!(!closed.ledger.contains_key(&ConsumerKey::Devices));
         assert!((closed.shortfall.0 - 2.0).abs() < 1e-9);
         assert!((closed.measured.0 - 12.0).abs() < 1e-9);
@@ -195,16 +208,27 @@ mod tests {
         let mut window = Window::default();
         window.push(tick(4.0, &[]), Some(discharging(6.0)));
         window.push(tick(4.0, &[]), None);
-        let closed = window.close();
+        let closed = window.close(&IdleFloor::default());
         assert_eq!(closed.measurement, Measurement::Rapl);
         assert!((closed.measured.0 - 8.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn without_rapl_idle_battery_power_stays_idle() {
+        let mut window = Window::default();
+        window.push(tick(0.0, &[("a", 300), ("b", 100)]), Some(discharging(6.0)));
+        let closed = window.close(&IdleFloor::default().with_battery(Watts(5.0)));
+        // 12 J over 2 s: 10 J idle floor, 2 J split 3:1.
+        assert!((closed.ledger[&ConsumerKey::Idle].other.0 - 10.0).abs() < 1e-9);
+        assert!((closed.ledger[&ConsumerKey::App("a".into())].cpu.0 - 1.5).abs() < 1e-9);
+        assert!((sum(&closed.ledger) - 12.0).abs() < 1e-9);
     }
 
     #[test]
     fn without_rapl_battery_energy_follows_cpu_time() {
         let mut window = Window::default();
         window.push(tick(0.0, &[("a", 300), ("b", 100)]), Some(discharging(4.0)));
-        let closed = window.close();
+        let closed = window.close(&IdleFloor::default());
         assert_eq!(closed.measurement, Measurement::BatteryOnly);
         assert!((closed.ledger[&ConsumerKey::App("a".into())].cpu.0 - 6.0).abs() < 1e-9);
         assert!((closed.ledger[&ConsumerKey::App("b".into())].cpu.0 - 2.0).abs() < 1e-9);
@@ -214,12 +238,13 @@ mod tests {
         #[test]
         fn closed_windows_conserve_energy(
             ticks in proptest::collection::vec((0.0f64..20.0, proptest::option::of(0.0f64..15.0)), 1..12),
+            idle_battery in 0.0f64..10.0,
         ) {
             let mut window = Window::default();
             for (rapl, watts) in &ticks {
                 window.push(tick(*rapl, &[("a", 1)]), watts.map(discharging));
             }
-            let closed = window.close();
+            let closed = window.close(&IdleFloor::default().with_battery(Watts(idle_battery)));
             prop_assert!((sum(&closed.ledger) - closed.measured.0).abs() <= 1e-9 * closed.measured.0.max(1.0));
             prop_assert!(closed.shortfall.0 >= 0.0);
         }

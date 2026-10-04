@@ -45,20 +45,39 @@ pub fn part_energy(rapl: &BTreeMap<RaplDomain, Joules>) -> BTreeMap<Part, Joules
     parts
 }
 
-/// Power each part draws when the machine is idle. Parts without a learned floor have none
-/// (all their energy is attributed by activity).
+/// Power the machine draws when idle: per RAPL part, and at the battery (used when RAPL is
+/// unavailable). Anything without a learned floor has none, so all of its energy is
+/// attributed by activity.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct IdleFloor(BTreeMap<Part, Watts>);
+pub struct IdleFloor {
+    parts: BTreeMap<Part, Watts>,
+    battery: Watts,
+}
 
 impl IdleFloor {
     #[must_use]
-    pub fn new(floors: BTreeMap<Part, Watts>) -> Self {
-        Self(floors)
+    pub fn new(parts: BTreeMap<Part, Watts>) -> Self {
+        Self {
+            parts,
+            battery: Watts(0.0),
+        }
+    }
+
+    #[must_use]
+    pub fn with_battery(mut self, battery: Watts) -> Self {
+        self.battery = battery;
+        self
     }
 
     #[must_use]
     pub fn get(&self, part: Part) -> Watts {
-        self.0.get(&part).copied().unwrap_or_default()
+        self.parts.get(&part).copied().unwrap_or_default()
+    }
+
+    /// Whole-system idle power at the battery, screen included.
+    #[must_use]
+    pub fn battery(&self) -> Watts {
+        self.battery
     }
 }
 
@@ -143,6 +162,7 @@ impl PowerHistogram {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FloorEstimator {
     histograms: BTreeMap<Part, PowerHistogram>,
+    battery: PowerHistogram,
 }
 
 impl FloorEstimator {
@@ -159,18 +179,23 @@ impl FloorEstimator {
                 .or_default()
                 .add(energy.over(delta.duration));
         }
+        if let Some(battery) = delta.battery {
+            self.battery.add(battery.mean_power);
+        }
     }
 
     /// The median power of quiet intervals per part: what this machine typically draws when
     /// nothing is running.
     #[must_use]
     pub fn floor(&self) -> IdleFloor {
-        IdleFloor(
-            self.histograms
+        IdleFloor {
+            parts: self
+                .histograms
                 .iter()
                 .filter_map(|(part, h)| Some((*part, h.quantile(0.5)?)))
                 .collect(),
-        )
+            battery: self.battery.quantile(0.5).unwrap_or_default(),
+        }
     }
 }
 
@@ -229,7 +254,7 @@ impl PsysCheck {
 mod tests {
     use super::*;
     use crate::consumer::ConsumerKey;
-    use crate::delta::CpuDelta;
+    use crate::delta::{BatteryDelta, CpuDelta};
     use std::time::Duration;
 
     fn interval(rapl: &[(RaplDomain, f64)]) -> IntervalDelta {
@@ -276,6 +301,26 @@ mod tests {
         let floor = estimator.floor();
         assert!((floor.get(Part::Core).0 - 0.2).abs() < 0.005);
         assert!((floor.get(Part::SocRest).0 - 1.3).abs() < 0.005);
+    }
+
+    #[test]
+    fn battery_floor_learns_from_quiet_discharging_intervals() {
+        let mut estimator = FloorEstimator::default();
+        for _ in 0..40 {
+            let mut quiet = interval(&[]);
+            quiet.battery = Some(BatteryDelta {
+                mean_power: Watts(5.1),
+                energy_drop: None,
+            });
+            estimator.observe(&quiet, &busy(0));
+            let mut loaded = quiet.clone();
+            loaded.battery = Some(BatteryDelta {
+                mean_power: Watts(14.0),
+                energy_drop: None,
+            });
+            estimator.observe(&loaded, &busy(8_000_000));
+        }
+        assert!((estimator.floor().battery().0 - 5.1).abs() < 0.005);
     }
 
     #[test]
