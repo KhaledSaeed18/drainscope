@@ -59,7 +59,7 @@ Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the
    - Attribution logic lives only in `model::attribution`. Bins wire things together; they don't compute.
 2. **Native interfaces only.** Product code never spawns processes to read system state (`upower`, `busctl`, `cat`, `ps`, `powertop`, `journalctl`…). Use sysfs/procfs/cgroupfs/D-Bus. Exceptions need an ADR in `docs/adr/`. `xtask` dev tooling may shell out.
 3. **Privileges.** Nothing runs as root.
-   - The sampler runs with `DynamicUser=yes` and only `CAP_DAC_READ_SEARCH`. Every Sampler1 call is polkit-authorized, rate-limited and quantized.
+   - The sampler runs as the `drainscope-sampler` system user (ADR 0003) with only `CAP_DAC_READ_SEARCH`. Every Sampler1 call is polkit-authorized, rate-limited and quantized.
    - Never widen the sampler's capabilities, readable paths, D-Bus policy, or polkit defaults without an ADR and explicit approval from the maintainer.
    - The daemon, CLI and UI are fully unprivileged.
    - No component opens network sockets; units set `IPAddressDeny=any`.

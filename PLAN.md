@@ -46,7 +46,7 @@ Linux laptop users cannot answer "what is draining my battery?" over time:
 ```
 ┌──────────────────── system bus / root side ─────────────────────┐
 │ drainscope-sampler  (Rust, system service, D-Bus activated)     │
-│   DynamicUser=yes, AmbientCapabilities=CAP_DAC_READ_SEARCH      │
+│   User=drainscope-sampler, AmbientCapabilities=CAP_DAC_READ_SEARCH│
 │   reads /sys/class/powercap/*/energy_uj (0400 root)             │
 │   exports io.github.khaledsaeed18.Drainscope.Sampler1           │
 │   polkit: read-energy (allow_active only), per-sender rate limit│
@@ -249,7 +249,7 @@ The database lives at `$XDG_STATE_HOME/drainscope/drainscope.db` (mode 0600).
 
 | Component | Runs as | Privileges | Why |
 |---|---|---|---|
-| `drainscope-sampler` | `DynamicUser=yes` (ephemeral UID) | `AmbientCapabilities=CAP_DAC_READ_SEARCH` + `CapabilityBoundingSet=CAP_DAC_READ_SEARCH` | `energy_uj` is `0400 root` because of CVE-2020-8694 (Platypus). Bypassing read DAC is the minimum privilege that can read it. **Not root.** |
+| `drainscope-sampler` | dedicated system user `drainscope-sampler` from sysusers.d (ADR 0003) | `AmbientCapabilities=CAP_DAC_READ_SEARCH` + `CapabilityBoundingSet=CAP_DAC_READ_SEARCH` | `energy_uj` is `0400 root` because of CVE-2020-8694 (Platypus). Bypassing read DAC is the minimum privilege that can read it. **Not root.** |
 | `drainscope-daemon` | the user, `systemd --user` | none | cgroup files, `/proc/<own pids>`, DRM fdinfo of own processes, power_supply sysfs and UPower are all user-readable (verified on this machine) |
 | CLI, extension, app | the user | none | only talk to Monitor1 |
 
@@ -347,7 +347,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | Artifact | Contents | Channel |
 |---|---|---|
 | `drainscope` RPM | daemon, CLI, user unit, Monitor1 activation file | COPR (`khaledsaeed18/drainscope`), GitHub Releases |
-| `drainscope-sampler` RPM | sampler binary in `/usr/libexec`, system unit, D-Bus system policy + activation file, polkit policy | same; required by `drainscope` |
+| `drainscope-sampler` RPM | sampler binary in `/usr/libexec`, system unit, sysusers.d entry, D-Bus system policy + activation file, polkit policy | same; required by `drainscope` |
 | `gnome-shell-extension-drainscope` RPM (noarch) + zip | bundled ESM extension | COPR + extensions.gnome.org |
 | `drainscope-app` (M3) | GJS app | Flatpak (Flathub later) with `--talk-name=io.github.khaledsaeed18.Drainscope.Monitor1`; also an RPM |
 
