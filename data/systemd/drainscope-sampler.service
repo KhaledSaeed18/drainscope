@@ -1,0 +1,54 @@
+# Sandboxed RAPL sampler (PLAN.md §5). Started by D-Bus activation; never enabled.
+# Exposure is checked in CI with `systemd-analyze security --offline=yes`.
+
+[Unit]
+Description=drainscope RAPL energy sampler
+Documentation=https://github.com/KhaledSaeed18/drainscope
+
+[Service]
+Type=dbus
+BusName=io.github.khaledsaeed18.Drainscope.Sampler
+ExecStart=/usr/libexec/drainscope-sampler
+
+# A dedicated system user (from sysusers.d) whose only privilege is bypassing read
+# permission checks, which energy_uj (0400 root) needs. Not root. See ADR 0003.
+User=drainscope-sampler
+Group=drainscope-sampler
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+NoNewPrivileges=yes
+
+# Filesystem: everything read-only, no home, no devices, private /tmp.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+DevicePolicy=closed
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+UMask=0077
+
+# Network and IPC: only the D-Bus socket.
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+PrivateIPC=yes
+RemoveIPC=yes
+
+# Kernel attack surface.
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+KeyringMode=private
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
