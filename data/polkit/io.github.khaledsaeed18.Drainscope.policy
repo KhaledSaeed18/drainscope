@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>drainscope</vendor>
+  <vendor_url>https://github.com/KhaledSaeed18/drainscope</vendor_url>
+
+  <!--
+    Reading RAPL counters. Only the user at the physical seat, without a password prompt:
+    remote and inactive sessions are refused, which keeps them out of the power side channel.
+  -->
+  <action id="io.github.khaledsaeed18.Drainscope.read-energy">
+    <description>Read the CPU's energy counters</description>
+    <message>Authentication is required to read the CPU's energy counters</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>
