@@ -17,5 +17,10 @@
       <allow_inactive>no</allow_inactive>
       <allow_active>yes</allow_active>
     </defaults>
+    <!--
+      The sampler checks this action for its callers (other users). polkit only lets a
+      non-root process do that for actions it owns.
+    -->
+    <annotate key="org.freedesktop.policykit.owner">unix-user:drainscope-sampler</annotate>
   </action>
 </policyconfig>
