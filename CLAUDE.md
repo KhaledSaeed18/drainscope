@@ -104,7 +104,7 @@ Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the
 
 ## Environment notes (dev machine)
 
-Fedora 44, kernel 7.1, GNOME 50.3 Wayland, SELinux enforcing, systemd 259, cgroup v2. Intel i7-8550U: RAPL domains `package-0`, `core`, `uncore`, `dram`, `psys`, all `0400 root`. i915 exposes `drm-engine-*` in fdinfo. Two batteries (BAT0, BAT1). `mem_sleep` defaults to `deep`. 7 GB RAM: keep builds lean (`CARGO_BUILD_JOBS` if needed).
+Fedora 44, kernel 7.1, GNOME 50.3 Wayland, SELinux enforcing, systemd 259, cgroup v2. Intel i7-8550U: RAPL domains `package-0`, `core`, `uncore`, `dram`, `psys`, all `0400 root`. **`psys` is implausible here** (below `package`; ADR 0001), so never rely on it. True idle with the screen on: package ≈ 1.5 W, battery ≈ 5.1 W. Battery `power_now` lags load changes by 6–8 s. i915 exposes `drm-engine-*` in fdinfo. Two batteries (BAT0, BAT1). `mem_sleep` defaults to `deep`. 7 GB RAM: keep builds lean (`CARGO_BUILD_JOBS` if needed).
 
 ## Working agreement
 
