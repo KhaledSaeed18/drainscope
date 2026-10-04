@@ -18,7 +18,7 @@ ui/shared       TS: typed Monitor1 client, GVariant decoders, formatting (runs u
 ui/extension    TS → GJS: GNOME Shell 50 extension
 ui/app          TS → GJS: libadwaita app (M3)
 data/           systemd units, D-Bus XML/policy/activation, polkit policy, SELinux (M5)
-testdata/       recorded sysfs/procfs/cgroupfs fixture trees and traces
+testdata/       traces/: short curated traces (committed); local/: long or personal traces (git-ignored)
 docs/adr/       architecture decision records
 ```
 
@@ -30,22 +30,23 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test --workspace -- --ignored          # live-hardware tests, this machine only
-cargo xtask record-fixture <name> --secs 600  # needs sudo for RAPL
-cargo xtask validate                           # accuracy harness, run on battery
+cargo build -p xtask && sudo target/debug/xtask record-fixture <name> --secs 600   # RAPL is root-only
+cargo xtask spike-attribute testdata/traces/<name>.jsonl.gz                       # M0 throwaway
+cargo xtask validate                           # accuracy harness, run on battery (M1)
 cargo xtask install-dev | uninstall-dev        # installs units/policy to /usr/local (sudo)
 
 # TypeScript (from ui/)
 pnpm install
-pnpm -r typecheck
-pnpm -r lint
-pnpm -r test
-pnpm --filter extension build                  # esbuild → dist/, unminified ESM
+pnpm typecheck                                 # tsc in every package
+pnpm lint                                      # eslint, type-aware, whole workspace
+pnpm test                                      # vitest in every package
+pnpm --filter extension build                  # (M2) esbuild → dist/, unminified ESM
 
 # Checks
 systemd-analyze security --offline=yes data/systemd/drainscope-sampler.service   # must stay ≤ 2.0
 ```
 
-Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the touched crates/packages, and `pnpm -r typecheck lint` if UI code changed. Report failures verbatim; don't hide them.
+Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the touched crates/packages, and `pnpm typecheck && pnpm lint && pnpm test` (from `ui/`) if UI code changed. Report failures verbatim; don't hide them.
 
 ## Architecture rules (enforced in review)
 
@@ -68,7 +69,8 @@ Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the
 ## Rust conventions
 
 - Edition 2024, stable toolchain. `#![forbid(unsafe_code)]` in every crate. If unsafe is ever needed (e.g. M4 eBPF glue), it goes in one isolated module with an ADR.
-- Errors: `thiserror` enums in library crates, `anyhow` only in `bins/*` and `xtask`. No `unwrap()`/`expect()` outside tests and process startup (`clippy::unwrap_used`, `clippy::expect_used` = deny in lib crates).
+- Errors: `thiserror` enums in library crates, `anyhow` only in `bins/*` and `xtask`. `clippy::unwrap_used` and `clippy::expect_used` are denied workspace-wide; tests are exempt via `clippy.toml`. Use `?`, `let … else`, or explicit handling.
+- Lints are set once in `[workspace.lints]`; every crate opts in with `[lints] workspace = true`.
 - Clippy: `all` + `pedantic` as warnings, CI uses `-D warnings`. Allow specific pedantic lints locally with a one-line justification.
 - Async (tokio) only in bins and `crates/dbus`/`crates/sys` D-Bus clients. sysfs/procfs reads are synchronous and run per tick off the async executor (`spawn_blocking` or a dedicated collector thread).
 - Units in names and types: counters are `u64` microjoules (`*_uj`), model math is `f64` joules (`*_j`), durations are `u64` nanoseconds (`*_ns`) on `CLOCK_MONOTONIC`, and stored timestamps are wall-clock seconds (`*_ts`). Never mix them without explicit conversion helpers from `model::units`.
@@ -78,11 +80,18 @@ Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the
 
 ## TypeScript conventions (ui/)
 
-- pnpm only. TypeScript strict with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `useUnknownInCatchVariables`.
-- **No `any`. No `as` casts** (except `as const`). No non-null `!`. typescript-eslint `strict-type-checked` with `no-unsafe-*` rules as errors.
+- pnpm only. TypeScript is pinned to `~6.0` because typescript-eslint doesn't support TypeScript 7 yet (ADR 0002). Imports are extensionless (`moduleResolution: Bundler`). No DOM lib: GJS has no DOM.
+- TypeScript strict with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `useUnknownInCatchVariables`.
+- **No `any`. No `as` casts** (except `as const`). No non-null `!`. Enforced by typescript-eslint `strict-type-checked` + `stylistic-type-checked` and `consistent-type-assertions: never` (`ui/eslint.config.js`).
 - `GLib.Variant` data must go through the typed decoders in `ui/shared/src/dbus/decode.ts`, which check `get_type_string()` before unpacking and return `Result`-style values. Never use raw `deepUnpack()` results directly.
 - Keep logic in `ui/shared` (pure and Node-testable with vitest). GJS-specific glue in `extension/` and `app/` stays thin.
 - GNOME Shell extension rules: GNOME 50 ESM (`gi://` imports, `resource:///org/gnome/shell/...`). Create nothing in the constructor; everything is created in `enable()` and destroyed or disconnected in `disable()`. All D-Bus calls are async and never block the Shell main loop. Output is unminified ESM (extensions.gnome.org review requirement).
+
+## Traces and fixtures
+
+- Format: gzipped JSON Lines. One header line, then one snapshot per line mapping kernel file paths (no leading `/`) to raw contents (`xtask/src/trace.rs`). Replays exercise the same parsers as live reads.
+- Recorded: powercap counters, `power_supply`, `/proc/stat`, every cgroup's `cpu.stat`, DRM fdinfo + `comm`/`cgroup`/`stat` of DRM clients, and `comm` of terminal-scope processes. **Never** record command lines or environments.
+- Commit only short traces (≲ 2 MB) to `testdata/traces/`; keep long ones in `testdata/local/`.
 
 ## Testing expectations
 
