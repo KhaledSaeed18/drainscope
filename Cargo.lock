@@ -215,6 +215,23 @@ version = "0.0.0"
 [[package]]
 name = "drainscope-daemon"
 version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "drainscope-dbus",
+ "drainscope-model",
+ "drainscope-store",
+ "drainscope-sys",
+ "drainscope-testkit",
+ "futures-util",
+ "rustix",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-journald",
+ "tracing-subscriber",
+ "zbus",
+ "zbus_xml",
+]
 
 [[package]]
 name = "drainscope-dbus"

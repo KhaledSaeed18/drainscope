@@ -21,6 +21,7 @@ drainscope-testkit = { path = "crates/testkit" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 flate2 = "1"
+futures-util = { version = "0.3", default-features = false }
 proptest = "1"
 rustix = { version = "1", features = ["process", "time"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
