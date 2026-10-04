@@ -24,6 +24,17 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  sampler-sandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Sampler unit exposure must stay SAFE (≤ 2.0, i.e. threshold 20/100)
+        run: systemd-analyze security --offline=yes --threshold=20 data/systemd/drainscope-sampler.service
+      - name: D-Bus and polkit files are well-formed
+        run: |
+          sudo apt-get install -y --no-install-recommends libxml2-utils
+          xmllint --noout data/dbus/interfaces/*.xml data/dbus/system.d/*.conf data/polkit/*.policy
+
   cargo-deny:
     runs-on: ubuntu-latest
     steps:
