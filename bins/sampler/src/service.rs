@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use drainscope_dbus::sampler::SamplerError;
 use drainscope_sys::{PowercapZone, SysError, SysRoot, read_zones};
 use zbus::message::Header;
+use zbus::names::BusName;
 
 use crate::accumulator::Accumulator;
 use crate::auth::Authorizer;
@@ -125,6 +126,32 @@ fn monotonic_ns() -> u64 {
     secs.saturating_mul(1_000_000_000).saturating_add(nanos)
 }
 
+/// Rate limits apply per user, not per connection: every new connection gets a new unique
+/// name, so limiting by name would let a caller reconnect around the limit. Peer-to-peer
+/// connections (tests) have no bus to ask and share one key.
+async fn rate_limit_key(
+    connection: &zbus::Connection,
+    caller: Option<&str>,
+) -> Result<String, SamplerError> {
+    let Some(caller) = caller else {
+        return Ok("peer".to_owned());
+    };
+    let uid = async {
+        let name = BusName::try_from(caller)?;
+        zbus::fdo::DBusProxy::new(connection)
+            .await?
+            .get_connection_unix_user(name)
+            .await
+            .map_err(zbus::Error::from)
+    }
+    .await
+    .map_err(|err: zbus::Error| {
+        tracing::error!(%err, caller, "looking up the caller's uid failed");
+        SamplerError::Failed("identifying the caller failed".into())
+    })?;
+    Ok(format!("uid:{uid}"))
+}
+
 #[zbus::interface(name = "io.github.khaledsaeed18.Drainscope.Sampler1")]
 impl Sampler {
     // The tuple is spelled out (not the `Counters` alias) so the macro emits three out
@@ -133,6 +160,7 @@ impl Sampler {
     async fn read_counters(
         &self,
         #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
     ) -> Result<(u64, u64, Vec<(String, u64)>), SamplerError> {
         self.last_call.touch();
         let caller = header.sender().map(|name| name.as_str().to_owned());
@@ -155,10 +183,11 @@ impl Sampler {
             ));
         }
 
+        let limit_key = rate_limit_key(connection, caller.as_deref()).await?;
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state
             .limiter
-            .check(caller.as_deref().unwrap_or("peer"), Instant::now())
+            .check(&limit_key, Instant::now())
             .map_err(|wait| {
                 SamplerError::RateLimited(format!("retry in {} ms", wait.as_millis()))
             })?;

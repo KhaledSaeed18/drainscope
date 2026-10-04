@@ -1,10 +1,10 @@
-//! Side-channel mitigations: per-caller rate limiting and quantization (PLAN.md §5).
+//! Side-channel mitigations: per-user rate limiting and quantization (PLAN.md §5).
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// Callers remembered before stale entries are pruned. Unique bus names are never reused,
-/// so without pruning the map would grow with every client that ever connected.
+/// Callers remembered before stale entries are pruned, bounding memory however many
+/// distinct callers appear.
 const MAX_TRACKED_CALLERS: usize = 1024;
 
 #[derive(Debug)]
