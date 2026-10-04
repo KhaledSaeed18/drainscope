@@ -211,6 +211,17 @@ dependencies = [
 [[package]]
 name = "drainscope-cli"
 version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "drainscope-dbus",
+ "drainscope-model",
+ "drainscope-sys",
+ "futures-util",
+ "tempfile",
+ "tokio",
+ "zbus",
+]
 
 [[package]]
 name = "drainscope-daemon"
