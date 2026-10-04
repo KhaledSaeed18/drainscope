@@ -183,6 +183,15 @@ version = "0.0.0"
 [[package]]
 name = "drainscope-sys"
 version = "0.0.0"
+dependencies = [
+ "drainscope-model",
+ "flate2",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
 
 [[package]]
 name = "errno"
