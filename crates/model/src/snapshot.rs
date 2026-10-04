@@ -36,6 +36,32 @@ impl RaplDomain {
             _ => None,
         }
     }
+
+    /// Name used on D-Bus and in storage.
+    #[must_use]
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            Self::Package => "package",
+            Self::Core => "core",
+            Self::Uncore => "uncore",
+            Self::Dram => "dram",
+            Self::Psys => "psys",
+        }
+    }
+
+    /// Inverse of [`Self::wire_name`].
+    #[must_use]
+    pub fn from_wire_name(name: &str) -> Option<Self> {
+        [
+            Self::Package,
+            Self::Core,
+            Self::Uncore,
+            Self::Dram,
+            Self::Psys,
+        ]
+        .into_iter()
+        .find(|d| d.wire_name() == name)
+    }
 }
 
 /// A cumulative energy counter and the value at which it wraps to zero.
@@ -132,6 +158,20 @@ mod tests {
         );
         assert_eq!(RaplDomain::from_zone_name("psys"), Some(RaplDomain::Psys));
         assert_eq!(RaplDomain::from_zone_name("gpu"), None);
+    }
+
+    #[test]
+    fn wire_names_round_trip() {
+        for domain in [
+            RaplDomain::Package,
+            RaplDomain::Core,
+            RaplDomain::Uncore,
+            RaplDomain::Dram,
+            RaplDomain::Psys,
+        ] {
+            assert_eq!(RaplDomain::from_wire_name(domain.wire_name()), Some(domain));
+        }
+        assert_eq!(RaplDomain::from_wire_name("package-0"), None);
     }
 
     #[test]
