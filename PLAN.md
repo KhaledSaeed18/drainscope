@@ -21,7 +21,7 @@ Linux laptop users cannot answer "what is draining my battery?" over time:
 
 ### What drainscope does
 1. Measures energy from hardware counters (Intel/AMD RAPL via powercap, including `psys` where present) and, when discharging, the battery itself.
-2. Attributes that energy to **apps** (GNOME/Flatpak app scopes), **terminal workloads** (`vte-spawn-*` scopes), **system services** (systemd units), the kernel, idle, and "display & devices", using a transparent, documented, proportional model (no ML).
+2. Attributes that energy to **apps** (GNOME/Flatpak app scopes), **terminal workloads** (`vte-spawn-*` / `ptyxis-spawn-*` scopes), **system services** (systemd units), the kernel, idle, and "display & devices", using a transparent, documented, proportional model (no ML).
 3. Keeps local history (SQLite) and shows it in a GNOME Shell quick-settings section, a CLI, and later a libadwaita app.
 4. Tracks suspend sessions (battery lost per sleep, drain per hour) and battery health over time.
 
@@ -172,7 +172,8 @@ drainscope/
 | `…/app.slice/app-gnome-<appid>-<pid>.scope` | `app:<appid>` | from `.desktop` (resolved in UI via `Gio.DesktopAppInfo`) |
 | `…/app.slice/app-flatpak-<appid>-<n>.scope` | `app:<appid>` | same |
 | `…/app.slice/app-gnome-<appid>@<id>.service` (autostart) | `app:<appid>` | same |
-| `…/app.slice/vte-spawn-<uuid>.scope` | `term:<leader comm>` | "Terminal: pnpm" |
+| `…/app.slice/dbus-:<addr>-<bus name>@<n>.service` (D-Bus-activated apps, e.g. Ptyxis) | `app:<bus name>` | same as apps |
+| `…/app.slice/{vte,ptyxis}-spawn-<uuid>.scope` | `term:<leader comm>` | "Terminal: pnpm" |
 | `…/session.slice/org.gnome.Shell@wayland.service` | `shell` | "GNOME Shell" |
 | `…/user@<uid>.service/{app,session,background}.slice/<unit>.service` | `user-unit:<unit>` | "User service: pipewire" |
 | `/system.slice/<unit>.service` | `unit:<unit>` | "System: dnf-makecache" |
