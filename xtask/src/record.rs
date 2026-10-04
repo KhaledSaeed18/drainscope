@@ -193,16 +193,9 @@ fn capture_class(
 }
 
 fn capture_cgroups(root: &Path, files: &mut BTreeMap<String, String>, warnings: &mut Warnings) {
+    let mut dirs = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        read_into(&dir.join("cpu.stat"), "cgroup cpu.stat", files, warnings);
-        let is_terminal = dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| TERMINAL_SCOPE_PREFIXES.iter().any(|p| n.starts_with(p)));
-        if is_terminal {
-            capture_cgroup_comms(&dir, files, warnings);
-        }
         let Ok(entries) = fs::read_dir(&dir) else {
             continue;
         };
@@ -210,6 +203,19 @@ fn capture_cgroups(root: &Path, files: &mut BTreeMap<String, String>, warnings: 
             if entry.file_type().is_ok_and(|t| t.is_dir()) {
                 stack.push(entry.path());
             }
+        }
+        dirs.push(dir);
+    }
+    // Children before parents: counters only grow, so a parent read later is never below the
+    // sum of its children, which keeps per-cgroup "self" time non-negative.
+    for dir in dirs.iter().rev() {
+        read_into(&dir.join("cpu.stat"), "cgroup cpu.stat", files, warnings);
+        let is_terminal = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| TERMINAL_SCOPE_PREFIXES.iter().any(|p| n.starts_with(p)));
+        if is_terminal {
+            capture_cgroup_comms(dir, files, warnings);
         }
     }
 }
