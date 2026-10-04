@@ -136,7 +136,16 @@ impl Sampler {
     ) -> Result<(u64, u64, Vec<(String, u64)>), SamplerError> {
         self.last_call.touch();
         let caller = header.sender().map(|name| name.as_str().to_owned());
-        if !self.authorizer.authorize(caller.as_deref()).await? {
+        let authorized = self
+            .authorizer
+            .authorize(caller.as_deref())
+            .await
+            .map_err(|err| {
+                // Logged here; callers only learn that the check failed.
+                tracing::error!(%err, "polkit check failed");
+                SamplerError::Failed("authorization check failed".into())
+            })?;
+        if !authorized {
             tracing::warn!(
                 caller = caller.as_deref().unwrap_or("peer"),
                 "denied by polkit"
