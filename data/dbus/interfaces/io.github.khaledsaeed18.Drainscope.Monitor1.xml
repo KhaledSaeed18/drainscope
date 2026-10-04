@@ -1,0 +1,68 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<!--
+  io.github.khaledsaeed18.Drainscope.Monitor1
+
+  Energy usage per consumer, served by the drainscope user daemon on the session bus:
+
+    bus name     io.github.khaledsaeed18.Drainscope.Monitor
+    object path  /io/github/khaledsaeed18/Drainscope/Monitor
+
+  Consumers are identified by their storage key (e.g. "app:org.mozilla.firefox",
+  "unit:NetworkManager.service", "devices"); see drainscope-model's ConsumerKey. Energy is in
+  joules; timestamps are Unix seconds.
+-->
+<node>
+  <interface name="io.github.khaledsaeed18.Drainscope.Monitor1">
+    <!--
+      GetSummary: the battery story since the charger was last unplugged.
+        on_battery        Whether the machine is discharging now.
+        since_unplug      When the current (or last) discharge started.
+        battery_percent   Battery percentage used since then.
+        top               (key, joules, percent of battery, percent of attributable energy)
+                          for the largest consumers, largest first.
+    -->
+    <method name="GetSummary">
+      <arg name="on_battery" type="b" direction="out"/>
+      <arg name="since_unplug" type="x" direction="out"/>
+      <arg name="battery_percent" type="d" direction="out"/>
+      <arg name="top" type="a(sddd)" direction="out"/>
+    </method>
+    <!--
+      GetUsage: energy per consumer over [since, until).
+        group_by      "consumer" (each key) or "kind" (app, unit, terminal, ...).
+        power_source  "any", "battery" or "ac".
+        usage         (key, kind, total J, cpu J, gpu J, other J), largest first.
+    -->
+    <method name="GetUsage">
+      <arg name="since" type="x" direction="in"/>
+      <arg name="until" type="x" direction="in"/>
+      <arg name="group_by" type="s" direction="in"/>
+      <arg name="power_source" type="s" direction="in"/>
+      <arg name="usage" type="a(ssdddd)" direction="out"/>
+    </method>
+    <!--
+      GetSleepSessions: suspends that started at or after `since`.
+        sessions  (start, end, Wh lost, percent lost, sleep mode)
+    -->
+    <method name="GetSleepSessions">
+      <arg name="since" type="x" direction="in"/>
+      <arg name="sessions" type="a(xxdds)" direction="out"/>
+    </method>
+    <!--
+      Tick: emitted after every attribution tick, for live views.
+        duration_ms  Length of the tick.
+        usage        (key, watts) for consumers active during the tick.
+    -->
+    <signal name="Tick">
+      <arg name="duration_ms" type="u"/>
+      <arg name="usage" type="a(sd)"/>
+    </signal>
+    <!-- Status: "full" (RAPL and battery), "battery-only" (no sampler) or "time-only" (AC, no sampler). -->
+    <property name="Status" type="s" access="read"/>
+    <!-- ModelVersion: version of the attribution model producing new data. -->
+    <property name="ModelVersion" type="u" access="read"/>
+    <!-- Domains: RAPL domains in use (psys appears only if it passed the plausibility check). -->
+    <property name="Domains" type="as" access="read"/>
+  </interface>
+</node>
