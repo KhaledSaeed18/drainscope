@@ -1,0 +1,5 @@
+/target
+node_modules/
+dist/
+# Long or personal traces stay local; only short curated traces are committed.
+/testdata/local/
