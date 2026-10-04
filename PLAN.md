@@ -203,7 +203,7 @@ Per interval, for each available domain D ∈ {core, uncore, soc-rest = package�
 9. Open (ADR 0001): a conversion-overhead factor `Δbattery / Δ(package + dram)` under load, to be measured in task 1.22. If it is consistently > 1, the matching part of `devices` is attributed to active consumers.
 
 Degraded modes (never crash, always report the mode in `Status`):
-- Sampler unavailable or denied → on battery: battery energy split by CPU/GPU share; on AC: CPU/GPU time only, no joules.
+- Sampler unavailable or denied → on battery: battery energy above the learned *battery* idle floor split by CPU share (the floor, mostly the display, stays `idle`); on AC: CPU/GPU time only, no joules.
 - Missing domains (e.g. AMD has no `psys` or `uncore`) → the domain is skipped and the fallback chain is documented.
 
 ### Suspend
@@ -290,7 +290,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | 1.2 | `model`: snapshot diffing incl. counter wraparound, cgroups appearing and disappearing, PID reuse (pid + starttime) | Unit tests + proptest |
 | 1.3 | `model`: attribution v1 + true-idle floor learning + `psys` plausibility check + windowed battery reconciliation | Proptest: conservation (Σ = measured ± ε), non-negativity, determinism; `psys` rejected on the M0 trace |
 | 1.4 | `sys`: cgroup v2 walker (leaf `cpu.stat`) over a `SysRoot` | Fixture tests; live test (`#[ignore]`) on this machine |
-| 1.5 | `sys`: `/proc/stat` totals + kernel residual | Fixture tests |
+| 1.5 | ~~`sys`: `/proc/stat` totals + kernel residual~~ Merged into 1.4: the root cgroup's `cpu.stat` is system-wide busy time, and kernel time is the root's own time in `model::delta` | Covered by 1.2 and 1.4 tests |
 | 1.6 | `sys`: DRM fdinfo scanner (find `/dev/dri/*` fds once per pid and rescan only new pids at a low rate; re-read only those `fdinfo`s; dedupe by `drm-client-id`, **never charging fd brokers** like PID 1 and logind) | Fixture test incl. a shared client held by PID 1, logind and gnome-shell; live check shows Firefox render ns increasing |
 | 1.7 | `sys`: power_supply reader (multi-battery sum; status mapping) | Fixture tests incl. BAT0+BAT1 |
 | 1.8 | `sys`: powercap reader (domain discovery, `max_energy_range_uj` wrap) — used by the sampler | Fixture tests |
