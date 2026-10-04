@@ -7,7 +7,7 @@ Per-app battery and energy usage for the Linux desktop.
 
 drainscope measures energy from hardware counters (RAPL via powercap) and the battery. It attributes that energy to apps, terminal workloads and system services through cgroup v2, DRM fdinfo and systemd scopes, keeps local history, and shows it in GNOME. No component runs as root.
 
-**Status:** early development (milestone M0, feasibility spike). Nothing usable yet. See [PLAN.md](PLAN.md) for the architecture, privilege model and roadmap.
+**Status:** early development. The M0 feasibility spike is done ([findings](docs/adr/0001-feasibility.md)); M1 (daemon, sampler, CLI) is next. Nothing usable yet. See [PLAN.md](PLAN.md) for the architecture, privilege model and roadmap.
 
 ## Building (development)
 
