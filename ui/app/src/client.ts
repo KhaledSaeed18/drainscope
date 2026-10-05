@@ -8,15 +8,18 @@ import {
   decodeSleepHistory,
   decodeSummary,
   decodeUsage,
+  decodeWakeups,
   HEALTH_SIGNATURE,
   SLEEP_SIGNATURE,
   SUMMARY_SIGNATURE,
   USAGE_SIGNATURE,
+  WAKEUPS_SIGNATURE,
   type Decoded,
   type HealthReading,
   type SleepSession,
   type Summary,
   type UsageRow,
+  type Wakeups,
 } from '@drainscope/shared';
 
 const BUS_NAME = 'io.github.khaledsaeed18.Drainscope.Monitor';
@@ -98,6 +101,10 @@ export class MonitorClient {
   sleepSessions(since: number): Promise<Result<SleepSession[]>> {
     const parameters = new GLib.Variant('(x)', [since]);
     return this.call('GetSleepHistory', parameters, SLEEP_SIGNATURE, decodeSleepHistory);
+  }
+
+  wakeups(): Promise<Result<Wakeups>> {
+    return this.call('GetWakeups', null, WAKEUPS_SIGNATURE, decodeWakeups);
   }
 
   batteryHealth(since: number): Promise<Result<HealthReading[]>> {

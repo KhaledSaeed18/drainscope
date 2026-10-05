@@ -8,6 +8,7 @@ import {
   buildSleep,
   buildTimeline,
   buildUsage,
+  buildWakeups,
   formatDuration,
   formatPercent,
   RANGES,
@@ -25,6 +26,7 @@ import { detailPage } from './detail';
 import { dataRow } from './rows';
 
 const SLEEP_HISTORY_SECONDS = 30 * 86_400;
+const WAKEUP_ROWS = 5;
 const HEALTH_HISTORY_SECONDS = 365 * 86_400;
 /** Health changes daily; reload it at most this often. */
 const HEALTH_REFRESH_SECONDS = 3600;
@@ -67,6 +69,12 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private timelineLoaded: { range: Range; at: number } | undefined;
   private readonly usageGroup = new Adw.PreferencesGroup();
   private readonly usageRows: Gtk.Widget[] = [];
+  private readonly wakeupsGroup = new Adw.PreferencesGroup({
+    title: 'Waking the processor',
+    description: 'Times per second over the last minute. Frequent wakeups drain the battery even when little else happens.',
+    visible: false,
+  });
+  private readonly wakeupRows: Gtk.Widget[] = [];
   private readonly sleepGroup = new Adw.PreferencesGroup({ title: 'Sleep' });
   private readonly sleepRows: Gtk.Widget[] = [];
   private readonly healthGroup = new Adw.PreferencesGroup({ title: 'Battery health' });
@@ -107,6 +115,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     const page = new Adw.PreferencesPage();
     page.add(this.timelineGroup);
     page.add(this.usageGroup);
+    page.add(this.wakeupsGroup);
     page.add(this.sleepGroup);
     page.add(this.healthGroup);
 
@@ -166,6 +175,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     await Promise.all([
       this.loadTimeline(summary.value, now),
       this.loadUsage(summary.value, now),
+      this.loadWakeups(),
       this.loadSleep(now),
       this.loadHealth(now),
     ]);
@@ -263,6 +273,24 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
       row.add_suffix(new Gtk.Image({ icon_name: 'go-next-symbolic' }));
       this.usageGroup.add(row);
       this.usageRows.push(row);
+    }
+  }
+
+  private async loadWakeups(): Promise<void> {
+    const wakeups = await this.client.wakeups();
+    removeAll(this.wakeupsGroup, this.wakeupRows);
+    // Hidden without the probe, or with a daemon too old to ask.
+    const entries = wakeups.ok ? buildWakeups(wakeups.value, WAKEUP_ROWS, appName) : undefined;
+    this.wakeupsGroup.set_visible(entries !== undefined && entries.length > 0);
+    for (const entry of entries ?? []) {
+      const row = dataRow(entry.label);
+      row.add_prefix(new Gtk.Image({ gicon: consumerIcon(entry.consumer), pixel_size: 32 }));
+      const rate = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, valign: Gtk.Align.CENTER, spacing: 4 });
+      rate.append(new Gtk.Label({ label: entry.rate, xalign: 1, css_classes: ['numeric'] }));
+      rate.append(new Gtk.ProgressBar({ fraction: entry.fraction, width_request: 80 }));
+      row.add_suffix(rate);
+      this.wakeupsGroup.add(row);
+      this.wakeupRows.push(row);
     }
   }
 
