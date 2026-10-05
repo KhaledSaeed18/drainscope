@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use drainscope_daemon::collector::{Collector, monotonic_now, wall_now_ms};
 use drainscope_daemon::engine::{Engine, NetworkCounters, Reading, TickOutcome};
+use drainscope_daemon::lock::{EXIT_ALREADY_RUNNING, lock_database};
 use drainscope_daemon::monitor::{Monitor, Shared, Status};
 use drainscope_daemon::power::{BatteryLevel, PowerTracker, SleepTracker};
 use drainscope_daemon::probe::ProbeClient;
@@ -370,6 +371,12 @@ async fn next_sleep_signal(stream: &mut Option<PrepareForSleepStream>) -> Option
 async fn main() -> anyhow::Result<()> {
     init_logging();
     let path = database_path()?;
+    let Some(_lock) =
+        lock_database(&path).with_context(|| format!("locking {}", path.display()))?
+    else {
+        tracing::error!(database = %path.display(), "another drainscope daemon is using the database");
+        std::process::exit(EXIT_ALREADY_RUNNING);
+    };
     let store = Store::open(&path).with_context(|| format!("opening {}", path.display()))?;
     let floors = BTreeMap::from([
         (

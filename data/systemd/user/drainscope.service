@@ -13,6 +13,8 @@ BusName=io.github.khaledsaeed18.Drainscope.Monitor
 ExecStart=/usr/bin/drainscope-daemon
 Restart=on-failure
 RestartSec=10s
+# Another daemon already holds the database lock (drainscope_daemon::lock).
+RestartPreventExitStatus=3
 
 # Measuring must never compete with the user's own work.
 Nice=10

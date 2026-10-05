@@ -3,6 +3,7 @@
 
 pub mod collector;
 pub mod engine;
+pub mod lock;
 pub mod monitor;
 pub mod power;
 pub mod probe;
