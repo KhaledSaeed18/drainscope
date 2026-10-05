@@ -115,7 +115,7 @@ pub fn render_summary(
         )
     } else {
         format!(
-            "On AC power. The last discharge ({} ago) used {} of the battery.\n\n",
+            "On AC power. The last discharge, which started {} ago, used {} of the battery.\n\n",
             duration(since),
             percent(battery_percent)
         )
@@ -412,7 +412,7 @@ mod tests {
         );
         assert_eq!(
             render_summary(false, Some(Duration::from_secs(60)), 0.0, &[]),
-            "On AC power. The last discharge (1 min ago) used 0% of the battery.\n\n\
+            "On AC power. The last discharge, which started 1 min ago, used 0% of the battery.\n\n\
              Nothing recorded on battery yet.\n"
         );
     }
