@@ -878,6 +878,7 @@ fn activity_report(
     let watts = |w: Option<f64>| w.map_or("n/a".to_owned(), |w| format!("{w:.2}"));
     let mut wake_points = Vec::new();
     let mut net_points = Vec::new();
+    let mut charge_ratios = Vec::new();
     for (index, phase) in phases.iter().enumerate() {
         if phase.name == REST_PHASE {
             continue;
@@ -895,10 +896,15 @@ fn activity_report(
         let d_battery = s.battery_w.zip(baseline.battery_w).map(|(b, i)| b - i);
         let outside = d_battery.map(|d| d - d_rapl);
         let megabytes = (s.scope_rx + s.scope_tx) / 1e6;
+        let charged = daemon_watts(buses, phase);
         if phase.name.starts_with("Timer") {
             wake_points.push((s.scope_wakeups, d_rapl, d_battery));
         } else if phase.name.starts_with("Download") {
             net_points.push((megabytes, d_rapl, outside));
+            // Below this the ratio is noise.
+            if let Some(charged) = charged.filter(|_| d_rapl >= 0.05) {
+                charge_ratios.push(charged / d_rapl);
+            }
         }
         let _ = writeln!(
             out,
@@ -912,11 +918,23 @@ fn activity_report(
             watts(d_battery),
             d_rapl,
             watts(outside),
-            watts(daemon_watts(buses, phase)),
+            watts(charged),
         );
     }
     let _ = writeln!(out);
     activity_conclusions(&mut out, &wake_points, &net_points);
+    if !charge_ratios.is_empty() {
+        charge_ratios.sort_by(f64::total_cmp);
+        let _ = writeln!(
+            out,
+            "- Downloads were charged {:.0}% (median; {:.0}–{:.0}%) of their RAPL increase by the \
+             running daemon's model. Model v1 charges about 5%; v2 should approach the 79–90% \
+             CPU loads get.",
+            charge_ratios[charge_ratios.len() / 2] * 100.0,
+            charge_ratios[0] * 100.0,
+            charge_ratios[charge_ratios.len() - 1] * 100.0
+        );
+    }
     conclusions_backlight(&mut out, samples);
     Ok(out)
 }
