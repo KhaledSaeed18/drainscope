@@ -7,7 +7,7 @@ use anyhow::Context;
 use drainscope_dbus::monitor::Monitor1Proxy;
 use futures_util::StreamExt;
 
-use crate::format::{duration, energy, percent, table, truncate, watts};
+use crate::format::{duration, energy, percent, table, table_aligned, truncate, watts};
 use crate::names::Names;
 
 const LABEL_WIDTH: usize = 40;
@@ -188,6 +188,8 @@ pub struct SleepRow {
     pub wh_lost: f64,
     pub percent_lost: f64,
     pub mode: String,
+    /// Empty when unknown.
+    pub woke_by: String,
 }
 
 #[must_use]
@@ -219,11 +221,80 @@ pub fn render_sleep(rows: &[SleepRow]) -> String {
                 } else {
                     row.mode.clone()
                 },
+                if row.woke_by.is_empty() {
+                    "?".to_owned()
+                } else {
+                    row.woke_by.clone()
+                },
+            ]
+        })
+        .collect();
+    table_aligned(
+        &[
+            "Started", "Slept", "Lost", "Energy", "Rate", "Mode", "Woke by",
+        ],
+        &cells,
+        &[0, 6],
+    )
+}
+
+/// One battery's readings over the requested period.
+pub struct HealthRow {
+    pub battery: String,
+    pub full_wh: f64,
+    /// NaN when unknown.
+    pub design_wh: f64,
+    /// 0 when unknown.
+    pub cycles: u32,
+    /// Change in full-charge capacity since the oldest reading in the period.
+    pub change_wh: f64,
+    pub since: Duration,
+}
+
+#[must_use]
+pub fn render_health(rows: &[HealthRow]) -> String {
+    if rows.is_empty() {
+        return "No battery health recorded yet (the daemon records it once a day).\n".to_owned();
+    }
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            let health = if row.design_wh > 0.0 {
+                percent(row.full_wh / row.design_wh * 100.0)
+            } else {
+                "?".to_owned()
+            };
+            vec![
+                row.battery.clone(),
+                format!("{:.1} Wh", row.full_wh),
+                if row.design_wh.is_finite() {
+                    format!("{:.1} Wh", row.design_wh)
+                } else {
+                    "?".to_owned()
+                },
+                health,
+                if row.cycles > 0 {
+                    row.cycles.to_string()
+                } else {
+                    "?".to_owned()
+                },
+                if row.since.is_zero() {
+                    "—".to_owned()
+                } else {
+                    format!("{:+.1} Wh in {}", row.change_wh, duration(row.since))
+                },
             ]
         })
         .collect();
     table(
-        &["Started", "Slept", "Lost", "Energy", "Rate", "Mode"],
+        &[
+            "Battery",
+            "Full charge",
+            "Design",
+            "Health",
+            "Cycles",
+            "Change",
+        ],
         &cells,
     )
 }
@@ -354,21 +425,65 @@ pub async fn sleep(bus: &zbus::Connection, since: Duration) -> anyhow::Result<()
     let now = now_secs();
     let start = now - i64::try_from(since.as_secs()).unwrap_or(i64::MAX);
     let sessions = monitor
-        .get_sleep_sessions(start)
+        .get_sleep_history(start)
         .await
         .map_err(daemon_hint)?;
     let rows: Vec<SleepRow> = sessions
         .into_iter()
-        .map(|(start, end, wh_lost, percent_lost, mode)| SleepRow {
-            ago: seconds(now - start),
-            slept: seconds(end - start),
-            wh_lost,
-            percent_lost,
-            mode,
-        })
+        .map(
+            |(start, end, wh_lost, percent_lost, mode, woke_by)| SleepRow {
+                ago: seconds(now - start),
+                slept: seconds(end - start),
+                wh_lost,
+                percent_lost,
+                mode,
+                woke_by,
+            },
+        )
         .collect();
     print!("{}", render_sleep(&rows));
     Ok(())
+}
+
+pub async fn health(bus: &zbus::Connection, since: Duration) -> anyhow::Result<()> {
+    let monitor = connect(bus).await?;
+    let start = now_secs() - i64::try_from(since.as_secs()).unwrap_or(i64::MAX);
+    let readings = monitor
+        .get_battery_health(start)
+        .await
+        .map_err(daemon_hint)?;
+    print!("{}", render_health(&summarize_health(&readings)));
+    Ok(())
+}
+
+/// The latest reading per battery, with the change since its oldest one (readings come
+/// oldest first).
+fn summarize_health(readings: &[drainscope_dbus::monitor::HealthRow]) -> Vec<HealthRow> {
+    let mut rows: Vec<HealthRow> = Vec::new();
+    let mut first: Vec<(i64, f64)> = Vec::new();
+    for (battery, ts, full_wh, design_wh, cycles) in readings {
+        let index = rows.iter().position(|r| &r.battery == battery);
+        let index = index.unwrap_or_else(|| {
+            rows.push(HealthRow {
+                battery: battery.clone(),
+                full_wh: *full_wh,
+                design_wh: *design_wh,
+                cycles: *cycles,
+                change_wh: 0.0,
+                since: Duration::ZERO,
+            });
+            first.push((*ts, *full_wh));
+            rows.len() - 1
+        });
+        let (first_ts, first_wh) = first[index];
+        let row = &mut rows[index];
+        row.full_wh = *full_wh;
+        row.design_wh = *design_wh;
+        row.cycles = *cycles;
+        row.change_wh = full_wh - first_wh;
+        row.since = seconds(ts - first_ts);
+    }
+    rows
 }
 
 #[cfg(test)]
@@ -474,16 +589,38 @@ mod tests {
             wh_lost: 1.6,
             percent_lost: 4.0,
             mode: "deep".into(),
+            woke_by: "Lid (PNP0C0D:00)".into(),
         }]);
         assert_eq!(
             rendered,
-            "Started  Slept  Lost   Energy    Rate  Mode\n\
-             ───────────────────────────────────────────\n\
-             9 h ago    8 h    4%  1.60 Wh  0.5%/h  deep\n"
+            "Started  Slept  Lost   Energy    Rate  Mode  Woke by\n\
+             ─────────────────────────────────────────────────────────────\n\
+             9 h ago    8 h    4%  1.60 Wh  0.5%/h  deep  Lid (PNP0C0D:00)\n"
         );
         assert_eq!(
             render_sleep(&[]),
             "No sleep sessions recorded in that period.\n"
+        );
+    }
+
+    #[test]
+    fn health_shows_the_latest_reading_and_the_change() {
+        let day = 86_400;
+        let readings = vec![
+            ("BAT0".to_owned(), 0, 31.2, 39.0, 300),
+            ("BAT1".to_owned(), 0, 30.0, f64::NAN, 0),
+            ("BAT0".to_owned(), 30 * day, 30.9, 39.0, 312),
+        ];
+        assert_eq!(
+            render_health(&summarize_health(&readings)),
+            "Battery  Full charge   Design  Health  Cycles           Change\n\
+             ──────────────────────────────────────────────────────────────\n\
+             BAT0         30.9 Wh  39.0 Wh     79%     312  -0.3 Wh in 30 d\n\
+             BAT1         30.0 Wh        ?       ?       ?                —\n"
+        );
+        assert_eq!(
+            render_health(&[]),
+            "No battery health recorded yet (the daemon records it once a day).\n"
         );
     }
 }

@@ -56,6 +56,12 @@ enum Command {
         #[arg(long, default_value = "7d")]
         since: String,
     },
+    /// Battery wear: full-charge capacity against design, and charge cycles.
+    Health {
+        /// How far back to look for the change in capacity, e.g. 365d.
+        #[arg(long, default_value = "365d")]
+        since: String,
+    },
     /// Check that this machine is set up for drainscope.
     Doctor,
 }
@@ -111,6 +117,9 @@ async fn run(command: Command) -> anyhow::Result<ExitCode> {
         Command::Top { top } => report::top(&session_bus().await?, top).await?,
         Command::Sleep { since } => {
             report::sleep(&session_bus().await?, format::parse_duration(&since)?).await?;
+        }
+        Command::Health { since } => {
+            report::health(&session_bus().await?, format::parse_duration(&since)?).await?;
         }
         Command::Doctor => {
             return Ok(if doctor::run().await {
