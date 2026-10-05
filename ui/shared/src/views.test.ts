@@ -34,6 +34,15 @@ describe('buildUsage', () => {
     expect(model.footer).toBe('Total 1.00 Wh in 30 min measured of the last 1 h (average 2.00 W while measured)');
   });
 
+  it('splits each entry by where the energy was measured', () => {
+    const model = buildUsage(rows, 3600, 3600, false, appNames);
+    expect(model.entries[1]?.parts).toEqual([
+      { label: 'Processor & memory', energy: '0.22 Wh', fraction: 800 / 900, share: '89%' },
+      { label: 'Graphics', energy: '0.028 Wh', fraction: 100 / 900, share: '11%' },
+    ]);
+    expect(model.entries[0]?.parts.map((p) => p.label)).toEqual(['Display & devices']);
+  });
+
   it('labels kinds when grouped by kind', () => {
     const byKind = [{ key: 'user-unit', kind: 'user-unit', total: 10, cpu: 10, gpu: 0, other: 0 }];
     const model = buildUsage(byKind, 60, 60, true, appNames);

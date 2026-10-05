@@ -4,7 +4,17 @@ import { describeConsumer, parseConsumer, type Consumer } from './consumers';
 import type { SleepSession, UsageRow } from './monitor';
 import { formatDuration, formatEnergy, formatPercent, formatWatts } from './units';
 
+export interface EnergyPart {
+  label: string;
+  energy: string;
+  /** Fraction of the entry's total, 0–1. */
+  fraction: number;
+  share: string;
+}
+
 export interface UsageEntry {
+  /** Storage key, or the kind when grouped by kind. */
+  key: string;
   /** `undefined` when grouped by kind. */
   consumer: Consumer | undefined;
   label: string;
@@ -13,6 +23,11 @@ export interface UsageEntry {
   /** Fraction of the listed total, 0–1, for bars. */
   fraction: number;
   share: string;
+  /**
+   * Where the energy was measured: the processor package and DRAM, the integrated GPU, or
+   * outside RAPL (display, chipset, devices). Empty parts are left out.
+   */
+  parts: EnergyPart[];
 }
 
 export interface UsageModel {
@@ -59,13 +74,30 @@ export function buildUsage(
   const entries = rows.map((row) => {
     const consumer = byKind ? undefined : parseConsumer(row.key);
     const fraction = total > 0 ? row.total / total : 0;
+    const parts = [
+      { label: 'Processor & memory', joules: row.cpu },
+      { label: 'Graphics', joules: row.gpu },
+      { label: 'Display & devices', joules: row.other },
+    ]
+      .filter((part) => part.joules > 0)
+      .map((part) => {
+        const partFraction = row.total > 0 ? part.joules / row.total : 0;
+        return {
+          label: part.label,
+          energy: formatEnergy(part.joules),
+          fraction: partFraction,
+          share: formatPercent(partFraction * 100),
+        };
+      });
     return {
+      key: row.key,
       consumer,
       label: consumer === undefined ? kindLabel(row.key) : describeConsumer(consumer, appName),
       energy: formatEnergy(row.total),
       average: formatWatts(row.total / seconds),
       fraction,
       share: formatPercent(fraction * 100),
+      parts,
     };
   });
   const average = formatWatts(total / seconds);

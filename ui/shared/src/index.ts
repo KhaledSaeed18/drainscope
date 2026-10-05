@@ -37,6 +37,7 @@ export {
   RANGES,
   rangeQuery,
   type Range,
+  type EnergyPart,
   type SleepEntry,
   type UsageEntry,
   type UsageModel,
