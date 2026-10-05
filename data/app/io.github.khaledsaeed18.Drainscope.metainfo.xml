@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.khaledsaeed18.Drainscope</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>drainscope</name>
+  <summary>See which apps used your battery</summary>
+  <developer id="io.github.khaledsaeed18">
+    <name>Khaled Saeed</name>
+  </developer>
+  <description>
+    <p>
+      drainscope measures energy from hardware counters and the battery, and attributes it to
+      apps, terminal workloads and system services. It keeps a local history, so you can see what
+      used the battery since you unplugged, over the last day or week, and how much each suspend
+      cost.
+    </p>
+    <p>
+      Nothing runs as root and nothing leaves your machine.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.khaledsaeed18.Drainscope.desktop</launchable>
+  <url type="homepage">https://github.com/KhaledSaeed18/drainscope</url>
+  <url type="bugtracker">https://github.com/KhaledSaeed18/drainscope/issues</url>
+  <categories>
+    <category>System</category>
+    <category>Monitor</category>
+  </categories>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-10-05">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- A battery whose charge is split into coloured shares. -->
+  <rect x="12" y="32" width="96" height="64" rx="12" fill="#3d3846"/>
+  <rect x="108" y="50" width="10" height="28" rx="4" fill="#3d3846"/>
+  <rect x="20" y="40" width="80" height="48" rx="6" fill="#241f31"/>
+  <rect x="24" y="44" width="34" height="40" rx="3" fill="#3584e4"/>
+  <rect x="60" y="44" width="20" height="40" rx="3" fill="#33d17a"/>
+  <rect x="82" y="44" width="10" height="40" rx="3" fill="#f6d32d"/>
+</svg>

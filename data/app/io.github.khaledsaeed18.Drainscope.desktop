@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=drainscope
+GenericName=Battery Usage
+Comment=See which apps used your battery
+Exec=drainscope-app
+Icon=io.github.khaledsaeed18.Drainscope
+Terminal=false
+Categories=GTK;GNOME;System;Monitor;
+Keywords=battery;power;energy;usage;drain;
+StartupNotify=true
