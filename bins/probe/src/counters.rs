@@ -77,8 +77,8 @@ pub trait NetworkSource: Send + Sync {
     fn read(&self) -> anyhow::Result<Traffic>;
 }
 
-/// `bpf/network.bpf.c`, attached to the root cgroup (alongside other programs) for as long as
-/// this lives.
+/// `bpf/network.bpf.c`, attached to the root cgroup (alongside other programs, through BPF
+/// links) for as long as this lives.
 pub struct NetworkBpf {
     ebpf: Mutex<Ebpf>,
 }
@@ -100,8 +100,11 @@ impl NetworkBpf {
                 .with_context(|| format!("program {name} is missing"))?
                 .try_into()?;
             program.load().with_context(|| format!("loading {name}"))?;
+            // On kernels ≥ 5.7 aya attaches with a BPF link, which always coexists with other
+            // programs and accepts no attach flags (AllowMultiple fails with EINVAL). On older
+            // kernels Single is an exclusive attach, which fails rather than displacing others.
             program
-                .attach(&root, attach_type, CgroupAttachMode::AllowMultiple)
+                .attach(&root, attach_type, CgroupAttachMode::Single)
                 .with_context(|| format!("attaching {name} to the root cgroup"))?;
         }
         Ok(Self {
