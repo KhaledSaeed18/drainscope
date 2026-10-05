@@ -1,5 +1,7 @@
 %global uuid drainscope@khaledsaeed18.github.io
 %global app_id io.github.khaledsaeed18.Drainscope
+%global selinuxtype targeted
+%global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
 Version:        0.1.0
@@ -24,6 +26,8 @@ BuildRequires:  kernel-headers
 BuildRequires:  systemd-rpm-macros
 BuildRequires:  desktop-file-utils
 BuildRequires:  appstream
+BuildRequires:  selinux-policy-devel
+BuildRequires:  bzip2
 
 # The daemon degrades gracefully without RAPL (battery-only attribution).
 Recommends:     %{name}-sampler = %{version}-%{release}
@@ -41,14 +45,29 @@ This package contains the per-user daemon and the drainscope command-line tool.
 
 %package sampler
 Summary:        Sandboxed RAPL energy counter service for drainscope
+# Confined by its own SELinux module where SELinux is in use.
+Requires:       (%{name}-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 
 %description sampler
 Reads the root-only RAPL energy counters with only CAP_DAC_READ_SEARCH, as a dedicated
 system user in a tight sandbox, and serves them over D-Bus to the active local session
 (polkit), rate-limited and quantized. Started on demand; exits when idle.
 
+%package selinux
+Summary:        SELinux policy confining the drainscope sampler and probe
+BuildArch:      noarch
+Requires:       selinux-policy-%{selinuxtype}
+Requires(post): selinux-policy-%{selinuxtype}
+%{?selinux_requires}
+
+%description selinux
+SELinux modules that confine drainscope-sampler and drainscope-probe to their own domains:
+reading sysfs, cgroupfs and kernel BTF, loading their eBPF program, talking to D-Bus and polkit,
+and logging. Nothing else.
+
 %package probe
 Summary:        Sandboxed eBPF activity probe for drainscope
+Requires:       (%{name}-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 
 %description probe
 Counts how often each app and service wakes the processor from idle with an eBPF program,
@@ -94,6 +113,9 @@ EOF
 export RUSTFLAGS="%{build_rustflags}"
 cargo build --release --frozen --offline \
     -p drainscope-sampler -p drainscope-probe -p drainscope-daemon -p drainscope-cli
+make -C data/selinux -f %{_datadir}/selinux/devel/Makefile \
+    $(for module in %{selinux_modules}; do echo $module.pp; done)
+bzip2 -9 data/selinux/*.pp
 
 %install
 install -Dpm0755 target/release/drainscope-sampler %{buildroot}%{_libexecdir}/drainscope-sampler
@@ -112,6 +134,8 @@ install -Dpm0644 -t %{buildroot}%{_datadir}/dbus-1/system-services data/dbus/sys
 install -Dpm0644 -t %{buildroot}%{_datadir}/dbus-1/services data/dbus/services/*.service
 install -Dpm0644 -t %{buildroot}%{_datadir}/dbus-1/interfaces data/dbus/interfaces/*.xml
 install -Dpm0644 -t %{buildroot}%{_datadir}/polkit-1/actions data/polkit/*.policy
+
+install -Dpm0644 -t %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype} data/selinux/*.pp.bz2
 
 install -dm0755 %{buildroot}%{_datadir}/gnome-shell/extensions/%{uuid}
 cp -a ui/extension/dist/. %{buildroot}%{_datadir}/gnome-shell/extensions/%{uuid}/
@@ -142,6 +166,20 @@ cargo test --release --frozen --offline --workspace --exclude xtask
 %postun sampler
 %systemd_postun_with_restart drainscope-sampler.service
 
+%pre selinux
+%selinux_relabel_pre -s %{selinuxtype}
+
+%post selinux
+%selinux_modules_install -s %{selinuxtype} $(for module in %{selinux_modules}; do echo %{_datadir}/selinux/packages/%{selinuxtype}/$module.pp.bz2; done)
+
+%postun selinux
+if [ $1 -eq 0 ]; then
+    %selinux_modules_uninstall -s %{selinuxtype} %{selinux_modules}
+fi
+
+%posttrans selinux
+%selinux_relabel_post -s %{selinuxtype}
+
 %post probe
 %systemd_post drainscope-probe.service
 
@@ -171,6 +209,11 @@ cargo test --release --frozen --offline --workspace --exclude xtask
 %{_datadir}/dbus-1/system-services/io.github.khaledsaeed18.Drainscope.Sampler.service
 %{_datadir}/polkit-1/actions/io.github.khaledsaeed18.Drainscope.policy
 
+%files selinux
+%license LICENSE
+%{_datadir}/selinux/packages/%{selinuxtype}/drainscope_sampler.pp.bz2
+%{_datadir}/selinux/packages/%{selinuxtype}/drainscope_probe.pp.bz2
+
 %files probe
 %license LICENSE LICENSE.dependencies
 %{_libexecdir}/drainscope-probe
@@ -193,4 +236,5 @@ cargo test --release --frozen --offline --workspace --exclude xtask
 
 %changelog
 * Mon Oct 05 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.0-1
-- First release: per-user daemon, sandboxed RAPL sampler, CLI, GNOME Shell extension and app
+- First release: per-user daemon, sandboxed RAPL sampler and eBPF probe with SELinux policy,
+  CLI, GNOME Shell extension and app
