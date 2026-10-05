@@ -12,13 +12,14 @@ crates/store    repository: SQLite schema, migrations, the Store repository (ONL
 crates/dbus     D-Bus contracts: zbus interfaces/proxies generated from data/dbus/*.xml
 crates/access   polkit authorization and per-user rate limits shared by the privileged services
 bins/sampler    privileged system service (Sampler1), D-Bus activated
+bins/probe      privileged eBPF service (Probe1), D-Bus activated (ADR 0006); bpf/*.bpf.c built with clang
 bins/daemon     user service, composition root, Monitor1 server
 bins/cli        `drainscope` CLI, talks only to Monitor1
 xtask           dev tooling: record-fixture, validate, install-dev, dist
 ui/shared       TS: typed Monitor1 client, GVariant decoders, formatting (runs under Node for tests)
 ui/extension    TS → GJS: GNOME Shell 50 extension
 ui/app          TS → GJS: libadwaita app (M3)
-data/           systemd units, D-Bus XML/policy/activation, polkit policy, SELinux (M5)
+data/           systemd units, D-Bus XML/policy/activation, polkit policies, SELinux modules
 testdata/       traces/: short curated traces (committed); local/: long or personal traces (git-ignored)
 docs/adr/       architecture decision records
 ```
