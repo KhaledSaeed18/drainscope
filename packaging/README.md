@@ -30,7 +30,7 @@ Accounts, keys and tokens for each channel (GitHub, COPR, extensions.gnome.org, 
 3. Tag and publish the GitHub release with the tarball (the spec's `Source0` points there):
    `git tag -a vX.Y.Z -m "drainscope X.Y.Z" && git push origin vX.Y.Z && gh release create vX.Y.Z <tarball, SRPM, RPMs, zip>` (v0.1.0 was published this way)
 4. COPR (once: a Fedora account and an API token in `~/.config/copr`; see docs/distribution.md):
-   `copr-cli build drainscope target/dist/rpmbuild/SRPMS/drainscope-0.1.0-1.*.src.rpm`
+   `copr-cli build drainscope target/dist/rpmbuild/SRPMS/drainscope-X.Y.Z-1.*.src.rpm` (the project exists: https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/)
 5. extensions.gnome.org: upload the zip at https://extensions.gnome.org/upload/. Its description must say that the extension needs the drainscope daemon (packaged separately).
 
 Users then install with:

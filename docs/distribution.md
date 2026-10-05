@@ -9,7 +9,7 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 | Channel | Status | Account | Keys / tokens | Cost | Review |
 |---|---|---|---|---|---|
 | GitHub Releases | **Done** (v0.1.0) | GitHub | `gh` CLI login (already set up) | free | none |
-| COPR (Fedora RPM repo) | Next | Fedora Account (FAS) | COPR API token | free | none (automatic builds) |
+| COPR (Fedora RPM repo) | **Done** (Fedora 44, 45, rawhide) | Fedora Account (FAS) | COPR API token | free | none (automatic builds) |
 | extensions.gnome.org | Next | EGO account | none | free | human review, days to weeks |
 | Flathub (the app only) | Later | GitHub | none (Flathub signs) | free | human review of the manifest |
 | Fedora official repositories | Optional, long-term | FAS + packager group | Kerberos, SSH key, FAS 2FA | free | package review |
@@ -22,7 +22,9 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 - To release again: bump the versions (packaging/README.md, "Releasing"), run `cargo xtask dist --rpm`, then `git tag -a vX.Y.Z` and `gh release create`.
 - The RPMs on GitHub are **unsigned**. `dnf install ./file.rpm` accepts that for local files, but users should prefer COPR, whose packages are signed (below).
 
-## 2. COPR: Fedora package repository
+## 2. COPR: Fedora package repository (done)
+
+Live at https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/ since 2026-10-06: v0.1.0 for Fedora 44, 45 and rawhide (x86_64). Verified on Fedora 45: `dnf copr enable` plus `dnf install` imports the project key and installs RSA/SHA256-signed packages.
 
 Users get `sudo dnf copr enable khaledsaeed18/drainscope` and updates through `dnf upgrade`.
 
@@ -41,17 +43,18 @@ Users get `sudo dnf copr enable khaledsaeed18/drainscope` and updates through `d
    Save it as `~/.config/copr` with `chmod 600 ~/.config/copr`. The token **expires after 180 days**. COPR emails before it does; renew it on the same page.
 4. **Signing key:** none needed. COPR creates a GPG key for each project and signs every RPM with it; `dnf copr enable` installs that key for users.
 
-### After the token is in place
+### How the project was created
 
-These are the commands I'll run once the token is in place. You can also run them yourself:
+The token is in `~/.config/copr` (renew it every 180 days). The project was created and built with:
 ```bash
 sudo dnf install copr-cli
 copr-cli create drainscope \
-  --chroot fedora-44-x86_64 --chroot fedora-rawhide-x86_64 \
-  --description "Per-app battery and energy usage for the Linux desktop" \
+  --chroot fedora-44-x86_64 --chroot fedora-45-x86_64 --chroot fedora-rawhide-x86_64 \
+  --description "Per-app battery and energy usage for the Linux desktop: …" \
   --instructions "sudo dnf copr enable khaledsaeed18/drainscope && sudo dnf install drainscope drainscope-sampler"
 copr-cli build drainscope target/dist/rpmbuild/SRPMS/drainscope-0.1.0-1.fc44.src.rpm
 ```
+For each new release, only the `copr-cli build` line is needed. When a new Fedora release branches, add its chroot with `copr-cli modify drainscope --chroot fedora-NN-x86_64` (and drop end-of-life ones).
 - **Build requirements:** clang, libbpf-devel, kernel-headers, selinux-policy-devel, appstream and desktop-file-utils all come from Fedora, and the vendored crates mean no network is needed during the build.
 - **aarch64:** add `--chroot fedora-44-aarch64` once someone can test on ARM. The eBPF build is architecture-aware, but RAPL is x86-only, so ARM machines only get battery-only mode.
 - **Automatic builds (optional):** in the COPR project, open Settings → Integrations, copy the GitHub webhook URL, and add it to the GitHub repository under Settings → Webhooks. New tags then build automatically. No token goes into GitHub for this.
@@ -62,13 +65,16 @@ copr-cli build drainscope target/dist/rpmbuild/SRPMS/drainscope-0.1.0-1.fc44.src
 - Register at https://extensions.gnome.org/accounts/register/. This is separate from GitLab and the Fedora account. No keys are involved.
 
 ### Before uploading
-- **Zip:** use `target/dist/drainscope@khaledsaeed18.github.io.shell-extension.zip`, or the one attached to the GitHub release.
+- **Zip:** use `target/ego/drainscope@khaledsaeed18.github.io.shell-extension.zip` (built from `main` with `gnome-extensions pack ui/extension/dist --out-dir target/ego`). It supports GNOME 50 and 51 and includes review fixes made after v0.1.0, so don't upload the zip attached to the v0.1.0 release.
 - **Screenshot:** take one of the Battery tile open in Quick Settings. EGO shows it on the listing.
 - **Description:** must say the extension needs the drainscope daemon, installed from COPR or from source; without it, the tile just reads "Daemon not running". Link the README's install section.
 
+### Testing a new GNOME release
+Before adding a GNOME version to `shell-version`, run the extension in a nested shell of that version: `toolbox create --release NN`, install `gnome-shell mutter-devkit` in it, then run `gnome-shell --devkit --wayland` under `dbus-run-session` with scratch `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CONFIG_HOME`, so the nested daemon can't write to the real database. Let it run for over 60 seconds: the shell's crash-guard file in `/run/user/$UID` is only removed after that. `gnome-extensions info` inside the nested session must report `ACTIVE`, with no `JS ERROR` in the log. GNOME 51 was tested this way on 2026-10-06, with a copy of real data so the tile rows were built.
+
 ### Review
 - The review checks: GPL-compatible license (ours is GPL-3.0-or-later), unminified code, nothing created before `enable()`, everything cleaned up in `disable()`, and no synchronous I/O in the Shell process. The extension was written to these rules.
-- Expect days to a few weeks for the first review. Each new version (including each new GNOME release, when `shell-version` gains "51") is reviewed again.
+- Expect days to a few weeks for the first review. Each new version (including each new GNOME release added to `shell-version`) is reviewed again.
 - Reviewers may ask questions in the upload's review thread. Their comments arrive by email.
 
 ## 4. Flathub (the desktop app; later)
@@ -102,6 +108,6 @@ COPR covers Fedora users well in the meantime.
 
 ## What I need from you, in order
 
-1. **COPR:** create the Fedora account, log in to COPR once, and save the API token as `~/.config/copr` (`chmod 600`). Then tell me, and I'll create the project, submit the build and add the install instructions to the README.
+1. ~~**COPR:** Fedora account and API token.~~ Done; renew the token every 180 days (COPR emails before it expires).
 2. **EGO:** register, take a screenshot of the tile, upload the zip with the description above, and answer the reviewers.
 3. **Optional:** a GPG key for signed tags and tarballs, if you want "Verified" releases.
