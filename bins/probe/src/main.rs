@@ -1,8 +1,8 @@
 //! Privileged, sandboxed eBPF probe exposing Probe1 on the system bus (ADR 0006).
 //!
 //! Started by D-Bus activation and exits after [`IDLE_EXIT`] without calls, which also detaches
-//! the eBPF program. Runs as a dedicated system user with only `CAP_BPF` and `CAP_PERFMON`
-//! (see `data/systemd/drainscope-probe.service`).
+//! the eBPF programs. Runs as a dedicated system user with only `CAP_BPF`, `CAP_PERFMON` and
+//! `CAP_NET_ADMIN` (see `data/systemd/drainscope-probe.service`).
 
 use std::time::Duration;
 
@@ -10,7 +10,7 @@ use anyhow::Context;
 use drainscope_access::Polkit;
 use drainscope_dbus::probe::{BUS_NAME, OBJECT_PATH, POLKIT_ACTION};
 use drainscope_probe::service::Cgroupfs;
-use drainscope_probe::{Bpf, Config, Probe};
+use drainscope_probe::{Bpf, Config, NetworkBpf, NetworkSource, Probe};
 use drainscope_sys::SysRoot;
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
@@ -23,7 +23,12 @@ const IDLE_CHECK: Duration = Duration::from_secs(5);
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     init_logging();
-    let bpf = Bpf::load().context("loading the eBPF program")?;
+    let bpf = Bpf::load().context("loading the wakeups program")?;
+    // Optional: wakeups are still served without it.
+    let network = NetworkBpf::load()
+        .map(|network| Box::new(network) as Box<dyn NetworkSource>)
+        .map_err(|err| tracing::warn!("no network counting: {err:#}"))
+        .ok();
     let bus = zbus::Connection::system()
         .await
         .context("connecting to the system bus")?;
@@ -32,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
         .context("connecting to polkit")?;
     let probe = Probe::new(
         Box::new(bpf),
+        network,
         Box::new(Cgroupfs(SysRoot::host())),
         Box::new(polkit),
         Config::default(),

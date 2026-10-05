@@ -9,7 +9,7 @@ use drainscope_dbus::probe::ProbeError;
 use drainscope_sys::{SysRoot, cgroup_ids};
 use zbus::message::Header;
 
-use crate::counters::WakeupSource;
+use crate::counters::{NetworkSource, WakeupSource};
 use crate::visibility::visible;
 
 /// Cgroup paths by ID: cgroupfs in production, fixtures in tests.
@@ -77,6 +77,8 @@ struct State {
 
 pub struct Probe {
     source: Box<dyn WakeupSource>,
+    /// `None` when the network programs couldn't be attached.
+    network: Option<Box<dyn NetworkSource>>,
     cgroups: Box<dyn CgroupNames>,
     authorizer: Box<dyn Authorizer>,
     config: Config,
@@ -90,12 +92,14 @@ impl Probe {
     #[must_use]
     pub fn new(
         source: Box<dyn WakeupSource>,
+        network: Option<Box<dyn NetworkSource>>,
         cgroups: Box<dyn CgroupNames>,
         authorizer: Box<dyn Authorizer>,
         config: Config,
     ) -> Self {
         Self {
             source,
+            network,
             cgroups,
             authorizer,
             config,
@@ -111,6 +115,55 @@ impl Probe {
     #[must_use]
     pub fn last_call(&self) -> LastCall {
         self.last_call.clone()
+    }
+
+    /// Authorizes and rate-limits a call to `method`; returns the caller's UID. Each method
+    /// has its own limit, so a client can read everything once per interval.
+    async fn admit(
+        &self,
+        header: &Header<'_>,
+        connection: &zbus::Connection,
+        method: &str,
+    ) -> Result<Option<u32>, ProbeError> {
+        self.last_call.touch();
+        let caller = header.sender().map(|name| name.as_str().to_owned());
+        let uid = self.authorize(connection, caller.as_deref()).await?;
+        let key = match uid {
+            Some(uid) => format!("uid:{uid}:{method}"),
+            None => format!("peer:{method}"),
+        };
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .limiter
+            .check(&key, Instant::now())
+            .map_err(|wait| ProbeError::RateLimited(format!("retry in {} ms", wait.as_millis())))?;
+        Ok(uid)
+    }
+
+    /// Sums `values` (by cgroup ID) per cgroup path the caller may see. Counts of removed
+    /// cgroups (unknown IDs) are dropped: nothing can be attributed to them.
+    fn by_path<T: Copy>(
+        &self,
+        values: &BTreeMap<u64, T>,
+        uid: Option<u32>,
+        mut add: impl FnMut(&mut T, T),
+        zero: T,
+    ) -> BTreeMap<String, T> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if values.keys().any(|id| !state.names.contains_key(id)) {
+            match self.cgroups.ids() {
+                Ok(names) => state.names = names,
+                Err(err) => tracing::warn!(%err, "listing cgroups failed"),
+            }
+        }
+        let mut by_path: BTreeMap<String, T> = BTreeMap::new();
+        for (id, value) in values {
+            if let Some(path) = state.names.get(id).filter(|path| visible(path, uid)) {
+                add(by_path.entry(path.clone()).or_insert(zero), *value);
+            }
+        }
+        by_path
     }
 
     async fn authorize(
@@ -156,37 +209,56 @@ impl Probe {
         #[zbus(header)] header: Header<'_>,
         #[zbus(connection)] connection: &zbus::Connection,
     ) -> Result<(u64, u64, Vec<(String, u64)>), ProbeError> {
-        self.last_call.touch();
-        let caller = header.sender().map(|name| name.as_str().to_owned());
-        let uid = self.authorize(connection, caller.as_deref()).await?;
-        let limit_key = uid.map_or_else(|| "peer".to_owned(), |uid| format!("uid:{uid}"));
-
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state
-            .limiter
-            .check(&limit_key, Instant::now())
-            .map_err(|wait| ProbeError::RateLimited(format!("retry in {} ms", wait.as_millis())))?;
+        let uid = self.admit(&header, connection, "ReadWakeups").await?;
         let counts = self
             .source
             .read()
             .map_err(|err| ProbeError::Failed(err.to_string()))?;
-        if counts.keys().any(|id| !state.names.contains_key(id)) {
-            match self.cgroups.ids() {
-                Ok(names) => state.names = names,
-                Err(err) => tracing::warn!(%err, "listing cgroups failed"),
-            }
-        }
-        // Counts of removed cgroups (unknown IDs) are dropped: nothing can be attributed to them.
-        let mut wakeups: BTreeMap<String, u64> = BTreeMap::new();
-        for (id, count) in counts {
-            if let Some(path) = state.names.get(&id).filter(|path| visible(path, uid)) {
-                *wakeups.entry(path.clone()).or_default() += count;
-            }
-        }
+        let wakeups = self.by_path(&counts, uid, |sum, count| *sum += count, 0);
         Ok((
             monotonic_ns(),
             self.generation,
             wakeups.into_iter().collect(),
+        ))
+    }
+
+    #[zbus(out_args("monotonic_ns", "generation", "traffic"))]
+    async fn read_network(
+        &self,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
+    ) -> Result<(u64, u64, Vec<(String, u64, u64)>), ProbeError> {
+        let uid = self.admit(&header, connection, "ReadNetwork").await?;
+        let network = self
+            .network
+            .as_ref()
+            .ok_or_else(|| ProbeError::Unsupported("network counting isn't available".into()))?;
+        let traffic = network
+            .read()
+            .map_err(|err| ProbeError::Failed(err.to_string()))?;
+        let mut both: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        for (id, bytes) in &traffic.received {
+            both.entry(*id).or_default().0 += bytes;
+        }
+        for (id, bytes) in &traffic.sent {
+            both.entry(*id).or_default().1 += bytes;
+        }
+        let by_path = self.by_path(
+            &both,
+            uid,
+            |sum, (received, sent)| {
+                sum.0 += received;
+                sum.1 += sent;
+            },
+            (0, 0),
+        );
+        Ok((
+            monotonic_ns(),
+            self.generation,
+            by_path
+                .into_iter()
+                .map(|(path, (received, sent))| (path, received, sent))
+                .collect(),
         ))
     }
 

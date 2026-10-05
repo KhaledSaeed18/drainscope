@@ -12,7 +12,7 @@ use std::time::Duration;
 use drainscope_access::Fixed;
 use drainscope_dbus::probe::{BUS_NAME, INTERFACE, OBJECT_PATH, Probe1Proxy, ProbeError};
 use drainscope_probe::service::CgroupNames;
-use drainscope_probe::{Config, Probe, WakeupSource};
+use drainscope_probe::{Config, NetworkSource, Probe, Traffic, WakeupSource};
 use zbus::connection::Builder;
 
 const FIREFOX: &str =
@@ -42,6 +42,18 @@ impl CgroupNames for Names {
     }
 }
 
+/// Fixed traffic: 1000 bytes in and 50 out for Firefox, 500 in for the other user.
+struct Network;
+
+impl NetworkSource for Network {
+    fn read(&self) -> anyhow::Result<Traffic> {
+        Ok(Traffic {
+            received: BTreeMap::from([(10, 1000), (11, 500)]),
+            sent: BTreeMap::from([(10, 50)]),
+        })
+    }
+}
+
 struct Peer {
     _server: zbus::Connection,
     client: zbus::Connection,
@@ -68,6 +80,7 @@ fn unlimited() -> Config {
 async fn serve(authorized: bool, config: Config, counts: &Counts, names: &Names) -> Peer {
     let probe = Probe::new(
         Box::new(counts.clone()),
+        Some(Box::new(Network)),
         Box::new(names.clone()),
         Box::new(Fixed(authorized)),
         config,
@@ -118,6 +131,31 @@ async fn reports_visible_cgroups_by_path() {
     // Listed once at first, then once for the new ID (99 is still unknown, so every read
     // relists; that is bounded by the rate limit).
     assert!(names.0.lock().unwrap().1 >= 2);
+}
+
+#[tokio::test]
+async fn reports_traffic_by_path() {
+    let (counts, names) = fixtures();
+    let peer = serve(true, unlimited(), &counts, &names).await;
+    let (_, _, traffic) = peer.proxy().await.read_network().await.unwrap();
+    assert_eq!(traffic, [(FIREFOX.to_owned(), 1000, 50)]);
+}
+
+#[tokio::test]
+async fn methods_are_limited_separately() {
+    let (counts, names) = fixtures();
+    let config = Config {
+        min_interval: Duration::from_secs(60),
+        ..unlimited()
+    };
+    let peer = serve(true, config, &counts, &names).await;
+    let proxy = peer.proxy().await;
+    proxy.read_wakeups().await.unwrap();
+    proxy.read_network().await.unwrap();
+    assert!(matches!(
+        proxy.read_network().await.unwrap_err(),
+        ProbeError::RateLimited(_)
+    ));
 }
 
 #[tokio::test]

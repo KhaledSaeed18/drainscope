@@ -5,5 +5,5 @@ pub mod counters;
 pub mod service;
 pub mod visibility;
 
-pub use counters::{Bpf, WakeupSource};
+pub use counters::{Bpf, NetworkBpf, NetworkSource, Traffic, WakeupSource};
 pub use service::{Config, LastCall, Probe};
