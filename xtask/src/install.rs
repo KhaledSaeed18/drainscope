@@ -251,6 +251,9 @@ pub fn install(repo_root: &Path) -> Result<()> {
             .map(|(_, destination, _)| *destination)
             .collect();
         run("restorecon", &[&["-F"], destinations.as_slice()].concat())?;
+        // The daemon may have restarted a service (D-Bus activation) between the binary being
+        // replaced and relabelled; stop it again so it restarts in its confined domain.
+        stop_services();
     }
     run("systemd-sysusers", &SYSUSERS)?;
     reload()?;
