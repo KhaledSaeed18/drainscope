@@ -1,0 +1,21 @@
+{
+  "name": "@drainscope/app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node build.mjs",
+    "test": "true"
+  },
+  "dependencies": {
+    "@drainscope/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@girs/adw-1": "5.5.0",
+    "@girs/giounix-2.0": "5.5.0",
+    "@girs/gjs": "5.5.0",
+    "@girs/gtk-4.0": "5.5.0",
+    "esbuild": "^0.28.2",
+    "typescript": "~6.0.3"
+  }
+}
