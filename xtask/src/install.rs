@@ -198,6 +198,11 @@ pub fn install(repo_root: &Path) -> Result<()> {
                 .replace("/usr/bin/", "/usr/local/bin/")
                 .into_bytes();
         }
+        // Unchanged files are left alone, so systemd doesn't report units changed on disk.
+        if fs::read(destination).is_ok_and(|current| current == contents) {
+            println!("unchanged {destination}");
+            continue;
+        }
         replace(Path::new(destination), &contents, *mode)?;
         println!("installed {destination}");
     }
