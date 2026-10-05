@@ -10,6 +10,7 @@ pub mod health;
 pub mod snapshot;
 pub mod unit_name;
 pub mod units;
+pub mod wake;
 pub mod window;
 
 pub use activity::{Activity, Resolver};
@@ -21,4 +22,5 @@ pub use delta::{CpuDelta, DiffError, IntervalDelta, diff};
 pub use health::{BatteryHealth, health};
 pub use snapshot::{RaplDomain, Snapshot};
 pub use units::{Joules, Microjoules, Watts};
+pub use wake::{WakeupIrq, WakeupSource, WakeupSources, wake_reason};
 pub use window::{ClosedWindow, Measurement, PowerSource, Window};
