@@ -928,8 +928,8 @@ fn activity_report(
         let _ = writeln!(
             out,
             "- Downloads were charged {:.0}% (median; {:.0}–{:.0}%) of their RAPL increase by the \
-             running daemon's model. Model v1 charges about 5%; v2 should approach the 79–90% \
-             CPU loads get.",
+             running daemon's model (model v1: about 5%, v2: about 20%; large CPU loads get \
+             79–90%).",
             charge_ratios[charge_ratios.len() / 2] * 100.0,
             charge_ratios[0] * 100.0,
             charge_ratios[charge_ratios.len() - 1] * 100.0

@@ -42,4 +42,4 @@ Without the probe, or across a probe restart (new counter generation), v2 attrib
 ## Validation
 
 - `cargo xtask validate`: CPU loads; results in [validation.md](validation.md).
-- `cargo xtask validate --activity`: timer and download loads, measured with the probe; results in [validation-activity.md](validation-activity.md). Under v2, a download's "Charged" watts should reach most of its RAPL increase, as CPU loads already do (79–90%).
+- `cargo xtask validate --activity`: timer and download loads, measured with the probe; results in [validation-activity.md](validation-activity.md), including how much of a download's RAPL increase the model charges it (about 20% under v2; see the known limitations).
