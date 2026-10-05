@@ -169,6 +169,22 @@ impl ProbeClient {
             }
         }
     }
+
+    /// (generation, kernel nanoseconds in the network softirqs), cumulative. Shares the
+    /// network backoff: both come from the same probe programs.
+    pub async fn read_network_time(&mut self) -> Option<(u64, u64)> {
+        let proxy = self.proxy.as_ref()?;
+        if self.network.waiting() {
+            return None;
+        }
+        match proxy.read_network_time().await {
+            Ok((_, generation, tx_ns, rx_ns)) => Some((generation, tx_ns.saturating_add(rx_ns))),
+            Err(err) => {
+                self.network.failed("network traffic", &err);
+                None
+            }
+        }
+    }
 }
 
 #[cfg(test)]

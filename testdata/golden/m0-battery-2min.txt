@@ -1,4 +1,4 @@
-# m0-battery-2min, model v1: top consumers (J)
+# m0-battery-2min, model v2: top consumers (J)
 devices                                                  415.9
 idle                                                     201.2
 app:org.mozilla.firefox                                   17.3

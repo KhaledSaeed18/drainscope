@@ -9,8 +9,19 @@ use std::time::Duration;
 
 use drainscope_model::{
     Activity, CgroupPath, ClosedWindow, ConsumerKey, FloorEstimator, PowerSource, PsysCheck,
-    PsysVerdict, Resolver, Snapshot, Watts, Window, attribute, diff,
+    PsysVerdict, Resolver, Snapshot, Watts, Window, attribute, deltas_by_consumer, diff,
 };
+
+/// Cumulative network counters from the eBPF probe (ADR 0007).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkCounters {
+    /// Changes whenever the probe's totals restart.
+    pub generation: u64,
+    /// Bytes received plus sent, by cgroup.
+    pub bytes: BTreeMap<CgroupPath, u64>,
+    /// Kernel time in the network softirqs, machine-wide.
+    pub softirq_ns: u64,
+}
 
 /// A snapshot and everything known about the moment it was taken.
 #[derive(Debug, Clone)]
@@ -22,6 +33,8 @@ pub struct Reading {
     pub rapl_generation: Option<u64>,
     /// Labels for terminal-tab cgroups (see `drainscope_sys::terminal_labels`).
     pub terminal_labels: BTreeMap<CgroupPath, String>,
+    /// `None` without the probe's network counting: attribution is then as in model v1.
+    pub network: Option<NetworkCounters>,
 }
 
 /// A window ready for storage.
@@ -95,7 +108,14 @@ impl Engine {
             own_uid: self.own_uid,
             terminal_labels: &reading.terminal_labels,
         };
-        let activity = Activity::from_delta(&delta, &resolver);
+        let mut activity = Activity::from_delta(&delta, &resolver);
+        if let (Some(before), Some(after)) = (&previous.network, &reading.network)
+            && before.generation == after.generation
+        {
+            let bytes = deltas_by_consumer(&before.bytes, &after.bytes, &resolver);
+            let usec = after.softirq_ns.saturating_sub(before.softirq_ns) / 1000;
+            activity.charge_network(usec, &bytes);
+        }
         let estimator = self.floors.entry(power_source).or_default();
         estimator.observe(&delta, &activity);
         self.psys.observe(&delta);
@@ -184,6 +204,7 @@ mod tests {
             wall_ms: i64::try_from(seconds).unwrap() * 1000,
             rapl_generation: Some(generation),
             terminal_labels: BTreeMap::new(),
+            network: None,
         }
     }
 
@@ -224,6 +245,53 @@ mod tests {
         let outcome = engine.tick(reading(4, 2, 6_010_000)).unwrap();
         let total: f64 = outcome.live.iter().map(|(_, w)| w.0).sum();
         assert!((total - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn network_time_moves_from_kernel_to_the_app_with_traffic() {
+        const DNF: &str = "system.slice/dnf.service";
+        // Kernel time in the root cgroup itself, Firefox (SCOPE) busy, dnf only moving bytes;
+        // the network softirqs take 0.2 s of each 2 s tick.
+        let with_network = |seconds: u64, generation: u64, softirq_ns: Option<u64>| {
+            let mut r = reading(seconds, 1, seconds * 3_000_000);
+            r.snapshot
+                .cgroup_cpu_usec
+                .insert(CgroupPath::root(), seconds * 1_000_000);
+            r.network = softirq_ns.map(|softirq_ns| NetworkCounters {
+                generation,
+                bytes: BTreeMap::from([(CgroupPath::new(DNF), seconds * 1_000_000)]),
+                softirq_ns,
+            });
+            r
+        };
+        let watts = |outcome: &TickOutcome, key: &ConsumerKey| {
+            outcome
+                .live
+                .iter()
+                .find(|(k, _)| k == key)
+                .map_or(0.0, |(_, w)| w.0)
+        };
+        let dnf = ConsumerKey::SystemUnit("dnf.service".into());
+
+        let mut v1 = engine();
+        v1.tick(with_network(0, 7, None));
+        let without = v1.tick(with_network(2, 7, None)).unwrap();
+        let mut v2 = engine();
+        v2.tick(with_network(0, 7, Some(0)));
+        let with = v2.tick(with_network(2, 7, Some(200_000_000))).unwrap();
+        // The fixture has no intermediate cgroups, so the root's 2 s all count as Kernel's own
+        // time: 3 s of CPU per tick with Firefox's 1 s. 0.2 s of it is 0.2 W of the 3 W, and
+        // it moves from Kernel to dnf.
+        assert!((watts(&with, &dnf) - 0.2).abs() < 1e-9);
+        let kernel_moved =
+            watts(&without, &ConsumerKey::Kernel) - watts(&with, &ConsumerKey::Kernel);
+        assert!((kernel_moved - 0.2).abs() < 1e-9);
+        let firefox = ConsumerKey::App("org.mozilla.firefox".into());
+        assert!((watts(&with, &firefox) - watts(&without, &firefox)).abs() < 1e-12);
+
+        // A restarted probe (new generation) moves nothing: its counters aren't comparable.
+        let outcome = v2.tick(with_network(4, 8, Some(5))).unwrap();
+        assert!(watts(&outcome, &dnf).abs() < 1e-12);
     }
 
     #[test]

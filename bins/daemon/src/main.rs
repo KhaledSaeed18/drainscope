@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use drainscope_daemon::collector::{Collector, monotonic_now, wall_now_ms};
-use drainscope_daemon::engine::{Engine, Reading, TickOutcome};
+use drainscope_daemon::engine::{Engine, NetworkCounters, Reading, TickOutcome};
 use drainscope_daemon::monitor::{Monitor, Shared, Status};
 use drainscope_daemon::power::{BatteryLevel, PowerTracker, SleepTracker};
 use drainscope_daemon::probe::ProbeClient;
@@ -81,6 +81,7 @@ impl Daemon {
         let rapl = self.rapl.read().await;
         let probe = self.probe.read().await;
         let traffic = self.probe.read_network().await;
+        let network_time = self.probe.read_network_time().await;
         let mut collector = self.collector.take().context("collector busy")?;
         let (collector, collected) = tokio::task::spawn_blocking(move || {
             let collected = collector.collect(taken_at);
@@ -113,6 +114,21 @@ impl Daemon {
             self.wakeups
                 .observe(reading.generation, reading.wakeups, elapsed, &resolver);
         }
+        // Model v2 input: bytes and softirq time from the same probe generation.
+        let network = match (&traffic, network_time) {
+            (Some(traffic), Some((generation, softirq_ns))) if traffic.generation == generation => {
+                let mut bytes = traffic.received.clone();
+                for (path, sent) in &traffic.sent {
+                    *bytes.entry(path.clone()).or_default() += sent;
+                }
+                Some(NetworkCounters {
+                    generation,
+                    bytes,
+                    softirq_ns,
+                })
+            }
+            _ => None,
+        };
         if let Some(reading) = traffic {
             let elapsed = self
                 .last_network_at
@@ -133,6 +149,7 @@ impl Daemon {
             wall_ms,
             rapl_generation: generation,
             terminal_labels: collected.terminal_labels,
+            network,
         });
         if let Some(outcome) = outcome {
             self.finish_tick(outcome).await?;
