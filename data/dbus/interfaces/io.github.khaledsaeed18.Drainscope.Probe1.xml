@@ -40,6 +40,17 @@
       <arg name="generation" type="t" direction="out"/>
       <arg name="traffic" type="a(stt)" direction="out"/>
     </method>
+    <!--
+      ReadNetworkTime: CPU time the kernel spent in the network softirqs (the network stack's
+      work, which cgroup accounting charges to no app), machine-wide, cumulative.
+        tx_ns, rx_ns  Nanoseconds in NET_TX and NET_RX. Fails with Unsupported like ReadNetwork.
+    -->
+    <method name="ReadNetworkTime">
+      <arg name="monotonic_ns" type="t" direction="out"/>
+      <arg name="generation" type="t" direction="out"/>
+      <arg name="tx_ns" type="t" direction="out"/>
+      <arg name="rx_ns" type="t" direction="out"/>
+    </method>
     <!-- MinIntervalMs: the shortest allowed interval between calls to each method from one user. -->
     <property name="MinIntervalMs" type="u" access="read"/>
   </interface>

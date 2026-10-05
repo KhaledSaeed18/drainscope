@@ -71,6 +71,9 @@ pub mod probe {
 
         fn read_network(&self) -> Result<Traffic, ProbeError>;
 
+        /// (monotonic ns, generation, `NET_TX` ns, `NET_RX` ns), cumulative.
+        fn read_network_time(&self) -> Result<(u64, u64, u64, u64), ProbeError>;
+
         #[zbus(property)]
         fn min_interval_ms(&self) -> zbus::Result<u32>;
     }
