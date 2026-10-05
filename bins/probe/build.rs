@@ -4,7 +4,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
-const PROGRAMS: &[&str] = &["wakeups"];
+const PROGRAMS: &[&str] = &["wakeups", "network"];
 
 fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap_or_default());
