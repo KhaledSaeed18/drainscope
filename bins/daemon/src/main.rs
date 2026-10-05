@@ -28,8 +28,9 @@ use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-const TICK_ON_BATTERY: Duration = Duration::from_secs(2);
-const TICK_ON_AC: Duration = Duration::from_secs(5);
+/// Battery readings lag 6–8 s and windows are 10 s, so faster ticks add no accuracy; at 5 s
+/// the daemon costs ≈ 0.4% of one CPU, at 2 s it would exceed the 0.5% budget.
+const TICK: Duration = Duration::from_secs(5);
 const SAVE_EVERY: Duration = Duration::from_secs(300);
 const PRUNE_EVERY: Duration = Duration::from_secs(6 * 3600);
 
@@ -45,7 +46,6 @@ struct Daemon {
     logind: Option<Login1ManagerProxy<'static>>,
     /// Held to delay suspend until the battery level is recorded; closing it releases it.
     inhibitor: Option<zbus::zvariant::OwnedFd>,
-    on_battery: bool,
     last_save: Instant,
     last_prune: Option<Instant>,
 }
@@ -72,7 +72,6 @@ impl Daemon {
         let mut collected = collected?;
 
         let level = BatteryLevel::of(&collected.snapshot.batteries);
-        self.on_battery = level.on_battery;
         if let Some(event) = self.power.update(&level, wall_ms) {
             tracing::info!(kind = ?event.kind, "power source changed");
             self.store().record_power_event(&event)?;
@@ -337,26 +336,19 @@ async fn main() -> anyhow::Result<()> {
         sleep: SleepTracker::default(),
         logind,
         inhibitor: None,
-        on_battery: false,
         last_save: Instant::now(),
         last_prune: None,
     };
     daemon.take_inhibitor().await;
     let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
-    daemon.on_battery = level.on_battery;
     daemon.note_startup_power(&level)?;
     tracing::info!(database = %path.display(), "serving {BUS_NAME}");
 
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
     loop {
-        let interval = if daemon.on_battery {
-            TICK_ON_BATTERY
-        } else {
-            TICK_ON_AC
-        };
         tokio::select! {
-            () = tokio::time::sleep(interval) => {
+            () = tokio::time::sleep(TICK) => {
                 if let Err(err) = daemon.tick().await {
                     tracing::warn!(%err, "tick failed");
                 }
