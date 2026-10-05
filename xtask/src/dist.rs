@@ -122,8 +122,10 @@ pub fn run_dist(repo: &Path, binary_rpms: bool) -> Result<()> {
     let version = version(repo)?;
     let (expression, dependency_list) = licenses(repo)?;
     let declared = spec_license(repo)?;
+    // SPDX AND lists are unordered: compare the sets of terms.
+    let terms = |e: &str| e.split(" AND ").map(str::to_owned).collect::<BTreeSet<_>>();
     ensure!(
-        declared == expression,
+        terms(&declared) == terms(&expression),
         "the spec's License tag is out of date.\n  spec:     {declared}\n  computed: {expression}"
     );
 
