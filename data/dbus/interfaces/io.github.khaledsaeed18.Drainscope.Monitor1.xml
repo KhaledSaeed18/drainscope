@@ -62,6 +62,25 @@
       <arg name="sessions" type="a(xxdds)" direction="out"/>
     </method>
     <!--
+      GetSleepHistory: GetSleepSessions plus why the machine woke.
+        sessions  (start, end, Wh lost, percent lost, sleep mode, wake reason); unknown amounts
+                  are NaN, an unknown mode or wake reason is "". The wake reason is readable
+                  text, e.g. "Lid (PNP0C0D:00)" or "IRQ 9 (acpi)".
+    -->
+    <method name="GetSleepHistory">
+      <arg name="since" type="x" direction="in"/>
+      <arg name="sessions" type="a(xxddss)" direction="out"/>
+    </method>
+    <!--
+      GetBatteryHealth: one reading per battery per day, at or after `since`, oldest first.
+        readings  (battery, time, full-charge Wh, design Wh, charge cycles); an unknown design
+                  capacity is NaN and unknown cycles are 0.
+    -->
+    <method name="GetBatteryHealth">
+      <arg name="since" type="x" direction="in"/>
+      <arg name="readings" type="a(sxddu)" direction="out"/>
+    </method>
+    <!--
       Tick: emitted after every attribution tick, for live views.
         duration_ms  Length of the tick.
         usage        (key, watts) for consumers active during the tick.

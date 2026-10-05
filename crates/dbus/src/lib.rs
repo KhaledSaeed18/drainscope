@@ -59,6 +59,10 @@ pub mod monitor {
     pub type UsageRow = (String, String, f64, f64, f64, f64);
     /// `GetSleepSessions` row: (start, end (Unix s), Wh lost, % lost, sleep mode).
     pub type SleepRow = (i64, i64, f64, f64, String);
+    /// `GetSleepHistory` row: a `SleepRow` plus the wake reason.
+    pub type SleepHistoryRow = (i64, i64, f64, f64, String, String);
+    /// `GetBatteryHealth` row: (battery, time (Unix s), full-charge Wh, design Wh, cycles).
+    pub type HealthRow = (String, i64, f64, f64, u32);
 
     #[zbus::proxy(
         interface = "io.github.khaledsaeed18.Drainscope.Monitor1",
@@ -79,6 +83,10 @@ pub mod monitor {
         fn get_coverage(&self, since: i64, until: i64, power_source: &str) -> zbus::Result<u64>;
 
         fn get_sleep_sessions(&self, since: i64) -> zbus::Result<Vec<SleepRow>>;
+
+        fn get_sleep_history(&self, since: i64) -> zbus::Result<Vec<SleepHistoryRow>>;
+
+        fn get_battery_health(&self, since: i64) -> zbus::Result<Vec<HealthRow>>;
 
         /// (tick length in ms, (key, watts) for consumers active during the tick).
         #[zbus(signal)]
