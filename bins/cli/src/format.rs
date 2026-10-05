@@ -67,6 +67,9 @@ pub fn watts(w: f64) -> String {
 pub fn percent(p: f64) -> String {
     if p.is_nan() {
         "?".to_owned()
+    } else if p.abs() < 0.5 && p <= 0.0 {
+        // Also avoids printing "-0%".
+        "0%".to_owned()
     } else if p > 0.0 && p < 1.0 {
         "<1%".to_owned()
     } else {
@@ -150,6 +153,7 @@ mod tests {
         assert_eq!(watts(0.734), "0.73 W");
         assert_eq!(percent(0.3), "<1%");
         assert_eq!(percent(f64::NAN), "?");
+        assert_eq!(percent(-0.0), "0%");
         assert_eq!(truncate("abcdef", 4), "abc…");
     }
 

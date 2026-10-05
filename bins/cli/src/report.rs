@@ -95,10 +95,18 @@ pub struct SummaryRow {
 #[must_use]
 pub fn render_summary(
     on_battery: bool,
-    since: Duration,
+    since: Option<Duration>,
     battery_percent: f64,
     rows: &[SummaryRow],
 ) -> String {
+    let Some(since) = since else {
+        return if on_battery {
+            "On battery, but drainscope hasn't seen an unplug yet; check back in a minute.\n"
+        } else {
+            "On AC power. No discharge recorded yet: unplug the charger to start measuring.\n"
+        }
+        .to_owned();
+    };
     let mut out = if on_battery {
         format!(
             "On battery for {}: {} of the battery used.\n\n",
@@ -232,13 +240,14 @@ pub async fn status(bus: &zbus::Connection) -> anyhow::Result<()> {
         }
     );
     println!("Model:       v{version}");
-    let since = seconds(now_secs() - since);
-    if on_battery {
+    if on_battery && since > 0 {
         println!(
             "Power:       on battery for {} ({} used)",
-            duration(since),
+            duration(seconds(now_secs() - since)),
             percent(battery_percent)
         );
+    } else if on_battery {
+        println!("Power:       on battery");
     } else {
         println!("Power:       on AC");
     }
@@ -259,14 +268,11 @@ pub async fn summary(bus: &zbus::Connection) -> anyhow::Result<()> {
             of_active,
         })
         .collect();
+    // 0 means the daemon has never seen an unplug.
+    let since = (since > 0).then(|| seconds(now_secs() - since));
     print!(
         "{}",
-        render_summary(
-            on_battery,
-            seconds(now_secs() - since),
-            battery_percent,
-            &rows
-        )
+        render_summary(on_battery, since, battery_percent, &rows)
     );
     Ok(())
 }
@@ -393,7 +399,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            render_summary(true, Duration::from_secs(4320), 4.2, &rows),
+            render_summary(true, Some(Duration::from_secs(4320)), 4.2, &rows),
             "On battery for 1 h 12 min: 4% of the battery used.\n\
              \n\
              Consumer           Battery  Of active use   Energy\n\
@@ -405,9 +411,17 @@ mod tests {
              services caused.\n"
         );
         assert_eq!(
-            render_summary(false, Duration::from_secs(60), 0.0, &[]),
+            render_summary(false, Some(Duration::from_secs(60)), 0.0, &[]),
             "On AC power. The last discharge (1 min ago) used 0% of the battery.\n\n\
              Nothing recorded on battery yet.\n"
+        );
+    }
+
+    #[test]
+    fn summary_without_any_discharge_says_so() {
+        assert_eq!(
+            render_summary(false, None, 0.0, &[]),
+            "On AC power. No discharge recorded yet: unplug the charger to start measuring.\n"
         );
     }
 
