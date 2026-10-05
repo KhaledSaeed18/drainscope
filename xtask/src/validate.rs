@@ -75,15 +75,20 @@ const CPU_LOADS: [Workload; 4] = [
     },
 ];
 
-const ACTIVITY_LOADS: [Workload; 5] = [
+/// Download rates stay below what a home connection reliably delivers from the test server
+/// (about 0.75 MB/s here), so each phase reaches its rate and the points spread out.
+const ACTIVITY_LOADS: [Workload; 6] = [
     Workload::Timer { hz: 250 },
     Workload::Timer { hz: 1000 },
     Workload::Timer { hz: 4000 },
     Workload::Download {
-        kbytes_per_second: 1000,
+        kbytes_per_second: 250,
     },
     Workload::Download {
-        kbytes_per_second: 4000,
+        kbytes_per_second: 500,
+    },
+    Workload::Download {
+        kbytes_per_second: 750,
     },
 ];
 
@@ -942,6 +947,15 @@ fn activity_conclusions(
             a * 100.0 * 1000.0
         );
     }
+    let net_rapl_fit: Vec<(f64, f64)> = net_points.iter().map(|&(m, r, _)| (m, r)).collect();
+    if let Some((a, b, r2)) = fit(&net_rapl_fit) {
+        let _ = writeln!(
+            out,
+            "- RAPL power vs. traffic (the network stack's CPU work): {:.0} mW per MB/s + {b:.2} W \
+             (R² = {r2:.3}).",
+            a * 1000.0
+        );
+    }
     let outside_fit: Vec<(f64, f64)> = net_points
         .iter()
         .filter_map(|&(m, _, o)| Some((m, o?)))
@@ -949,8 +963,7 @@ fn activity_conclusions(
     if let Some((a, b, r2)) = fit(&outside_fit) {
         let _ = writeln!(
             out,
-            "- Power outside RAPL vs. traffic: {:.0} mW per MB/s + {b:.2} W (R² = {r2:.3}; two \
-             points fit exactly, so R² is only meaningful with more).",
+            "- Power outside RAPL vs. traffic: {:.0} mW per MB/s + {b:.2} W (R² = {r2:.3}).",
             a * 1000.0
         );
     }
