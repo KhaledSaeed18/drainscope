@@ -50,6 +50,11 @@ pub fn read_batteries(root: &SysRoot) -> Result<Vec<BatteryReading>, SysError> {
             power: power(&number),
             energy: energy(&number, "energy_now", "charge_now"),
             energy_full: energy(&number, "energy_full", "charge_full"),
+            energy_full_design: energy(&number, "energy_full_design", "charge_full_design"),
+            // Drivers that don't count cycles report 0.
+            cycle_count: number("cycle_count")
+                .filter(|&cycles| cycles > 0)
+                .and_then(|cycles| u32::try_from(cycles).ok()),
         });
     }
     batteries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -109,6 +114,8 @@ mod tests {
                 ("power_now", "5561000"),
                 ("energy_now", "3230000"),
                 ("energy_full", "30000000"),
+                ("energy_full_design", "39000000"),
+                ("cycle_count", "312"),
             ],
         );
         supply(
@@ -119,6 +126,7 @@ mod tests {
                 ("status", "Not charging"),
                 ("power_now", "0"),
                 ("energy_now", "24980000"),
+                ("cycle_count", "0"),
             ],
         );
         supply(
@@ -139,6 +147,11 @@ mod tests {
         assert_eq!(bat1.power, Some(Watts(5.561)));
         assert!((bat1.energy.unwrap().0 - 11_628.0).abs() < 1e-6); // 3.23 Wh
         assert!((bat1.energy_full.unwrap().0 - 108_000.0).abs() < 1e-6); // 30 Wh
+        assert!((bat1.energy_full_design.unwrap().0 - 140_400.0).abs() < 1e-6); // 39 Wh
+        assert_eq!(bat1.cycle_count, Some(312));
+        // 0 means the driver doesn't count cycles.
+        assert_eq!(batteries[0].cycle_count, None);
+        assert_eq!(batteries[0].energy_full_design, None);
     }
 
     #[test]
