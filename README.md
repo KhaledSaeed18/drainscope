@@ -7,7 +7,7 @@ Per-app battery and energy usage for the Linux desktop.
 
 drainscope measures energy from hardware counters (RAPL via powercap) and the battery. It attributes that energy to apps, terminal workloads and system services through cgroup v2, DRM fdinfo and systemd scopes, keeps local history, and shows it in GNOME's quick settings and on the command line. No component runs as root.
 
-**Status:** v0.1.0 is [released](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.0) with RPMs for Fedora 44. It includes the daemon, the sandboxed sampler and eBPF probe with SELinux policy, the CLI, the GNOME Shell extension and the desktop app. A COPR repository and extensions.gnome.org listing are coming ([docs/distribution.md](docs/distribution.md)). What's done and what's next: [ROADMAP.md](ROADMAP.md). Architecture and privilege model: [PLAN.md](PLAN.md). Measurements on real hardware: [ADR 0001](docs/adr/0001-feasibility.md), [docs/validation.md](docs/validation.md) and [docs/validation-activity.md](docs/validation-activity.md).
+**Status:** v0.1.0 is [released](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.0) with RPMs for Fedora 44. It includes the daemon, the sandboxed sampler and eBPF probe with SELinux policy, the CLI, the GNOME Shell extension and the desktop app. Packages for Fedora 44, 45 and rawhide are in [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/); an extensions.gnome.org listing is coming ([docs/distribution.md](docs/distribution.md)). What's done and what's next: [ROADMAP.md](ROADMAP.md). Architecture and privilege model: [PLAN.md](PLAN.md). Measurements on real hardware: [ADR 0001](docs/adr/0001-feasibility.md), [docs/validation.md](docs/validation.md) and [docs/validation-activity.md](docs/validation-activity.md).
 
 ## What it looks like
 
@@ -60,6 +60,17 @@ The desktop app (`drainscope-app`) shows the same history with a stacked timelin
 
 Everything stays on your machine; no component uses the network.
 
+## Installing (Fedora, COPR)
+
+```bash
+sudo dnf copr enable khaledsaeed18/drainscope
+sudo dnf install drainscope drainscope-sampler drainscope-probe drainscope-app gnome-shell-extension-drainscope
+systemctl --user enable --now drainscope.service
+drainscope doctor
+```
+
+The packages are signed with the COPR project's key, which `dnf` imports on first install. Updates arrive through `dnf upgrade`.
+
 ## Installing from the release
 
 Download the RPMs from the [v0.1.0 release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.0), then:
@@ -76,7 +87,7 @@ The sampler and the probe are optional: without them drainscope falls back to ba
 
 ## Installing (development)
 
-Requirements: Fedora 44 (or another systemd + cgroup v2 distro with polkit), Rust stable, gcc, and clang with libbpf-devel for the probe. Packages (COPR) come later.
+Requirements: Fedora 44 (or another systemd + cgroup v2 distro with polkit), Rust stable, gcc, and clang with libbpf-devel for the probe.
 
 ```bash
 cargo build --release -p drainscope-sampler -p drainscope-probe -p drainscope-daemon -p drainscope-cli -p xtask
