@@ -123,6 +123,8 @@ mod tests {
             power: None,
             energy: Some(Joules(wh * 3600.0)),
             energy_full: Some(Joules(full_wh * 3600.0)),
+            energy_full_design: None,
+            cycle_count: None,
         }
     }
 

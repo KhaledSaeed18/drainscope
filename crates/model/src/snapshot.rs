@@ -128,6 +128,10 @@ pub struct BatteryReading {
     pub energy: Option<Joules>,
     /// Capacity when full (`energy_full`, or `charge_full × voltage_now`).
     pub energy_full: Option<Joules>,
+    /// Capacity when new (`energy_full_design`, or `charge_full_design × voltage_now`).
+    pub energy_full_design: Option<Joules>,
+    /// Charge cycles; `None` when the driver doesn't count them.
+    pub cycle_count: Option<u32>,
 }
 
 /// Everything read at one instant.

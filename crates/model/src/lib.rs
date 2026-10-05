@@ -6,6 +6,7 @@ pub mod calibration;
 pub mod cgroup;
 pub mod consumer;
 pub mod delta;
+pub mod health;
 pub mod snapshot;
 pub mod unit_name;
 pub mod units;
@@ -17,6 +18,7 @@ pub use calibration::{FloorEstimator, IdleFloor, Part, PowerHistogram, PsysCheck
 pub use cgroup::{CgroupIdentity, CgroupPath, classify};
 pub use consumer::{ConsumerKey, ParseConsumerKeyError};
 pub use delta::{CpuDelta, DiffError, IntervalDelta, diff};
+pub use health::{BatteryHealth, health};
 pub use snapshot::{RaplDomain, Snapshot};
 pub use units::{Joules, Microjoules, Watts};
 pub use window::{ClosedWindow, Measurement, PowerSource, Window};

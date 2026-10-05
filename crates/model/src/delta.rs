@@ -372,6 +372,8 @@ mod tests {
             power: Some(Watts(watts)),
             energy: Some(Joules(joules)),
             energy_full: None,
+            energy_full_design: None,
+            cycle_count: None,
         }
     }
 
