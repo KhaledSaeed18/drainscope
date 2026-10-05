@@ -63,6 +63,41 @@ impl Activity {
         activity
     }
 
+    /// Model v2 (ADR 0007): moves the kernel's network-softirq time, `network_usec`, from
+    /// Kernel to the consumers that caused the traffic, in proportion to their `bytes`. Never
+    /// moves more than Kernel has, and keeps the total CPU time exact (the integer remainder
+    /// goes to the consumer with the most bytes). A no-op without traffic.
+    pub fn charge_network(&mut self, network_usec: u64, bytes: &BTreeMap<ConsumerKey, u64>) {
+        let total_bytes: u128 = bytes.values().map(|&b| u128::from(b)).sum();
+        let kernel = self
+            .cpu_usec
+            .get(&ConsumerKey::Kernel)
+            .copied()
+            .unwrap_or(0);
+        let moved = network_usec.min(kernel);
+        if moved == 0 || total_bytes == 0 {
+            return;
+        }
+        let mut given = 0;
+        for (key, &count) in bytes {
+            // moved × count / total ≤ moved, so it fits in u64.
+            let share =
+                u64::try_from(u128::from(moved) * u128::from(count) / total_bytes).unwrap_or(moved);
+            if share > 0 {
+                *self.cpu_usec.entry(key.clone()).or_default() += share;
+                given += share;
+            }
+        }
+        if let Some((key, _)) = bytes.iter().max_by_key(|(_, count)| **count) {
+            *self.cpu_usec.entry(key.clone()).or_default() += moved - given;
+        }
+        if kernel == moved {
+            self.cpu_usec.remove(&ConsumerKey::Kernel);
+        } else if let Some(left) = self.cpu_usec.get_mut(&ConsumerKey::Kernel) {
+            *left = kernel - moved;
+        }
+    }
+
     /// Average number of busy CPUs over `duration`.
     #[must_use]
     // CPU microseconds per interval stay far below 2^52.
@@ -97,6 +132,65 @@ mod tests {
 
     fn own(usec: u64, has_children: bool) -> OwnTime {
         OwnTime { usec, has_children }
+    }
+
+    fn firefox() -> ConsumerKey {
+        ConsumerKey::App("org.mozilla.firefox".into())
+    }
+
+    #[test]
+    fn network_time_moves_from_kernel_by_bytes() {
+        let dnf = ConsumerKey::SystemUnit("dnf.service".into());
+        let mut activity = Activity {
+            cpu_usec: BTreeMap::from([(ConsumerKey::Kernel, 1_000), (firefox(), 500)]),
+            gpu_ns: BTreeMap::new(),
+        };
+        activity.charge_network(
+            300,
+            &BTreeMap::from([(firefox(), 2_000), (dnf.clone(), 1_000)]),
+        );
+        assert_eq!(activity.cpu_usec[&ConsumerKey::Kernel], 700);
+        assert_eq!(activity.cpu_usec[&firefox()], 700);
+        assert_eq!(activity.cpu_usec[&dnf], 100);
+    }
+
+    #[test]
+    fn network_time_is_capped_by_kernel_time() {
+        let mut activity = Activity {
+            cpu_usec: BTreeMap::from([(ConsumerKey::Kernel, 100)]),
+            gpu_ns: BTreeMap::new(),
+        };
+        activity.charge_network(5_000, &BTreeMap::from([(firefox(), 10)]));
+        assert_eq!(activity.cpu_usec, BTreeMap::from([(firefox(), 100)]));
+
+        let unchanged = activity.clone();
+        activity.charge_network(5_000, &BTreeMap::new());
+        assert_eq!(activity, unchanged);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn charging_network_conserves_cpu_time(
+            kernel in 0_u64..10_000_000,
+            other in 0_u64..10_000_000,
+            network in 0_u64..20_000_000,
+            bytes in proptest::collection::vec(0_u64..u64::MAX / 4, 0..6),
+        ) {
+            let mut activity = Activity {
+                cpu_usec: BTreeMap::from([(ConsumerKey::Kernel, kernel), (firefox(), other)]),
+                gpu_ns: BTreeMap::new(),
+            };
+            let before: u64 = activity.cpu_usec.values().sum();
+            let bytes: BTreeMap<ConsumerKey, u64> = bytes
+                .into_iter()
+                .enumerate()
+                .map(|(i, b)| (ConsumerKey::SystemUnit(format!("u{i}.service")), b))
+                .collect();
+            activity.charge_network(network, &bytes);
+            proptest::prop_assert_eq!(activity.cpu_usec.values().sum::<u64>(), before);
+            let kernel_after = activity.cpu_usec.get(&ConsumerKey::Kernel).copied().unwrap_or(0);
+            proptest::prop_assert!(kernel_after <= kernel);
+        }
     }
 
     #[test]

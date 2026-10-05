@@ -12,6 +12,24 @@ use crate::consumer::ConsumerKey;
 /// Rates are averaged over at least this much recent time.
 pub const RATE_WINDOW: Duration = Duration::from_secs(60);
 
+/// Increases of cumulative per-cgroup counters from the probe, grouped by consumer. A cgroup
+/// absent `before` counts from zero: the probe lists every cgroup with a count.
+#[must_use]
+pub fn deltas_by_consumer(
+    before: &BTreeMap<CgroupPath, u64>,
+    after: &BTreeMap<CgroupPath, u64>,
+    resolver: &Resolver<'_>,
+) -> BTreeMap<ConsumerKey, u64> {
+    let mut by_consumer: BTreeMap<ConsumerKey, u64> = BTreeMap::new();
+    for (path, count) in after {
+        let delta = count.saturating_sub(before.get(path).copied().unwrap_or(0));
+        if delta > 0 {
+            *by_consumer.entry(resolver.consumer(path)).or_default() += delta;
+        }
+    }
+    by_consumer
+}
+
 /// Turns cumulative per-cgroup counts from the probe into recent rates per consumer.
 #[derive(Debug, Default)]
 pub struct RateTracker {
@@ -38,15 +56,8 @@ impl RateTracker {
         if was_generation != generation {
             return;
         }
-        let mut by_consumer: BTreeMap<ConsumerKey, u64> = BTreeMap::new();
-        for (path, count) in after {
-            // Absent before means none yet: the probe lists every cgroup with a count.
-            let delta = count.saturating_sub(before.get(path).copied().unwrap_or(0));
-            if delta > 0 {
-                *by_consumer.entry(resolver.consumer(path)).or_default() += delta;
-            }
-        }
-        self.recent.push_back((elapsed, by_consumer));
+        self.recent
+            .push_back((elapsed, deltas_by_consumer(&before, after, resolver)));
         while self.recent.len() > 1
             && self
                 .recent

@@ -21,7 +21,7 @@ pub use cgroup::{CgroupIdentity, CgroupPath, classify};
 pub use consumer::{ConsumerKey, ParseConsumerKeyError};
 pub use delta::{CpuDelta, DiffError, IntervalDelta, diff};
 pub use health::{BatteryHealth, health};
-pub use rates::{RATE_WINDOW, RateTracker};
+pub use rates::{RATE_WINDOW, RateTracker, deltas_by_consumer};
 pub use snapshot::{RaplDomain, Snapshot};
 pub use units::{Joules, Microjoules, Watts};
 pub use wake::{WakeupIrq, WakeupSource, WakeupSources, wake_reason};

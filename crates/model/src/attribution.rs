@@ -12,7 +12,8 @@ use crate::snapshot::RaplDomain;
 use crate::units::Joules;
 
 /// Stored with every row so a future model never silently reinterprets history.
-pub const MODEL_VERSION: u32 = 1;
+/// 2: network-softirq time moves from Kernel to the consumers causing the traffic (ADR 0007).
+pub const MODEL_VERSION: u32 = 2;
 
 /// One consumer's energy by cause.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
