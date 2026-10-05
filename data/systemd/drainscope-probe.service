@@ -1,0 +1,56 @@
+# Sandboxed eBPF probe (ADR 0006). Started by D-Bus activation; never enabled.
+# Exposure is checked in CI with `systemd-analyze security --offline=yes`.
+
+[Unit]
+Description=drainscope eBPF activity probe
+Documentation=https://github.com/KhaledSaeed18/drainscope
+
+[Service]
+Type=dbus
+BusName=io.github.khaledsaeed18.Drainscope.Probe
+ExecStart=/usr/libexec/drainscope-probe
+
+# A dedicated system user (from sysusers.d) that may load and attach tracing eBPF programs
+# and nothing else. Not root.
+User=drainscope-probe
+Group=drainscope-probe
+AmbientCapabilities=CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON
+NoNewPrivileges=yes
+
+# Filesystem: everything read-only (it reads /sys/kernel/btf and cgroupfs), no home, no
+# devices, private /tmp.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+DevicePolicy=closed
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+UMask=0077
+
+# Network and IPC: only the D-Bus socket.
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+PrivateIPC=yes
+RemoveIPC=yes
+
+# Kernel attack surface. bpf() is in @privileged; it is allowed back explicitly.
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+KeyringMode=private
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallFilter=bpf
+SystemCallErrorNumber=EPERM

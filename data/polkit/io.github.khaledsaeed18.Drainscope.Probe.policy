@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>drainscope</vendor>
+  <vendor_url>https://github.com/KhaledSaeed18/drainscope</vendor_url>
+
+  <!--
+    Reading per-cgroup idle-exit counts from drainscope-probe (ADR 0006). Only the active
+    local session, without authentication; never remote or inactive sessions.
+  -->
+  <action id="io.github.khaledsaeed18.Drainscope.read-activity">
+    <description>Read how often apps wake the processor</description>
+    <message>Authentication is required to read how often apps wake the processor</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <!--
+      The probe checks this action for its callers (other users). polkit only lets a
+      non-root process do that for actions it owns.
+    -->
+    <annotate key="org.freedesktop.policykit.owner">unix-user:drainscope-probe</annotate>
+  </action>
+</policyconfig>

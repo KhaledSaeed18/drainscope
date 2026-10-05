@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=io.github.khaledsaeed18.Drainscope.Probe
+Exec=/usr/libexec/drainscope-probe
+User=drainscope-probe
+SystemdService=drainscope-probe.service
