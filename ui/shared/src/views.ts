@@ -101,3 +101,33 @@ export function buildSleep(sessions: readonly SleepSession[], nowSeconds: number
       };
     });
 }
+
+export type Range = 'unplug' | 'hour' | 'day' | 'week';
+
+export const RANGES: readonly { id: Range; label: string }[] = [
+  { id: 'unplug', label: 'Since unplugged' },
+  { id: 'hour', label: 'Last hour' },
+  { id: 'day', label: 'Last 24 hours' },
+  { id: 'week', label: 'Last 7 days' },
+];
+
+const RANGE_SECONDS: Readonly<Record<Exclude<Range, 'unplug'>, number>> = {
+  hour: 3600,
+  day: 86_400,
+  week: 7 * 86_400,
+};
+
+/**
+ * `[since, until]` in Unix seconds and the power-source filter for `GetUsage`/`GetCoverage`,
+ * or `undefined` for "since unplugged" when the charger was never unplugged.
+ */
+export function rangeQuery(
+  range: Range,
+  nowSeconds: number,
+  sinceUnplug: number,
+): { since: number; until: number; source: string } | undefined {
+  if (range === 'unplug') {
+    return sinceUnplug > 0 ? { since: sinceUnplug, until: nowSeconds, source: 'battery' } : undefined;
+  }
+  return { since: nowSeconds - RANGE_SECONDS[range], until: nowSeconds, source: 'any' };
+}

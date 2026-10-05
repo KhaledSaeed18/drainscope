@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { decodeCoverage, decodeSleepSessions, decodeUsage } from './monitor';
-import { buildSleep, buildUsage } from './views';
+import { buildSleep, buildUsage, rangeQuery } from './views';
 
 const appNames = (id: string): string | undefined => (id === 'org.mozilla.firefox' ? 'Firefox' : undefined);
 
@@ -56,5 +56,13 @@ describe('buildSleep', () => {
       { title: 'Slept 10 min, lost ?', subtitle: '3 h 43 min ago · ? Wh · ?%/h' },
       { title: 'Slept 8 h, lost 4%', subtitle: '9 h ago · 1.60 Wh · 0.5%/h · deep' },
     ]);
+  });
+});
+
+describe('rangeQuery', () => {
+  it('maps ranges to queries', () => {
+    expect(rangeQuery('unplug', 5000, 4000)).toEqual({ since: 4000, until: 5000, source: 'battery' });
+    expect(rangeQuery('unplug', 5000, 0)).toBeUndefined();
+    expect(rangeQuery('hour', 5000, 4000)).toEqual({ since: 1400, until: 5000, source: 'any' });
   });
 });

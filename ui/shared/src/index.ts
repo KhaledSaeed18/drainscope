@@ -30,4 +30,14 @@ export {
   formatWatts,
   joulesToWattHours,
 } from './units';
-export { buildSleep, buildUsage, kindLabel, type SleepEntry, type UsageEntry, type UsageModel } from './views';
+export {
+  buildSleep,
+  buildUsage,
+  kindLabel,
+  RANGES,
+  rangeQuery,
+  type Range,
+  type SleepEntry,
+  type UsageEntry,
+  type UsageModel,
+} from './views';
