@@ -5,4 +5,5 @@ pub mod collector;
 pub mod engine;
 pub mod monitor;
 pub mod power;
+pub mod probe;
 pub mod rapl;
