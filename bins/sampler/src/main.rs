@@ -7,8 +7,8 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use drainscope_dbus::sampler::{BUS_NAME, OBJECT_PATH};
-use drainscope_sampler::auth::Polkit;
+use drainscope_access::Polkit;
+use drainscope_dbus::sampler::{BUS_NAME, OBJECT_PATH, POLKIT_ACTION};
 use drainscope_sampler::{Config, Powercap, Sampler};
 use drainscope_sys::SysRoot;
 use tracing::Level;
@@ -25,7 +25,9 @@ async fn main() -> anyhow::Result<()> {
     let bus = zbus::Connection::system()
         .await
         .context("connecting to the system bus")?;
-    let polkit = Polkit::new(&bus).await.context("connecting to polkit")?;
+    let polkit = Polkit::new(&bus, POLKIT_ACTION)
+        .await
+        .context("connecting to polkit")?;
     let sampler = Sampler::new(
         Box::new(Powercap(SysRoot::host())),
         Box::new(polkit),

@@ -10,6 +10,7 @@ crates/model    core: domain types, identity rules, attribution model, calibrati
 crates/sys      system integration: sysfs/procfs/cgroupfs readers, D-Bus clients (UPower, logind, Sampler1)
 crates/store    repository: SQLite schema, migrations, the Store repository (ONLY crate importing rusqlite)
 crates/dbus     D-Bus contracts: zbus interfaces/proxies generated from data/dbus/*.xml
+crates/access   polkit authorization and per-user rate limits shared by the privileged services
 bins/sampler    privileged system service (Sampler1), D-Bus activated
 bins/daemon     user service, composition root, Monitor1 server
 bins/cli        `drainscope` CLI, talks only to Monitor1

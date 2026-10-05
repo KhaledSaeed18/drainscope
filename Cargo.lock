@@ -209,6 +209,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "drainscope-access"
+version = "0.1.0"
+dependencies = [
+ "zbus",
+]
+
+[[package]]
 name = "drainscope-cli"
 version = "0.1.0"
 dependencies = [
@@ -264,6 +271,7 @@ name = "drainscope-sampler"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "drainscope-access",
  "drainscope-dbus",
  "drainscope-model",
  "drainscope-sys",

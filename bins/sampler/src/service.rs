@@ -9,8 +9,7 @@ use zbus::message::Header;
 use zbus::names::BusName;
 
 use crate::accumulator::Accumulator;
-use crate::auth::Authorizer;
-use crate::limits::{RateLimiter, quantize};
+use drainscope_access::{Authorizer, RateLimiter, quantize};
 
 /// Where counters come from: powercap in production, fixtures in tests.
 pub trait CounterSource: Send + Sync {

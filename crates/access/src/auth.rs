@@ -1,12 +1,11 @@
-//! Deciding who may read the counters: polkit action
-//! `io.github.khaledsaeed18.Drainscope.read-energy` (active local sessions only).
+//! Deciding who may call a privileged service: a polkit action that allows active local
+//! sessions only (e.g. `io.github.khaledsaeed18.Drainscope.read-energy`).
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Mutex, PoisonError};
 
-use drainscope_dbus::sampler::POLKIT_ACTION;
 use zbus::zvariant::Value;
 
 pub type AuthFuture<'a> = Pin<Box<dyn Future<Output = zbus::Result<bool>> + Send + 'a>>;
@@ -49,6 +48,7 @@ trait Authority {
 #[derive(Debug)]
 pub struct Polkit {
     authority: AuthorityProxy<'static>,
+    action: &'static str,
     allowed: Mutex<HashSet<String>>,
 }
 
@@ -57,9 +57,10 @@ const MAX_CACHED: usize = 256;
 impl Polkit {
     /// # Errors
     /// If the polkit proxy can't be created.
-    pub async fn new(system_bus: &zbus::Connection) -> zbus::Result<Self> {
+    pub async fn new(system_bus: &zbus::Connection, action: &'static str) -> zbus::Result<Self> {
         Ok(Self {
             authority: AuthorityProxy::new(system_bus).await?,
+            action,
             allowed: Mutex::new(HashSet::new()),
         })
     }
@@ -79,7 +80,7 @@ impl Polkit {
         );
         let (authorized, _challenge, _details) = self
             .authority
-            .check_authorization(&subject, POLKIT_ACTION, HashMap::new(), 0, "")
+            .check_authorization(&subject, self.action, HashMap::new(), 0, "")
             .await?;
         if authorized {
             let mut allowed = self.allowed.lock().unwrap_or_else(PoisonError::into_inner);

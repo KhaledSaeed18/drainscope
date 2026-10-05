@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+drainscope-access.workspace = true
 drainscope-dbus.workspace = true
 drainscope-model.workspace = true
 drainscope-sys.workspace = true

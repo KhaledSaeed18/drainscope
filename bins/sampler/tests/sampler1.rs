@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use drainscope_access::Fixed;
 use drainscope_dbus::sampler::{BUS_NAME, INTERFACE, OBJECT_PATH, Sampler1Proxy, SamplerError};
 use drainscope_model::Microjoules;
 use drainscope_model::snapshot::{EnergyCounter, RaplDomain};
-use drainscope_sampler::auth::Fixed;
 use drainscope_sampler::{Config, CounterSource, Sampler};
 use drainscope_sys::{PowercapZone, SysError};
 use zbus::connection::Builder;

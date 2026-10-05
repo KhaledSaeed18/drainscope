@@ -1,0 +1,15 @@
+[package]
+name = "drainscope-access"
+description = "Access control shared by drainscope's privileged services: polkit checks and per-user rate limits."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+zbus.workspace = true
+
+[lints]
+workspace = true
