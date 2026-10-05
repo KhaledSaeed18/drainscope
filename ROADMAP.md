@@ -47,10 +47,11 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 1. **Publish to COPR.** Needs a Fedora account and a COPR API token ([docs/distribution.md](docs/distribution.md)).
 2. **Publish the extension on extensions.gnome.org.** Needs an EGO account and screenshots.
 3. **Screenshots** of the extension and the app for EGO, the README and later Flathub.
-4. **Model v2.1: count the network driver's IRQ thread** (e.g. `irq/134-iwlwifi`, about 30% more network work), charged by bytes like the softirqs. Small; needs one battery validation run.
-5. **Model v3: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
-6. **Daemon self-cost:** about 4 wakeups/s (≈ 20 per 5 s tick). Batch the D-Bus calls and the collector thread.
-7. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
+4. **Daemon single instance per database.** A second daemon on another session bus (a second login of the same user, or a nested `gnome-shell --devkit` run under `dbus-run-session`) writes overlapping windows into the same database, which double-counts energy. Take an exclusive lock next to the database at startup and exit if it's held.
+5. **Model v2.1: count the network driver's IRQ thread** (e.g. `irq/134-iwlwifi`, about 30% more network work), charged by bytes like the softirqs. Small; needs one battery validation run.
+6. **Model v3: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
+7. **Daemon self-cost:** about 4 wakeups/s (≈ 20 per 5 s tick). Batch the D-Bus calls and the collector thread.
+8. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
 
 ## Later
 
@@ -63,6 +64,6 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Known limitations
 
-- Light, bursty activity is undercharged by proportional sharing (see Next 5 and docs/attribution-model.md).
+- Light, bursty activity is undercharged by proportional sharing (see Next 6 and docs/attribution-model.md).
 - AMD integrated-GPU energy is split by CPU time; xe GPUs aren't split per app (ADR 0005).
 - Validated on one machine (i7-8550U, i915, Wi-Fi). Results on other hardware are welcome as `validate` reports.
