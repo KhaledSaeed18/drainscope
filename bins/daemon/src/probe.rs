@@ -72,6 +72,8 @@ pub struct ProbeClient {
     proxy: Option<Probe1Proxy<'static>>,
     wakeups: Backoff,
     network: Backoff,
+    /// The probe's generation at the last wakeup reading.
+    generation: Option<u64>,
 }
 
 impl ProbeClient {
@@ -97,6 +99,7 @@ impl ProbeClient {
                 problem,
                 retry_at: None,
             },
+            generation: None,
         }
     }
 
@@ -120,6 +123,11 @@ impl ProbeClient {
         match proxy.read_wakeups().await {
             Ok((_, generation, pairs)) => {
                 self.wakeups.succeeded("wakeup counts");
+                // A restarted (perhaps upgraded) probe may now count traffic: ask again now
+                // instead of waiting out a backoff from the old one.
+                if self.generation.replace(generation) != Some(generation) {
+                    self.network.retry_at = None;
+                }
                 Some(ProbeReading {
                     generation,
                     wakeups: pairs
