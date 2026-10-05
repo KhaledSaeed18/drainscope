@@ -213,6 +213,25 @@ mod tests {
     }
 
     #[test]
+    fn without_uncore_the_package_rest_follows_cpu_time() {
+        // AMD: no uncore domain, so integrated-GPU energy stays in the package and is split
+        // by CPU time; GPU activity alone earns nothing (ADR 0005).
+        let activity = Activity {
+            cpu_usec: BTreeMap::from([(firefox(), 100_000)]),
+            gpu_ns: BTreeMap::from([(ConsumerKey::Shell, 1_000)]),
+        };
+        let tick = attribute(
+            &delta(&[(RaplDomain::Package, 5.0), (RaplDomain::Core, 2.0)]),
+            activity,
+            &IdleFloor::default(),
+            false,
+        );
+        assert!(close(tick.ledger[&firefox()].cpu, 5.0));
+        assert!(!tick.ledger.contains_key(&ConsumerKey::Shell));
+        assert!(close(tick.measured, 5.0));
+    }
+
+    #[test]
     fn energy_below_the_floor_is_all_idle() {
         let floor = IdleFloor::new(BTreeMap::from([(Part::Core, Watts(5.0))]));
         let activity = Activity {

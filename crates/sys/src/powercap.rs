@@ -107,6 +107,21 @@ mod tests {
     }
 
     #[test]
+    fn reads_amd_zones() {
+        // AMD Zen through intel_rapl_msr: package and core only, with a smaller range.
+        let dir = tempfile::tempdir().unwrap();
+        let root = SysRoot::at(dir.path());
+        zone(&root, "intel-rapl:0", "package-0", 70_000);
+        zone(&root, "intel-rapl:0:0", "core", 30_000);
+        let domains: Vec<RaplDomain> = read_zones(&root)
+            .unwrap()
+            .iter()
+            .map(|z| z.domain)
+            .collect();
+        assert_eq!(domains, [RaplDomain::Package, RaplDomain::Core]);
+    }
+
+    #[test]
     fn no_powercap_means_no_zones() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(read_zones(&SysRoot::at(dir.path())).unwrap(), Vec::new());
