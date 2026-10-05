@@ -251,6 +251,44 @@ impl Store {
         Ok(usage)
     }
 
+    /// How much of `[since_ms, until_ms)` was measured, in milliseconds: the length of the
+    /// windows recorded there, or, for older data, the number of minute or hour buckets with
+    /// any data times their width (an upper bound at that resolution).
+    ///
+    /// # Errors
+    /// SQLite errors.
+    pub fn covered_ms(
+        &self,
+        since_ms: i64,
+        until_ms: i64,
+        filter: SourceFilter,
+        now_ms: i64,
+    ) -> Result<i64, StoreError> {
+        let (sql, since) = match Granularity::for_range(since_ms, now_ms) {
+            Granularity::Raw => (
+                "SELECT COALESCE(SUM(end_ms - start_ms), 0) FROM windows
+                 WHERE start_ms >= ?1 AND start_ms < ?2 AND (?3 IS NULL OR power_source = ?3)",
+                since_ms,
+            ),
+            Granularity::Minute => (
+                "SELECT COUNT(DISTINCT bucket_ms) * 60000 FROM usage_minute
+                 WHERE bucket_ms >= ?1 AND bucket_ms < ?2 AND (?3 IS NULL OR power_source = ?3)",
+                bucket(since_ms, MINUTE_MS),
+            ),
+            Granularity::Hour => (
+                "SELECT COUNT(DISTINCT bucket_ms) * 3600000 FROM usage_hour
+                 WHERE bucket_ms >= ?1 AND bucket_ms < ?2 AND (?3 IS NULL OR power_source = ?3)",
+                bucket(since_ms, HOUR_MS),
+            ),
+        };
+        Ok(self
+            .conn
+            .prepare_cached(sql)?
+            .query_row(params![since, until_ms, filter.wire_name()], |row| {
+                row.get(0)
+            })?)
+    }
+
     /// Deletes data past its retention, and consumers no longer referenced.
     ///
     /// # Errors
@@ -422,6 +460,36 @@ mod tests {
         assert_eq!(
             (stats.minute_rows, stats.hour_rows, stats.consumers),
             (1, 1, 1)
+        );
+    }
+
+    #[test]
+    fn coverage_counts_measured_time_only() {
+        let mut store = Store::open_in_memory().unwrap();
+        // Two 10 s windows in a 10 minute range: 20 s measured.
+        record(
+            &mut store,
+            T0,
+            &window(Measurement::Battery, &[(firefox(), 1.0, 0.0)]),
+        );
+        record(
+            &mut store,
+            T0 + 60_000,
+            &window(Measurement::Rapl, &[(firefox(), 1.0, 0.0)]),
+        );
+        let end = T0 + 600_000;
+        assert_eq!(
+            store.covered_ms(T0, end, SourceFilter::Any, end).unwrap(),
+            20_000
+        );
+        let on_battery = SourceFilter::Only(PowerSource::Battery);
+        assert_eq!(store.covered_ms(T0, end, on_battery, end).unwrap(), 10_000);
+        // Days later only minute buckets remain: two buckets with data.
+        let later = T0 + 3 * DAY_MS;
+        store.prune(later).unwrap();
+        assert_eq!(
+            store.covered_ms(T0, end, SourceFilter::Any, later).unwrap(),
+            120_000
         );
     }
 
