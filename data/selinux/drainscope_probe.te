@@ -1,4 +1,4 @@
-policy_module(drainscope_probe, 0.1.0)
+policy_module(drainscope_probe, 0.2.0)
 
 ########################################
 #
@@ -10,9 +10,6 @@ type drainscope_probe_exec_t;
 init_daemon_domain(drainscope_probe_t, drainscope_probe_exec_t)
 # The unit sets NoNewPrivileges=yes, which blocks the transition unless allowed.
 init_nnp_daemon_domain(drainscope_probe_t)
-
-# Denials are logged, not enforced, until the policy has been exercised on real systems.
-permissive drainscope_probe_t;
 
 ########################################
 #
