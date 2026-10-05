@@ -91,6 +91,12 @@ pub fn truncate(text: &str, width: usize) -> String {
 /// A left-aligned first column and right-aligned others.
 #[must_use]
 pub fn table(header: &[&str], rows: &[Vec<String>]) -> String {
+    table_aligned(header, rows, &[0])
+}
+
+/// Like [`table`], with the given columns left-aligned (for text) and the rest right-aligned.
+#[must_use]
+pub fn table_aligned(header: &[&str], rows: &[Vec<String>], left: &[usize]) -> String {
     let columns = header.len();
     let mut widths: Vec<usize> = header.iter().map(|h| h.chars().count()).collect();
     for row in rows {
@@ -102,11 +108,13 @@ pub fn table(header: &[&str], rows: &[Vec<String>]) -> String {
     let line = |out: &mut String, cells: &mut dyn Iterator<Item = &str>| {
         for (i, (cell, width)) in cells.zip(&widths).enumerate() {
             let pad = width.saturating_sub(cell.chars().count());
-            if i == 0 {
+            if i > 0 {
+                out.push_str("  ");
+            }
+            if left.contains(&i) {
                 out.push_str(cell);
                 out.push_str(&" ".repeat(pad));
             } else {
-                out.push_str("  ");
                 out.push_str(&" ".repeat(pad));
                 out.push_str(cell);
             }
