@@ -52,10 +52,9 @@ fn daemon_hint(err: zbus::Error) -> anyhow::Error {
 }
 
 /// The top `limit` rows, the rest folded into one line, as table rows with shares of the
-/// listed total.
+/// listed total. `measured` is how much of `span` the daemon recorded (see `GetCoverage`);
+/// averages are over measured time, not the whole span.
 #[must_use]
-/// `measured` is how much of `span` the daemon recorded (see `GetCoverage`); averages are over
-/// measured time, not the whole span.
 pub fn render_usage(rows: &[Row], span: Duration, measured: Duration, limit: usize) -> String {
     let total: f64 = rows.iter().map(|r| r.joules).sum();
     let mut shown: Vec<Row> = rows.iter().take(limit).cloned().collect();
