@@ -1302,10 +1302,13 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "drainscope-dbus",
  "flate2",
  "rustix",
  "serde",
  "serde_json",
+ "tokio",
+ "zbus",
 ]
 
 [[package]]

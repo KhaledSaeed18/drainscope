@@ -18,24 +18,17 @@ use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
+use drainscope_dbus::monitor::{Monitor1Proxy, UsageRow};
+use drainscope_dbus::sampler::{Sampler1Proxy, SamplerError};
 
 const SAMPLE_EVERY: Duration = Duration::from_secs(2);
 /// Battery power lags load changes by 6–8 s (ADR 0001): skip the start of each phase.
 const SETTLE: f64 = 8.0;
 const REST: Duration = Duration::from_secs(20);
+/// Shorter phases leave too few settled samples to compute a rate.
+const MIN_PHASE_SECS: u64 = 20;
 /// Below this RAPL increase, k is dominated by measurement noise.
 const MIN_K_RAPL_W: f64 = 1.0;
-const SAMPLER: [&str; 3] = [
-    "io.github.khaledsaeed18.Drainscope.Sampler",
-    "/io/github/khaledsaeed18/Drainscope/Sampler",
-    "io.github.khaledsaeed18.Drainscope.Sampler1",
-];
-const MONITOR: [&str; 3] = [
-    "io.github.khaledsaeed18.Drainscope.Monitor",
-    "/io/github/khaledsaeed18/Drainscope/Monitor",
-    "io.github.khaledsaeed18.Drainscope.Monitor1",
-];
-
 #[derive(Debug)]
 pub struct Options {
     pub idle_secs: u64,
@@ -117,31 +110,57 @@ fn unix_now() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
-/// `ReadCounters` through busctl's JSON output, retrying briefly when the daemon's own calls
-/// share the per-user rate limit.
-fn read_rapl() -> Result<(u64, BTreeMap<String, u64>)> {
-    for _ in 0..5 {
-        let mut args = vec!["--system", "--json=short", "call"];
-        args.extend(SAMPLER);
-        args.push("ReadCounters");
-        match run_output("busctl", &args) {
-            Ok(json) => {
-                let value: serde_json::Value = serde_json::from_str(&json)?;
-                let data = &value["data"];
-                let generation = data[1].as_u64().context("generation")?;
-                let counters = data[2]
-                    .as_array()
-                    .context("counters")?
-                    .iter()
-                    .filter_map(|pair| Some((pair[0].as_str()?.to_owned(), pair[1].as_u64()?)))
-                    .collect();
-                return Ok((generation, counters));
-            }
-            Err(err) if err.to_string().contains("retry in") => sleep(Duration::from_millis(300)),
-            Err(err) => return Err(err),
-        }
+/// One system-bus and one session-bus connection for the whole run: a new connection per
+/// sample would make the sampler ask polkit every time.
+struct Buses {
+    runtime: tokio::runtime::Runtime,
+    sampler: Sampler1Proxy<'static>,
+    /// `None` if the daemon isn't running.
+    monitor: Option<Monitor1Proxy<'static>>,
+}
+
+impl Buses {
+    fn connect() -> Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let (sampler, monitor) = runtime.block_on(async {
+            let system = zbus::Connection::system().await?;
+            let sampler = Sampler1Proxy::new(&system).await?;
+            let monitor = match zbus::Connection::session().await {
+                Ok(session) => Monitor1Proxy::new(&session).await.ok(),
+                Err(_) => None,
+            };
+            anyhow::Ok((sampler, monitor))
+        })?;
+        Ok(Self {
+            runtime,
+            sampler,
+            monitor,
+        })
     }
-    bail!("the sampler kept rate-limiting; is something else polling it every second?")
+
+    /// `ReadCounters`, retrying briefly when the daemon's own calls share the per-user limit.
+    fn read_rapl(&self) -> Result<(u64, BTreeMap<String, u64>)> {
+        for _ in 0..5 {
+            match self.runtime.block_on(self.sampler.read_counters()) {
+                Ok((_, generation, counters)) => {
+                    return Ok((generation, counters.into_iter().collect()));
+                }
+                Err(SamplerError::RateLimited(_)) => sleep(Duration::from_millis(300)),
+                Err(err) => bail!("reading RAPL from the sampler: {err}"),
+            }
+        }
+        bail!("the sampler kept rate-limiting; is something else polling it every second?")
+    }
+
+    /// The daemon's usage rows for `[since, until)`, if it's running.
+    fn usage(&self, since: i64, until: i64) -> Option<Vec<UsageRow>> {
+        let monitor = self.monitor.as_ref()?;
+        self.runtime
+            .block_on(monitor.get_usage(since, until, "consumer", "any"))
+            .ok()
+    }
 }
 
 fn read_battery_w() -> Option<f64> {
@@ -188,8 +207,8 @@ fn app_slice() -> String {
     format!("/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service/app.slice")
 }
 
-fn sample(start: Instant, units: &[String]) -> Result<Sample> {
-    let (generation, rapl_uj) = read_rapl()?;
+fn sample(buses: &Buses, start: Instant, units: &[String]) -> Result<Sample> {
+    let (generation, rapl_uj) = buses.read_rapl()?;
     let scope_usec = units
         .iter()
         .filter_map(|unit| {
@@ -210,6 +229,7 @@ fn sample(start: Instant, units: &[String]) -> Result<Sample> {
 
 /// Samples every `SAMPLE_EVERY` for `length`, or until `child` exits.
 fn record(
+    buses: &Buses,
     start: Instant,
     length: Duration,
     units: &[String],
@@ -225,13 +245,14 @@ fn record(
         {
             break;
         }
-        samples.push(sample(start, units)?);
+        samples.push(sample(buses, start, units)?);
         sleep(SAMPLE_EVERY);
     }
     Ok(())
 }
 
-pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
+/// Refuses runs that can't produce meaningful numbers.
+fn preflight(options: &Options) -> Result<()> {
     ensure!(
         !rustix::process::geteuid().is_root(),
         "run as your normal user: polkit only grants RAPL access to the active session"
@@ -240,12 +261,25 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
         options.allow_ac || read_battery_w().is_some(),
         "unplug the charger first (or pass --allow-ac to check the harness without battery data)"
     );
+    ensure!(
+        options.phase_secs >= MIN_PHASE_SECS && options.idle_secs >= MIN_PHASE_SECS,
+        "phases must last at least {MIN_PHASE_SECS} s: each skips {SETTLE:.0} s of battery lag and \
+         needs several samples ({} s apart) after that",
+        SAMPLE_EVERY.as_secs()
+    );
     run_output("stress-ng", &["--version"]).context("stress-ng is required")?;
+    Ok(())
+}
+
+pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
+    preflight(options)?;
+    let buses = Buses::connect().context("connecting to D-Bus")?;
 
     let run_id = unix_now();
     let units: Vec<String> = LOADS
         .iter()
-        .map(|l| format!("validate-{run_id}-cpu{}x{}", l.cpus, l.load_percent))
+        // Stable names, so repeated runs add up under the same consumers.
+        .map(|l| format!("drainscope-validate-cpu{}x{}", l.cpus, l.load_percent))
         .collect();
     let start = Instant::now();
     let mut samples = Vec::new();
@@ -257,6 +291,7 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
     );
     let (t0, w0) = (start.elapsed().as_secs_f64(), unix_now());
     record(
+        &buses,
         start,
         Duration::from_secs(options.idle_secs),
         &units,
@@ -304,6 +339,7 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
             .context("starting stress-ng in a transient scope")?;
         let (t0, w0) = (start.elapsed().as_secs_f64(), unix_now());
         record(
+            &buses,
             start,
             Duration::from_secs(options.phase_secs + 2),
             &units,
@@ -319,11 +355,11 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
             wall_start: w0,
             wall_end: unix_now(),
         });
-        record(start, REST, &units, &mut samples, None)?;
+        record(&buses, start, REST, &units, &mut samples, None)?;
     }
 
-    let raw = write_raw(repo_root, run_id, &samples)?;
-    let report = report(&phases, &samples, &raw)?;
+    let raw = write_raw(repo_root, run_id, &samples, &phases)?;
+    let report = report(&buses, &phases, &samples, &raw)?;
     let path = repo_root.join("docs/validation.md");
     fs::write(&path, &report).with_context(|| format!("writing {}", path.display()))?;
     print!("{report}");
@@ -331,10 +367,33 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
     Ok(())
 }
 
-fn write_raw(repo_root: &Path, run_id: i64, samples: &[Sample]) -> Result<String> {
+/// Writes the samples, and the phase boundaries next to them, for later re-analysis.
+fn write_raw(
+    repo_root: &Path,
+    run_id: i64,
+    samples: &[Sample],
+    phases: &[Phase],
+) -> Result<String> {
     let dir = repo_root.join("testdata/local");
     fs::create_dir_all(&dir)?;
     let name = format!("validation-{run_id}.csv");
+    let mut phase_csv = String::from("name,unit,start,end,wall_start,wall_end\n");
+    for p in phases {
+        let _ = writeln!(
+            phase_csv,
+            "{},{},{:.3},{:.3},{},{}",
+            p.name,
+            p.unit.as_deref().unwrap_or(""),
+            p.start,
+            p.end,
+            p.wall_start,
+            p.wall_end
+        );
+    }
+    fs::write(
+        dir.join(format!("validation-{run_id}.phases.csv")),
+        phase_csv,
+    )?;
     let mut csv = String::from("t,generation,battery_w,backlight,root_usec,rapl_uj,scope_usec\n");
     for s in samples {
         let rapl: Vec<String> = s.rapl_uj.iter().map(|(d, v)| format!("{d}={v}")).collect();
@@ -431,23 +490,14 @@ fn fit(points: &[(f64, f64)]) -> Option<(f64, f64, f64)> {
 
 /// The daemon's attribution for a phase: the load scope's share of active energy. `None` if
 /// the daemon isn't running.
-fn daemon_share(phase: &Phase) -> Option<f64> {
+fn daemon_share(buses: &Buses, phase: &Phase) -> Option<f64> {
     let unit = phase.unit.as_ref()?;
-    let (since, until) = (
-        phase.wall_start.to_string(),
-        (phase.wall_end + 1).to_string(),
-    );
-    let mut args = vec!["--user", "--json=short", "call"];
-    args.extend(MONITOR);
-    args.extend(["GetUsage", "xxss", &since, &until, "consumer", "any"]);
-    let json: serde_json::Value = serde_json::from_str(&run_output("busctl", &args).ok()?).ok()?;
-    let rows = json["data"][0].as_array()?;
+    let rows = buses.usage(phase.wall_start, phase.wall_end + 1)?;
     let key = format!("user-unit:{unit}.scope");
     let mut scope = 0.0;
     let mut active = 0.0;
-    for row in rows {
-        let (name, joules) = (row[0].as_str()?, row[2].as_f64()?);
-        if !matches!(name, "idle" | "devices" | "platform") {
+    for (name, _, joules, ..) in rows {
+        if !matches!(name.as_str(), "idle" | "devices" | "platform") {
             active += joules;
         }
         if name == key {
@@ -457,7 +507,7 @@ fn daemon_share(phase: &Phase) -> Option<f64> {
     (active > 0.0).then(|| scope / active * 100.0)
 }
 
-fn report(phases: &[Phase], samples: &[Sample], raw: &str) -> Result<String> {
+fn report(buses: &Buses, phases: &[Phase], samples: &[Sample], raw: &str) -> Result<String> {
     let idle = phases
         .first()
         .and_then(|p| stats(p, samples))
@@ -510,7 +560,7 @@ fn report(phases: &[Phase], samples: &[Sample], raw: &str) -> Result<String> {
             fit_points.push((s.scope_cpus, s.package_w - idle.package_w));
             ks.extend(k);
         }
-        let share = daemon_share(phase).map_or("n/a".to_owned(), |p| format!("{p:.0}%"));
+        let share = daemon_share(buses, phase).map_or("n/a".to_owned(), |p| format!("{p:.0}%"));
         let _ = writeln!(
             out,
             "| {} | {:.2} | {:.2} | {} | {:.2} | {} | {:.2} | {} | {} |",

@@ -10,11 +10,14 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+drainscope-dbus.workspace = true
 clap.workspace = true
 flate2.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
+zbus.workspace = true
 
 [lints]
 workspace = true
