@@ -195,6 +195,10 @@ type TopRow = (String, f64, f64, f64);
 type SummaryReply = (bool, i64, f64, Vec<TopRow>);
 /// (start, end, Wh lost, % lost, sleep mode).
 type SleepRow = (i64, i64, f64, f64, String);
+/// (start, end, Wh lost, % lost, sleep mode, wake reason).
+type SleepHistoryRow = (i64, i64, f64, f64, String, String);
+/// (battery, time, full-charge Wh, design Wh, cycles).
+type HealthRow = (String, i64, f64, f64, u32);
 
 #[zbus::interface(name = "io.github.khaledsaeed18.Drainscope.Monitor1")]
 impl Monitor {
@@ -276,6 +280,55 @@ impl Monitor {
                     s.wh_lost.unwrap_or(f64::NAN),
                     s.percent_lost.unwrap_or(f64::NAN),
                     s.mem_sleep.unwrap_or_default(),
+                )
+            })
+            .collect())
+    }
+
+    #[zbus(out_args("sessions"))]
+    fn get_sleep_history(&self, since: i64) -> fdo::Result<Vec<SleepHistoryRow>> {
+        let sessions = self
+            .shared
+            .store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .sleep_sessions(to_ms(since))
+            .map_err(|err| failed(&err))?;
+        Ok(sessions
+            .into_iter()
+            .map(|s| {
+                (
+                    s.start_ms / 1000,
+                    s.end_ms / 1000,
+                    s.wh_lost.unwrap_or(f64::NAN),
+                    s.percent_lost.unwrap_or(f64::NAN),
+                    s.mem_sleep.unwrap_or_default(),
+                    s.wake_reason.unwrap_or_default(),
+                )
+            })
+            .collect())
+    }
+
+    #[zbus(out_args("readings"))]
+    fn get_battery_health(&self, since: i64) -> fdo::Result<Vec<HealthRow>> {
+        let records = self
+            .shared
+            .store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .battery_health(to_ms(since))
+            .map_err(|err| failed(&err))?;
+        Ok(records
+            .into_iter()
+            .map(|r| {
+                (
+                    r.health.battery,
+                    r.ts_ms / 1000,
+                    r.health.energy_full.0 / 3600.0,
+                    r.health
+                        .energy_full_design
+                        .map_or(f64::NAN, |j| j.0 / 3600.0),
+                    r.health.cycle_count.unwrap_or(0),
                 )
             })
             .collect())

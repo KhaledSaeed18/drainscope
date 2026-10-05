@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use drainscope_daemon::monitor::{LiveState, Monitor, Shared, Status};
 use drainscope_dbus::monitor::{BUS_NAME, INTERFACE, Monitor1Proxy, OBJECT_PATH};
-use drainscope_model::{ClosedWindow, ConsumerKey, EnergySplit, Joules, Ledger, Measurement};
+use drainscope_model::{
+    BatteryHealth, ClosedWindow, ConsumerKey, EnergySplit, Joules, Ledger, Measurement,
+};
 use drainscope_store::{PowerEvent, PowerEventKind, SleepSession, Store, WindowRecord};
 use zbus::connection::Builder;
 
@@ -77,8 +79,19 @@ fn shared() -> Arc<Shared> {
             wh_lost: Some(0.5),
             percent_lost: None,
             mem_sleep: Some("deep".into()),
-            wake_reason: None,
+            wake_reason: Some("Lid (PNP0C0D:00)".into()),
         })
+        .unwrap();
+    store
+        .record_battery_health(
+            T0,
+            &[BatteryHealth {
+                battery: "BAT0".into(),
+                energy_full: Joules(31.0 * 3600.0),
+                energy_full_design: None,
+                cycle_count: Some(42),
+            }],
+        )
         .unwrap();
     let shared = Shared::new(store);
     *shared.live.lock().unwrap_or_else(PoisonError::into_inner) = LiveState {
@@ -197,6 +210,38 @@ async fn sleep_sessions_mark_unknowns_as_nan() {
     assert!((wh - 0.5).abs() < 1e-9);
     assert!(percent.is_nan());
     assert_eq!(mode, "deep");
+}
+
+#[tokio::test]
+async fn sleep_history_adds_the_wake_reason() {
+    let peer = serve().await;
+    let sessions = proxy(&peer)
+        .await
+        .get_sleep_history(T0 / 1000)
+        .await
+        .unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].4, "deep");
+    assert_eq!(sessions[0].5, "Lid (PNP0C0D:00)");
+}
+
+#[tokio::test]
+async fn battery_health_marks_unknowns() {
+    let peer = serve().await;
+    let readings = proxy(&peer).await.get_battery_health(0).await.unwrap();
+    assert_eq!(readings.len(), 1);
+    let (battery, ts, full, design, cycles) = &readings[0];
+    assert_eq!((battery.as_str(), *ts, *cycles), ("BAT0", T0 / 1000, 42));
+    assert!((full - 31.0).abs() < 1e-9);
+    assert!(design.is_nan());
+    assert!(
+        proxy(&peer)
+            .await
+            .get_battery_health(T0 / 1000 + 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
