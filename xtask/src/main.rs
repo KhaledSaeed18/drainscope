@@ -5,6 +5,7 @@ mod record;
 mod spike;
 mod trace;
 mod trim;
+mod validate;
 
 use std::path::{Path, PathBuf};
 
@@ -53,6 +54,19 @@ enum Command {
     InstallDev,
     /// Remove what install-dev installed (needs root).
     UninstallDev,
+    /// Accuracy harness: known CPU loads in transient scopes, sampled against RAPL and the
+    /// battery. Run unplugged, as your normal user; writes docs/validation.md.
+    Validate {
+        /// Idle baseline length in seconds.
+        #[arg(long, default_value_t = 90)]
+        idle: u64,
+        /// Length of each load phase in seconds.
+        #[arg(long, default_value_t = 45)]
+        phase: u64,
+        /// Allow running on AC (no battery figures), to check the harness itself.
+        #[arg(long)]
+        allow_ac: bool,
+    },
     /// Cut a time window out of a trace into testdata/traces/, keeping only what the model reads.
     TrimTrace {
         /// Path to the source .jsonl.gz trace.
@@ -92,6 +106,18 @@ fn main() -> Result<()> {
         }
         Command::SpikeAttribute { trace, top, model } => spike::run(&trace, top, model),
         Command::InstallDev => install::install(repo_root()?),
+        Command::Validate {
+            idle,
+            phase,
+            allow_ac,
+        } => validate::run(
+            repo_root()?,
+            &validate::Options {
+                idle_secs: idle,
+                phase_secs: phase,
+                allow_ac,
+            },
+        ),
         Command::UninstallDev => install::uninstall(),
         Command::TrimTrace {
             input,
