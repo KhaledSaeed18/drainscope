@@ -1,6 +1,6 @@
 # 0006 — Where eBPF runs (M4)
 
-- Status: **proposed**, awaiting the maintainer's approval (it changes the privilege model)
+- Status: accepted (approved by the maintainer on 2026-10-05)
 - Date: 2026-10-05
 
 ## Context
@@ -29,8 +29,13 @@ Option 2, with these limits:
 - **What crosses the boundary:** per-cgroup totals per tick: wakeups, CPU time of exited processes, and RX/TX bytes. No PIDs, command lines, addresses or packet contents.
 - **Who may read what:** polkit `allow_active` like the sampler. A caller gets counters for its own `user-<uid>.slice` and for system services only. System services are already visible through world-readable `cpu.stat`, but network bytes of other users' cgroups are new information, so they are excluded.
 - **Build toolchain:** eBPF programs are written in C and compiled with clang at build time (`build.rs`, using vmlinux.h from bpftool). The loader uses `aya` on stable Rust. aya's Rust-side eBPF needs nightly and `bpf-linker`, which would break the stable-only rule.
-- **Interface:** a new `io.github.khaledsaeed18.Drainscope.Probe1` on the system bus (Subscribe, then a per-tick Counters signal to subscribers only), contract-tested like Sampler1.
+- **Interface:** a new `io.github.khaledsaeed18.Drainscope.Probe1` on the system bus, contract-tested like Sampler1. Like Sampler1 it is pulled, not pushed: the daemon reads cumulative counters every tick, rate-limited per caller, and the probe exits when nobody has read for 60 s. A generation number changes when the probe restarts and its counters reset.
 - **Model:** wakeups and exit capture are shown as their own metrics first. Using them, or frequency, in attribution is model v2 (`MODEL_VERSION` 2) and needs a new `xtask validate` run.
+
+## Staging
+
+1. **Idle wakeups** (`CAP_BPF`, `CAP_PERFMON`): count switches from the idle task to a task, by the cgroup of the incoming task. Each one is the CPU leaving idle for that cgroup, which is what drains a "doing nothing" laptop. The daemon maps cgroup IDs (the cgroup directory's inode number) to consumers and serves recent rates live from memory, with no schema change.
+2. **Exit capture**, then **network bytes** (`CAP_NET_ADMIN`), then **model v2**, each in its own change.
 
 ## Consequences
 
