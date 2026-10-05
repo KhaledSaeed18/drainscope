@@ -8,7 +8,7 @@ const OBJECT_PATH = '/io/github/khaledsaeed18/Drainscope/Monitor';
 const INTERFACE = 'io.github.khaledsaeed18.Drainscope.Monitor1';
 const CALL_TIMEOUT_MS = 5000;
 
-Gio._promisify(Gio.DBusConnection.prototype, 'call');
+// GNOME Shell already promisifies Gio.DBusConnection.prototype.call.
 
 export type SummaryResult =
   | { kind: 'summary'; summary: Summary }
