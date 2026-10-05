@@ -120,6 +120,9 @@ pub mod monitor {
         /// (probe available, (key, idle exits per second) largest first).
         fn get_wakeups(&self) -> zbus::Result<(bool, Vec<(String, f64)>)>;
 
+        /// (probe network counting available, (key, received B/s, sent B/s) busiest first).
+        fn get_network(&self) -> zbus::Result<(bool, Vec<(String, f64, f64)>)>;
+
         /// (tick length in ms, (key, watts) for consumers active during the tick).
         #[zbus(signal)]
         fn tick(&self, duration_ms: u32, usage: Vec<(String, f64)>) -> zbus::Result<()>;

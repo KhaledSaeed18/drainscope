@@ -90,6 +90,17 @@
       <arg name="wakeups" type="a(sd)" direction="out"/>
     </method>
     <!--
+      GetNetwork: network traffic outside loopback by consumer, from the eBPF probe.
+        available  False when the probe or its network counting isn't available; traffic is
+                   then empty.
+        traffic    (key, bytes received per second, bytes sent per second) over the last
+                   minute, busiest first.
+    -->
+    <method name="GetNetwork">
+      <arg name="available" type="b" direction="out"/>
+      <arg name="traffic" type="a(sdd)" direction="out"/>
+    </method>
+    <!--
       Tick: emitted after every attribution tick, for live views.
         duration_ms  Length of the tick.
         usage        (key, watts) for consumers active during the tick.
