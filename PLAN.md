@@ -328,7 +328,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 
 | Milestone | Scope |
 |---|---|
-| **M2 — GNOME Shell extension** | Quick-settings section "Battery usage since unplug" (top 5 + "Open drainscope"); live refresh via `Tick`; app names and icons via `Gio.DesktopAppInfo`; GNOME 50 ESM; strict TS with validated GVariant decoders; EGO-compliant (no work outside `enable`, full cleanup in `disable`). |
+| **M2 — GNOME Shell extension** (done 2026-10-05: tile + top-5 menu, verified on GNOME 50.3) | Quick-settings section "Battery usage since unplug" (top 5 + "Open drainscope"); live refresh via `Tick`; app names and icons via `Gio.DesktopAppInfo`; GNOME 50 ESM; strict TS with validated GVariant decoders; EGO-compliant (no work outside `enable`, full cleanup in `disable`). |
 | **M3 — Desktop app + sleep and health** | libadwaita app: since-unplug / 24 h / 7 d views, stacked timeline, per-app detail (CPU vs GPU, foreground vs background), sleep sessions with wake reason, battery health chart (`energy_full` vs design, cycle count). |
 | **M4 — eBPF precision (aya)** | Per-app wakeups (timer/sched tracepoints) to find idle-drain culprits; capture short-lived processes at exit; per-cgroup network bytes (cgroup_skb) for a Wi-Fi share of "devices"; model v2 weighting CPU time by per-CPU frequency. eBPF runs in the privileged sampler (or a sibling) and exports only aggregated per-cgroup counters. |
 | **M5 — Hardening and distribution** | SELinux policy module for the sampler; COPR stable channel; EGO publication; Flatpak for the app; AMD support (no `psys`, different domains) tested on a donor machine or in CI with fixtures; docs site and a write-up of the model and validation. |

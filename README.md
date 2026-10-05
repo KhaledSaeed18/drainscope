@@ -5,9 +5,9 @@ Per-app battery and energy usage for the Linux desktop.
 > "Firefox used 14% of your battery since you unplugged."
 > Windows, macOS and Android have had this for years. Linux hasn't.
 
-drainscope measures energy from hardware counters (RAPL via powercap) and the battery. It attributes that energy to apps, terminal workloads and system services through cgroup v2, DRM fdinfo and systemd scopes, keeps local history, and shows it on the command line (GNOME integration is next). No component runs as root.
+drainscope measures energy from hardware counters (RAPL via powercap) and the battery. It attributes that energy to apps, terminal workloads and system services through cgroup v2, DRM fdinfo and systemd scopes, keeps local history, and shows it in GNOME's quick settings and on the command line. No component runs as root.
 
-**Status:** early development. The daemon, the privileged sampler and the CLI work (milestone M1); the GNOME Shell extension comes in M2. See [PLAN.md](PLAN.md) for the architecture, privilege model and roadmap, and [ADR 0001](docs/adr/0001-feasibility.md) for what measurements on real hardware showed.
+**Status:** early development. The daemon, the privileged sampler, the CLI (milestone M1) and the GNOME Shell extension (M2) work on Fedora 44 / GNOME 50. See [PLAN.md](PLAN.md) for the architecture, privilege model and roadmap, and [ADR 0001](docs/adr/0001-feasibility.md) for what measurements on real hardware showed.
 
 ## What it looks like
 
@@ -53,6 +53,13 @@ sudo target/release/xtask install-dev        # installs to /usr/local and /etc o
 systemctl --user daemon-reload
 systemctl --user enable --now drainscope.service
 drainscope doctor
+```
+
+The GNOME Shell extension (log out and back in afterwards; Wayland loads extensions at login):
+
+```bash
+cd ui && pnpm install && pnpm --filter @drainscope/extension install-dev
+gnome-extensions enable drainscope@khaledsaeed18.github.io
 ```
 
 Remove with `sudo target/release/xtask uninstall-dev` (and `systemctl --user disable --now drainscope.service`).
