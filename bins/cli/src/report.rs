@@ -37,6 +37,14 @@ pub async fn connect(bus: &zbus::Connection) -> anyhow::Result<Monitor1Proxy<'_>
 
 /// Explains a failed call, which almost always means the daemon isn't running.
 fn daemon_hint(err: zbus::Error) -> anyhow::Error {
+    if let zbus::Error::MethodError(name, ..) = &err
+        && name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod"
+    {
+        return anyhow::Error::new(err).context(
+            "the running daemon is older than this command; restart it after updating \
+             (systemctl --user restart drainscope.service)",
+        );
+    }
     anyhow::Error::new(err).context(
         "the drainscope daemon didn't answer; is it running? \
          (systemctl --user enable --now drainscope.service)",
@@ -420,6 +428,42 @@ pub async fn top(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Renders `(label, idle exits per second)` rows, largest first.
+#[must_use]
+pub fn render_wakeups(available: bool, rows: &[(String, f64)], limit: usize) -> String {
+    if !available {
+        return "Wakeup counts need the drainscope-probe service (eBPF); it isn't installed or \
+                reachable.\n"
+            .to_owned();
+    }
+    if rows.is_empty() {
+        return "No wakeups measured yet; check again in a minute.\n".to_owned();
+    }
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .take(limit)
+        .map(|(label, rate)| vec![truncate(label, 40), format!("{rate:.1}/s")])
+        .collect();
+    let mut out = table(&["Consumer", "Wakeups"], &cells);
+    let _ = writeln!(
+        out,
+        "\nTimes per second each one woke the processor from idle, over the last minute."
+    );
+    out
+}
+
+pub async fn wakeups(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()> {
+    let monitor = connect(bus).await?;
+    let (available, wakeups) = monitor.get_wakeups().await.map_err(daemon_hint)?;
+    let mut names = Names::default();
+    let rows: Vec<(String, f64)> = wakeups
+        .into_iter()
+        .map(|(key, rate)| (names.label(&key), rate))
+        .collect();
+    print!("{}", render_wakeups(available, &rows, limit));
+    Ok(())
+}
+
 pub async fn sleep(bus: &zbus::Connection, since: Duration) -> anyhow::Result<()> {
     let monitor = connect(bus).await?;
     let now = now_secs();
@@ -601,6 +645,22 @@ mod tests {
             render_sleep(&[]),
             "No sleep sessions recorded in that period.\n"
         );
+    }
+
+    #[test]
+    fn wakeups_list_rates() {
+        let rows = vec![
+            ("Firefox".to_owned(), 41.24),
+            ("System: NetworkManager".to_owned(), 2.0),
+        ];
+        assert_eq!(
+            render_wakeups(true, &rows, 1),
+            "Consumer  Wakeups\n\
+             ─────────────────\n\
+             Firefox    41.2/s\n\
+             \nTimes per second each one woke the processor from idle, over the last minute.\n"
+        );
+        assert!(render_wakeups(false, &rows, 5).contains("drainscope-probe"));
     }
 
     #[test]
