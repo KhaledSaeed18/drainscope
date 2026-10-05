@@ -1,6 +1,6 @@
 # 0007 — Model v2: charge apps for their network processing, not for wakeups
 
-- Status: **proposed** (needs the maintainer's approval: it changes attribution output)
+- Status: accepted (approved by the maintainer on 2026-10-05)
 - Date: 2026-10-05
 
 ## Context
