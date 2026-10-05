@@ -34,6 +34,11 @@ v2 adds one step, before step 2. The probe's network softirq time for the tick (
 
 Without the probe, or across a probe restart (new counter generation), v2 attributes exactly like v1. The trace-replay golden test, which has no probe data, gives identical numbers.
 
+### Known limitations
+
+- Shares are proportional to CPU time, so low-utilization activity (network processing, timers) is charged less than its marginal cost. Each burst wakes the package from deep idle, which costs more per CPU-second than the average. Measured: downloads get about 20% of their RAPL increase under v2 (5% under v1), while large CPU loads get 79–90% (ADR 0007).
+- Network drivers' threaded interrupt handlers (e.g. `irq/<n>-iwlwifi`) remain Kernel's.
+
 ## Validation
 
 - `cargo xtask validate`: CPU loads; results in [validation.md](validation.md).

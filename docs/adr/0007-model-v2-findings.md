@@ -26,6 +26,18 @@ ADR 0006 staged eBPF counters for wakeups and network bytes as metrics first, wi
   - This needs no hard-coded joules-per-byte coefficient, so it holds on other hardware. The 211 mW per MB/s measured here becomes a validation check, not a model constant.
 - `MODEL_VERSION` becomes 2. `docs/attribution-model.md` describes the step. `validate --activity` gains a check: the download scope's charge should reach most of its RAPL increase, as CPU loads already do (79–90%).
 
+## Result (validated 2026-10-05)
+
+With v2 installed, `validate --activity` on battery gives:
+
+- Downloads are charged **20%** (median; 15–20%) of their RAPL increase, up from about 5% under v1.
+- The network stack costs 170 mW per MB/s (211 in the earlier run). The radio, outside RAPL, now resolves at about 70 mW per MB/s (R² = 0.82).
+
+A 20 s download at 0.8 MB/s shows where the rest of the gap comes from:
+
+- **Measured time is moved correctly, but proportional sharing undercharges small activity.** The network softirqs took 0.66 s, which at 2.68 W per busy CPU accounts for most of the 0.14 W increase. But energy above the idle floor is shared in proportion to CPU time across everything running, and small, bursty activity costs more per CPU-second than that average: each burst wakes the package out of deep idle. Timer loads are undercharged the same way (0.01–0.10 W charged against 0.14–0.22 W). Large CPU loads, which dominate the average, get 79–90%. This applies to any low-utilization consumer, not only networking. A marginal-cost model would be a model v3, with its own ADR.
+- **The Wi-Fi driver's threaded interrupt handler isn't counted.** `irq/<n>-iwlwifi` took 0.19 s, about 30% on top of the softirq time. It runs as a kernel thread, so it is Kernel's own time, but not in the network softirqs. Charging network devices' IRQ threads by bytes as well is a natural v2.1.
+
 ## Consequences
 
 - Apps that stream or download are charged for the work they cause. Kernel shrinks by the same amount, so totals don't change.
