@@ -4,13 +4,16 @@ import GLib from 'gi://GLib';
 import {
   COVERAGE_SIGNATURE,
   decodeCoverage,
-  decodeSleepSessions,
+  decodeBatteryHealth,
+  decodeSleepHistory,
   decodeSummary,
   decodeUsage,
+  HEALTH_SIGNATURE,
   SLEEP_SIGNATURE,
   SUMMARY_SIGNATURE,
   USAGE_SIGNATURE,
   type Decoded,
+  type HealthReading,
   type SleepSession,
   type Summary,
   type UsageRow,
@@ -70,7 +73,11 @@ export class MonitorClient {
       const decoded = decode(unpacked);
       return decoded.ok ? decoded : { ok: false, error: decoded.error };
     } catch (error: unknown) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('UnknownMethod')) {
+        return { ok: false, error: 'Needs a newer drainscope daemon; update and restart it.' };
+      }
+      return { ok: false, error: message };
     }
   }
 
@@ -90,7 +97,12 @@ export class MonitorClient {
 
   sleepSessions(since: number): Promise<Result<SleepSession[]>> {
     const parameters = new GLib.Variant('(x)', [since]);
-    return this.call('GetSleepSessions', parameters, SLEEP_SIGNATURE, decodeSleepSessions);
+    return this.call('GetSleepHistory', parameters, SLEEP_SIGNATURE, decodeSleepHistory);
+  }
+
+  batteryHealth(since: number): Promise<Result<HealthReading[]>> {
+    const parameters = new GLib.Variant('(x)', [since]);
+    return this.call('GetBatteryHealth', parameters, HEALTH_SIGNATURE, decodeBatteryHealth);
   }
 
   destroy(): void {

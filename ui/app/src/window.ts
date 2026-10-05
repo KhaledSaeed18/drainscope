@@ -4,6 +4,7 @@ import GObject from 'gi://GObject';
 import Gtk from 'gi://Gtk?version=4.0';
 
 import {
+  buildHealth,
   buildSleep,
   buildTimeline,
   buildUsage,
@@ -24,6 +25,9 @@ import { detailPage } from './detail';
 import { dataRow } from './rows';
 
 const SLEEP_HISTORY_SECONDS = 30 * 86_400;
+const HEALTH_HISTORY_SECONDS = 365 * 86_400;
+/** Health changes daily; reload it at most this often. */
+const HEALTH_REFRESH_SECONDS = 3600;
 /** The timeline makes a query per bar, so it reloads at most this often on ticks. */
 const TIMELINE_REFRESH_SECONDS = 60;
 
@@ -65,6 +69,9 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private readonly usageRows: Gtk.Widget[] = [];
   private readonly sleepGroup = new Adw.PreferencesGroup({ title: 'Sleep' });
   private readonly sleepRows: Gtk.Widget[] = [];
+  private readonly healthGroup = new Adw.PreferencesGroup({ title: 'Battery health' });
+  private readonly healthRows: Gtk.Widget[] = [];
+  private healthLoadedAt: number | undefined;
 
   constructor(application: Adw.Application, client: MonitorClient) {
     super({ application, title: 'drainscope', default_width: 520, default_height: 680 });
@@ -101,6 +108,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     page.add(this.timelineGroup);
     page.add(this.usageGroup);
     page.add(this.sleepGroup);
+    page.add(this.healthGroup);
 
     this.stack.add_named(page, 'history');
     this.stack.add_named(this.status, 'status');
@@ -159,6 +167,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
       this.loadTimeline(summary.value, now),
       this.loadUsage(summary.value, now),
       this.loadSleep(now),
+      this.loadHealth(now),
     ]);
   }
 
@@ -254,6 +263,35 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
       row.add_suffix(new Gtk.Image({ icon_name: 'go-next-symbolic' }));
       this.usageGroup.add(row);
       this.usageRows.push(row);
+    }
+  }
+
+  private async loadHealth(now: number): Promise<void> {
+    if (this.healthLoadedAt !== undefined && now - this.healthLoadedAt < HEALTH_REFRESH_SECONDS) {
+      return;
+    }
+    this.healthLoadedAt = now;
+    const readings = await this.client.batteryHealth(now - HEALTH_HISTORY_SECONDS);
+    removeAll(this.healthGroup, this.healthRows);
+    if (!readings.ok) {
+      this.healthGroup.set_description(GLib.markup_escape_text(readings.error, -1));
+      this.healthLoadedAt = undefined;
+      return;
+    }
+    const entries = buildHealth(readings.value);
+    this.healthGroup.set_description(
+      entries.length === 0 ? 'Recorded once a day; the first reading appears within minutes.' : '',
+    );
+    for (const entry of entries) {
+      const row = dataRow(`${entry.battery}: ${entry.title}`, entry.subtitle);
+      row.add_prefix(new Gtk.Image({ icon_name: 'battery-level-100-symbolic' }));
+      if (entry.fraction !== undefined) {
+        row.add_suffix(
+          new Gtk.ProgressBar({ fraction: Math.min(1, entry.fraction), width_request: 80, valign: Gtk.Align.CENTER }),
+        );
+      }
+      this.healthGroup.add(row);
+      this.healthRows.push(row);
     }
   }
 
