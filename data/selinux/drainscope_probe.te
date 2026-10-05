@@ -1,0 +1,52 @@
+policy_module(drainscope_probe, 0.1.0)
+
+########################################
+#
+# Declarations
+#
+
+type drainscope_probe_t;
+type drainscope_probe_exec_t;
+init_daemon_domain(drainscope_probe_t, drainscope_probe_exec_t)
+# The unit sets NoNewPrivileges=yes, which blocks the transition unless allowed.
+init_nnp_daemon_domain(drainscope_probe_t)
+
+# Denials are logged, not enforced, until the policy has been exercised on real systems.
+permissive drainscope_probe_t;
+
+########################################
+#
+# Local policy: load and attach one tracing eBPF program, map cgroup IDs to paths, serve
+# totals on the system bus to polkit-authorized callers, log to the journal. Nothing else.
+#
+
+allow drainscope_probe_t self:capability2 { bpf perfmon };
+allow drainscope_probe_t self:bpf { map_create map_read map_write prog_load prog_run };
+
+allow drainscope_probe_t self:fifo_file rw_fifo_file_perms;
+allow drainscope_probe_t self:unix_stream_socket create_stream_socket_perms;
+
+# Kernel BTF (/sys/kernel/btf/vmlinux) and the cgroup hierarchy (directory inode numbers).
+dev_read_sysfs(drainscope_probe_t)
+fs_search_cgroup_dirs(drainscope_probe_t)
+fs_list_cgroup_dirs(drainscope_probe_t)
+fs_getattr_cgroup(drainscope_probe_t)
+fs_read_cgroup_files(drainscope_probe_t)
+kernel_read_system_state(drainscope_probe_t)
+
+logging_send_syslog_msg(drainscope_probe_t)
+miscfiles_read_localization(drainscope_probe_t)
+
+optional_policy(`
+	dbus_system_bus_client(drainscope_probe_t)
+	dbus_connect_system_bus(drainscope_probe_t)
+')
+
+optional_policy(`
+	policykit_dbus_chat(drainscope_probe_t)
+')
+
+# Callers: the user daemon, which runs unconfined.
+optional_policy(`
+	unconfined_dbus_chat(drainscope_probe_t)
+')

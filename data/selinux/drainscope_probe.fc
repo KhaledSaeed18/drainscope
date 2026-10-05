@@ -1,0 +1,2 @@
+/usr/libexec/drainscope-probe	--	gen_context(system_u:object_r:drainscope_probe_exec_t,s0)
+/usr/local/libexec/drainscope-probe	--	gen_context(system_u:object_r:drainscope_probe_exec_t,s0)
