@@ -17,7 +17,7 @@ use drainscope_daemon::monitor::{Monitor, Shared, Status};
 use drainscope_daemon::power::{BatteryLevel, PowerTracker, SleepTracker};
 use drainscope_daemon::rapl::RaplClient;
 use drainscope_dbus::monitor::{BUS_NAME, OBJECT_PATH};
-use drainscope_model::{MODEL_VERSION, PowerSource, RaplDomain};
+use drainscope_model::{BatteryHealth, MODEL_VERSION, PowerSource, RaplDomain, health};
 use drainscope_store::{PowerEvent, PowerEventKind, Store, WindowRecord};
 use drainscope_sys::sleep::{PrepareForSleep, PrepareForSleepStream};
 use drainscope_sys::{Login1ManagerProxy, SysRoot, read_batteries, read_mem_sleep};
@@ -48,6 +48,8 @@ struct Daemon {
     inhibitor: Option<zbus::zvariant::OwnedFd>,
     last_save: Instant,
     last_prune: Option<Instant>,
+    /// From the latest snapshot; saved with the calibration.
+    health: Vec<BatteryHealth>,
 }
 
 impl Daemon {
@@ -72,6 +74,7 @@ impl Daemon {
         let mut collected = collected?;
 
         let level = BatteryLevel::of(&collected.snapshot.batteries);
+        self.health = health(&collected.snapshot.batteries);
         if let Some(event) = self.power.update(&level, wall_ms) {
             tracing::info!(kind = ?event.kind, "power source changed");
             self.store().record_power_event(&event)?;
@@ -155,10 +158,13 @@ impl Daemon {
         Ok(())
     }
 
-    /// Persists what was learned (idle floors, psys verdict counts).
+    /// Persists what was learned (idle floors, psys verdict counts) and battery health.
     fn save_state(&mut self) {
         let result = (|| {
             let mut store = self.store();
+            if !self.health.is_empty() {
+                store.record_battery_health(wall_now_ms(), &self.health)?;
+            }
             for source in [PowerSource::Battery, PowerSource::Ac] {
                 if let Some(estimator) = self.engine.floors().get(&source) {
                     store.save_floor(source, estimator)?;
@@ -337,6 +343,7 @@ async fn main() -> anyhow::Result<()> {
         logind,
         inhibitor: None,
         last_save: Instant::now(),
+        health: Vec::new(),
         last_prune: None,
     };
     daemon.take_inhibitor().await;
