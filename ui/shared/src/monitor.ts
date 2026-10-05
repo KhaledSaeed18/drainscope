@@ -66,3 +66,88 @@ export function decodeSummary(value: unknown): Decoded<Summary> {
   }
   return { ok: true, value: { onBattery, sinceUnplug, batteryPercent, top } };
 }
+
+/** D-Bus type of `GetUsage`'s reply. */
+export const USAGE_SIGNATURE = '(a(ssdddd))';
+/** D-Bus type of `GetCoverage`'s reply. */
+export const COVERAGE_SIGNATURE = '(t)';
+/** D-Bus type of `GetSleepSessions`' reply. */
+export const SLEEP_SIGNATURE = '(a(xxdds))';
+
+export interface UsageRow {
+  key: string;
+  kind: string;
+  total: number;
+  cpu: number;
+  gpu: number;
+  other: number;
+}
+
+export interface SleepSession {
+  /** Unix seconds. */
+  start: number;
+  end: number;
+  /** NaN when unknown. */
+  whLost: number;
+  percentLost: number;
+  /** e.g. `deep`; empty when unknown. */
+  mode: string;
+}
+
+/** Unwraps a one-element reply tuple. */
+function single(value: unknown): unknown {
+  return isArray(value) && value.length === 1 ? value[0] : undefined;
+}
+
+/** Decodes the unpacked `(a(ssdddd))` reply of `GetUsage`. */
+export function decodeUsage(value: unknown): Decoded<UsageRow[]> {
+  const rows = single(value);
+  if (!isArray(rows)) {
+    return { ok: false, error: 'expected (a(ssdddd))' };
+  }
+  const usage: UsageRow[] = [];
+  for (const row of rows) {
+    if (!isArray(row) || row.length !== 6) {
+      return { ok: false, error: 'malformed usage row' };
+    }
+    const [key, kind, total, cpu, gpu, other] = row;
+    if (
+      typeof key !== 'string' ||
+      typeof kind !== 'string' ||
+      !isNumber(total) ||
+      !isNumber(cpu) ||
+      !isNumber(gpu) ||
+      !isNumber(other)
+    ) {
+      return { ok: false, error: 'malformed usage row' };
+    }
+    usage.push({ key, kind, total, cpu, gpu, other });
+  }
+  return { ok: true, value: usage };
+}
+
+/** Decodes the unpacked `(t)` reply of `GetCoverage`: measured seconds. */
+export function decodeCoverage(value: unknown): Decoded<number> {
+  const seconds = single(value);
+  return isNumber(seconds) ? { ok: true, value: seconds } : { ok: false, error: 'expected (t)' };
+}
+
+/** Decodes the unpacked `(a(xxdds))` reply of `GetSleepSessions`. */
+export function decodeSleepSessions(value: unknown): Decoded<SleepSession[]> {
+  const rows = single(value);
+  if (!isArray(rows)) {
+    return { ok: false, error: 'expected (a(xxdds))' };
+  }
+  const sessions: SleepSession[] = [];
+  for (const row of rows) {
+    if (!isArray(row) || row.length !== 5) {
+      return { ok: false, error: 'malformed sleep session' };
+    }
+    const [start, end, whLost, percentLost, mode] = row;
+    if (!isNumber(start) || !isNumber(end) || !isNumber(whLost) || !isNumber(percentLost) || typeof mode !== 'string') {
+      return { ok: false, error: 'malformed sleep session' };
+    }
+    sessions.push({ start, end, whLost, percentLost, mode });
+  }
+  return { ok: true, value: sessions };
+}
