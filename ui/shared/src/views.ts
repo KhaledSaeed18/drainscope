@@ -1,8 +1,8 @@
 /** View models for the desktop app's history and sleep pages. */
 
 import { describeConsumer, parseConsumer, type Consumer } from './consumers';
-import type { HealthReading, SleepSession, UsageRow, Wakeups } from './monitor';
-import { formatDuration, formatEnergy, formatPercent, formatWatts } from './units';
+import type { HealthReading, Network, SleepSession, UsageRow, Wakeups } from './monitor';
+import { formatByteRate, formatDuration, formatEnergy, formatPercent, formatWatts } from './units';
 
 export interface EnergyPart {
   label: string;
@@ -266,6 +266,36 @@ export function buildWakeups(
       label: describeConsumer(consumer, appName),
       rate: perSecond >= 10 ? `${perSecond.toFixed(0)}/s` : `${perSecond.toFixed(1)}/s`,
       fraction: top > 0 ? perSecond / top : 0,
+    };
+  });
+}
+
+export interface NetworkEntry {
+  consumer: Consumer;
+  label: string;
+  /** e.g. `↓ 1.5 MB/s · ↑ 41.0 kB/s`. */
+  traffic: string;
+  /** Fraction of the busiest total, 0–1, for bars. */
+  fraction: number;
+}
+
+/** The `limit` busiest consumers, or `undefined` when network counting isn't available. */
+export function buildNetwork(
+  network: Network,
+  limit: number,
+  appName: (id: string) => string | undefined,
+): NetworkEntry[] | undefined {
+  if (!network.available) {
+    return undefined;
+  }
+  const top = network.rates.reduce((max, r) => Math.max(max, r.received + r.sent), 0);
+  return network.rates.slice(0, limit).map(({ key, received, sent }) => {
+    const consumer = parseConsumer(key);
+    return {
+      consumer,
+      label: describeConsumer(consumer, appName),
+      traffic: `↓ ${formatByteRate(received)} · ↑ ${formatByteRate(sent)}`,
+      fraction: top > 0 ? (received + sent) / top : 0,
     };
   });
 }

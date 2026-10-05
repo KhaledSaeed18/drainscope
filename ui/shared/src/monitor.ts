@@ -75,6 +75,8 @@ export const COVERAGE_SIGNATURE = '(t)';
 export const SLEEP_SIGNATURE = '(a(xxddss))';
 /** D-Bus type of `GetWakeups`' reply. */
 export const WAKEUPS_SIGNATURE = '(ba(sd))';
+/** D-Bus type of `GetNetwork`'s reply. */
+export const NETWORK_SIGNATURE = '(ba(sdd))';
 /** D-Bus type of `GetBatteryHealth`'s reply. */
 export const HEALTH_SIGNATURE = '(a(sxddu))';
 
@@ -222,6 +224,36 @@ export function decodeWakeups(value: unknown): Decoded<Wakeups> {
       return { ok: false, error: 'malformed wakeup row' };
     }
     rates.push({ key, perSecond });
+  }
+  return { ok: true, value: { available, rates } };
+}
+
+export interface Network {
+  /** False without the probe's network counting. */
+  available: boolean;
+  /** (key, bytes received and sent per second), busiest first. */
+  rates: { key: string; received: number; sent: number }[];
+}
+
+/** Decodes the unpacked `(ba(sdd))` reply of `GetNetwork`. */
+export function decodeNetwork(value: unknown): Decoded<Network> {
+  if (!isArray(value) || value.length !== 2) {
+    return { ok: false, error: 'expected (ba(sdd))' };
+  }
+  const [available, rows] = value;
+  if (typeof available !== 'boolean' || !isArray(rows)) {
+    return { ok: false, error: 'expected (ba(sdd))' };
+  }
+  const rates: Network['rates'] = [];
+  for (const row of rows) {
+    if (!isArray(row) || row.length !== 3) {
+      return { ok: false, error: 'malformed traffic row' };
+    }
+    const [key, received, sent] = row;
+    if (typeof key !== 'string' || !isNumber(received) || !isNumber(sent)) {
+      return { ok: false, error: 'malformed traffic row' };
+    }
+    rates.push({ key, received, sent });
   }
   return { ok: true, value: { available, rates } };
 }

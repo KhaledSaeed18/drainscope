@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeBatteryHealth, decodeCoverage, decodeSleepHistory, decodeUsage, decodeWakeups } from './monitor';
-import { buildHealth, buildSleep, buildUsage, buildWakeups, rangeQuery } from './views';
+import { decodeBatteryHealth, decodeCoverage, decodeSleepHistory, decodeNetwork, decodeUsage, decodeWakeups } from './monitor';
+import { buildHealth, buildNetwork, buildSleep, buildUsage, buildWakeups, rangeQuery } from './views';
 
 const appNames = (id: string): string | undefined => (id === 'org.mozilla.firefox' ? 'Firefox' : undefined);
 
@@ -139,5 +139,26 @@ describe('buildWakeups', () => {
     ]);
     expect(buildWakeups({ available: false, rates: [] }, 5, appNames)).toBeUndefined();
     expect(decodeWakeups([true, [['x']]]).ok).toBe(false);
+  });
+});
+
+describe('buildNetwork', () => {
+  it('decodes and lists the busiest consumers', () => {
+    const decoded = decodeNetwork([true, [['app:org.mozilla.firefox', 1_520_000, 41_000], ['unit:dnf.service', 850, 40]]]);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) {
+      return;
+    }
+    const entries = buildNetwork(decoded.value, 1, appNames);
+    expect(entries).toEqual([
+      {
+        consumer: { kind: 'app', name: 'org.mozilla.firefox' },
+        label: 'Firefox',
+        traffic: '↓ 1.5 MB/s · ↑ 41.0 kB/s',
+        fraction: 1,
+      },
+    ]);
+    expect(buildNetwork({ available: false, rates: [] }, 5, appNames)).toBeUndefined();
+    expect(decodeNetwork([true, [['x', 1]]]).ok).toBe(false);
   });
 });

@@ -13,15 +13,18 @@ export {
   decodeBatteryHealth,
   decodeSleepHistory,
   decodeSummary,
+  decodeNetwork,
   decodeUsage,
   decodeWakeups,
   HEALTH_SIGNATURE,
+  NETWORK_SIGNATURE,
   SLEEP_SIGNATURE,
   SUMMARY_SIGNATURE,
   USAGE_SIGNATURE,
   WAKEUPS_SIGNATURE,
   type Decoded,
   type HealthReading,
+  type Network,
   type SleepSession,
   type Summary,
   type TopConsumer,
@@ -30,6 +33,7 @@ export {
 } from './monitor';
 export {
   batteryPercent,
+  formatByteRate,
   formatDuration,
   formatEnergy,
   formatPercent,
@@ -38,6 +42,7 @@ export {
 } from './units';
 export {
   buildHealth,
+  buildNetwork,
   buildSleep,
   buildUsage,
   buildWakeups,
@@ -48,6 +53,7 @@ export {
   type Range,
   type EnergyPart,
   type HealthEntry,
+  type NetworkEntry,
   type SleepEntry,
   type UsageEntry,
   type UsageModel,

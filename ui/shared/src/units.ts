@@ -54,3 +54,14 @@ export function formatEnergy(joules: number): string {
 export function formatWatts(watts: number): string {
   return watts >= 10 ? `${watts.toFixed(1)} W` : `${watts.toFixed(2)} W`;
 }
+
+/** `850 B/s`, `12.3 kB/s`, `4.1 MB/s` (decimal units, like network tools; matches the CLI). */
+export function formatByteRate(bytesPerSecond: number): string {
+  if (bytesPerSecond >= 1e6) {
+    return `${(bytesPerSecond / 1e6).toFixed(1)} MB/s`;
+  }
+  if (bytesPerSecond >= 1e3) {
+    return `${(bytesPerSecond / 1e3).toFixed(1)} kB/s`;
+  }
+  return `${bytesPerSecond.toFixed(0)} B/s`;
+}
