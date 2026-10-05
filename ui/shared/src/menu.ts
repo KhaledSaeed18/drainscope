@@ -9,8 +9,8 @@ export interface MenuRow {
   label: string;
   /** Share of the battery, e.g. `14%`. */
   share: string;
-  /** Secondary text, e.g. `61% of active use · 0.84 Wh`. */
-  detail: string;
+  /** Energy, e.g. `0.84 Wh`. */
+  energy: string;
 }
 
 export interface MenuModel {
@@ -21,8 +21,8 @@ export interface MenuModel {
   rows: MenuRow[];
 }
 
-/** Rows shown in the menu. */
-export const MENU_ROWS = 8;
+/** Rows shown in the menu: more don't fit under the quick-settings grid on a 768 px screen. */
+export const MENU_ROWS = 5;
 
 export function buildMenu(
   summary: Summary,
@@ -46,17 +46,17 @@ export function buildMenu(
 
   const rows = summary.top.slice(0, MENU_ROWS).map((top) => {
     const consumer = parseConsumer(top.key);
-    const energy = formatEnergy(top.joules);
     return {
       consumer,
       label: describeConsumer(consumer, appName),
       share: formatPercent(top.ofBattery),
-      detail: isAttributable(consumer) ? `${formatPercent(top.ofActive)} of active use · ${energy}` : energy,
+      energy: formatEnergy(top.joules),
     };
   });
   const leader = rows.find((row) => isAttributable(row.consumer));
   return {
-    subtitle: leader === undefined ? `${used} used` : `${leader.label} · ${used} used`,
+    // Most important first: a long app name is what gets cut off.
+    subtitle: leader === undefined ? `${used} used` : `${used} used · ${leader.label}`,
     headline,
     rows,
   };

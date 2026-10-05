@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { describeConsumer, iconName, parseConsumer } from './consumers';
-import { buildMenu } from './menu';
+import { buildMenu, MENU_ROWS } from './menu';
 import { decodeSummary, type Summary } from './monitor';
 import { formatDuration, formatEnergy, formatPercent } from './units';
 
@@ -74,12 +74,22 @@ describe('buildMenu', () => {
   it('summarizes the current discharge', () => {
     const menu = buildMenu(summary, appNames, now);
     expect(menu.headline).toBe('On battery for 1 h 12 min: 18% used');
-    expect(menu.subtitle).toBe('Firefox · 18% used');
-    expect(menu.rows.map((r) => [r.label, r.share, r.detail])).toEqual([
+    expect(menu.subtitle).toBe('18% used · Firefox');
+    expect(menu.rows.map((r) => [r.label, r.share, r.energy])).toEqual([
       ['Display & devices', '11%', '4.62 Wh'],
-      ['Firefox', '2%', '61% of active use · 0.84 Wh'],
-      ['Terminal: pnpm', '<1%', '17% of active use · 0.23 Wh'],
+      ['Firefox', '2%', '0.84 Wh'],
+      ['Terminal: pnpm', '<1%', '0.23 Wh'],
     ]);
+  });
+
+  it('shows at most MENU_ROWS consumers', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      key: `unit:u${i.toString()}.service`,
+      joules: 100 - i,
+      ofBattery: 1,
+      ofActive: 1,
+    }));
+    expect(buildMenu({ ...summary, top: many }, appNames, now).rows).toHaveLength(MENU_ROWS);
   });
 
   it('describes a finished discharge on AC', () => {
