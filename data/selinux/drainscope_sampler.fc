@@ -1,0 +1,2 @@
+/usr/libexec/drainscope-sampler	--	gen_context(system_u:object_r:drainscope_sampler_exec_t,s0)
+/usr/local/libexec/drainscope-sampler	--	gen_context(system_u:object_r:drainscope_sampler_exec_t,s0)

@@ -1,0 +1,48 @@
+policy_module(drainscope_sampler, 0.1.0)
+
+########################################
+#
+# Declarations
+#
+
+type drainscope_sampler_t;
+type drainscope_sampler_exec_t;
+init_daemon_domain(drainscope_sampler_t, drainscope_sampler_exec_t)
+
+# Denials are logged, not enforced, until the policy has been exercised on real systems.
+permissive drainscope_sampler_t;
+
+########################################
+#
+# Local policy: read RAPL counters from sysfs, serve them on the system bus to polkit-authorized
+# callers, log to the journal. Nothing else.
+#
+
+# The counters are root-only (0400); this is the sampler's only capability.
+allow drainscope_sampler_t self:capability dac_read_search;
+
+allow drainscope_sampler_t self:fifo_file rw_fifo_file_perms;
+allow drainscope_sampler_t self:unix_stream_socket create_stream_socket_perms;
+
+# /sys/class/powercap/*/energy_uj, and the CPU and cgroup files the Rust runtime reads.
+dev_read_sysfs(drainscope_sampler_t)
+fs_search_cgroup_dirs(drainscope_sampler_t)
+fs_read_cgroup_files(drainscope_sampler_t)
+kernel_read_system_state(drainscope_sampler_t)
+
+logging_send_syslog_msg(drainscope_sampler_t)
+miscfiles_read_localization(drainscope_sampler_t)
+
+optional_policy(`
+	dbus_system_bus_client(drainscope_sampler_t)
+	dbus_connect_system_bus(drainscope_sampler_t)
+')
+
+optional_policy(`
+	policykit_dbus_chat(drainscope_sampler_t)
+')
+
+# Callers: the user daemon and CLI, which run unconfined.
+optional_policy(`
+	unconfined_dbus_chat(drainscope_sampler_t)
+')
