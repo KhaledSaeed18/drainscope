@@ -8,7 +8,9 @@ use std::time::Duration;
 use drainscope_dbus::monitor::Monitor1Proxy;
 use drainscope_dbus::sampler::{Sampler1Proxy, SamplerError};
 use drainscope_model::CgroupPath;
-use drainscope_sys::{DrmScanner, SysRoot, read_batteries, read_cpu_usage};
+use drainscope_sys::{
+    DrmScanner, EngineTime, SysRoot, gpu_drivers, read_batteries, read_cpu_usage,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -90,22 +92,58 @@ fn batteries(root: &SysRoot) -> Check {
 }
 
 fn gpu(root: &SysRoot) -> Check {
-    match DrmScanner::default().scan(root, Duration::ZERO) {
-        Ok(clients) if !clients.is_empty() => check(
-            Level::Ok,
-            format!("GPU time visible for {} DRM clients", clients.len()),
-            None,
-        ),
-        Ok(_) => check(
+    let drivers = gpu_drivers(root);
+    let names: Vec<&str> = drivers.iter().map(|(_, driver)| driver.as_str()).collect();
+    let listed = if names.is_empty() {
+        "no GPU found".to_owned()
+    } else {
+        format!("GPU driver: {}", names.join(", "))
+    };
+    gpu_check(
+        &listed,
+        &names
+            .iter()
+            .map(|d| EngineTime::of_driver(d))
+            .collect::<Vec<_>>(),
+        DrmScanner::default()
+            .scan(root, Duration::ZERO)
+            .map(|c| c.len()),
+    )
+}
+
+fn gpu_check(
+    listed: &str,
+    support: &[EngineTime],
+    clients: Result<usize, drainscope_sys::SysError>,
+) -> Check {
+    if support.contains(&EngineTime::Cycles) {
+        return check(
             Level::Warn,
-            "no GPU clients visible (DRM fdinfo)",
-            Some(
-                "GPU energy will count as idle; drivers without per-client fdinfo stats can't be split",
-            ),
+            format!("{listed}: reports GPU cycles, not busy time"),
+            Some("per-app GPU energy isn't supported for xe yet; it counts as idle"),
+        );
+    }
+    if !support.is_empty() && support.iter().all(|s| *s == EngineTime::None) {
+        return check(
+            Level::Warn,
+            format!("{listed}: no per-app GPU statistics"),
+            Some("GPU energy counts as idle"),
+        );
+    }
+    match clients {
+        Ok(0) => check(
+            Level::Warn,
+            format!("{listed}: no GPU clients visible (DRM fdinfo)"),
+            Some("GPU energy counts as idle until an app uses the GPU"),
+        ),
+        Ok(count) => check(
+            Level::Ok,
+            format!("{listed}: GPU time visible for {count} DRM clients"),
+            None,
         ),
         Err(err) => check(
             Level::Warn,
-            format!("scanning GPU clients failed: {err}"),
+            format!("{listed}: scanning GPU clients failed: {err}"),
             None,
         ),
     }
@@ -134,6 +172,14 @@ fn rapl_zones(root: &SysRoot) -> Check {
             Level::Warn,
             "no RAPL energy counters on this machine",
             Some("drainscope falls back to battery readings split by CPU time"),
+        )
+    } else if names.iter().any(|n| n.starts_with("package")) && !names.iter().any(|n| n == "uncore")
+    {
+        // AMD and some Intel parts: integrated-GPU energy is inside the package (ADR 0005).
+        check(
+            Level::Ok,
+            format!("RAPL domains: {}", names.join(", ")),
+            Some("no uncore domain: integrated-GPU energy is split by CPU time"),
         )
     } else {
         check(
@@ -225,6 +271,21 @@ pub async fn run() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explains_gpu_support() {
+        let xe = gpu_check("GPU driver: xe", &[EngineTime::Cycles], Ok(3));
+        assert_eq!(xe.level, Level::Warn);
+        assert!(xe.message.contains("cycles"));
+        let nvidia = gpu_check("GPU driver: nvidia", &[EngineTime::None], Ok(0));
+        assert!(nvidia.message.contains("no per-app GPU statistics"));
+        let amd = gpu_check("GPU driver: amdgpu", &[EngineTime::Nanoseconds], Ok(4));
+        assert_eq!(amd.level, Level::Ok);
+        assert_eq!(
+            amd.message,
+            "GPU driver: amdgpu: GPU time visible for 4 DRM clients"
+        );
+    }
 
     #[test]
     fn renders_marks_and_hints() {
