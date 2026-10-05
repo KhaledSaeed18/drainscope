@@ -8,6 +8,8 @@ policy_module(drainscope_sampler, 0.1.0)
 type drainscope_sampler_t;
 type drainscope_sampler_exec_t;
 init_daemon_domain(drainscope_sampler_t, drainscope_sampler_exec_t)
+# The unit sets NoNewPrivileges=yes, which blocks the transition unless allowed.
+init_nnp_daemon_domain(drainscope_sampler_t)
 
 # Denials are logged, not enforced, until the policy has been exercised on real systems.
 permissive drainscope_sampler_t;
