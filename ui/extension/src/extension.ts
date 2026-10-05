@@ -21,7 +21,7 @@ import { MonitorClient } from './client';
 
 /** How often the tile's subtitle refreshes while the menu is closed. */
 const BACKGROUND_REFRESH_SECONDS = 60;
-const TITLE = 'Battery usage';
+const TITLE = 'Battery';
 const ICON = 'battery-level-50-symbolic';
 
 function rowIcon(row: MenuRow): Gio.Icon {
@@ -87,8 +87,8 @@ function rowItem(row: MenuRow): PopupMenu.PopupImageMenuItem {
   item.label.x_expand = true;
   item.add_child(
     new St.Label({
-      text: row.detail,
-      style_class: 'drainscope-detail',
+      text: row.energy,
+      style_class: 'drainscope-energy',
       y_align: Clutter.ActorAlign.CENTER,
     }),
   );
