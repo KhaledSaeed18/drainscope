@@ -200,7 +200,7 @@ Per interval, for each available domain D ∈ {core, uncore, soc-rest = package�
 6. **True-idle floor:** a low percentile of per-domain power over intervals with < 0.25 busy CPUs and no GPU activity. It is learned over the machine's history (not per session), persisted per power source, and can be bootstrapped with `drainscope calibrate` (2 min idle).
 7. Each stored row carries `model_version` so future models never silently reinterpret history.
 8. Reported per consumer: **share of battery** and **share of attributable (above-idle) energy**.
-9. Open (ADR 0001): a conversion-overhead factor `Δbattery / Δ(package + dram)` under load, to be measured in task 1.22. If it is consistently > 1, the matching part of `devices` is attributed to active consumers.
+9. No conversion factor between RAPL and battery: measured `Δbattery / Δ(package + dram)` was below 1 under load, so the sensors disagree rather than revealing losses (ADR 0004).
 
 Degraded modes (never crash, always report the mode in `Status`):
 - Sampler unavailable or denied → on battery: battery energy above the learned *battery* idle floor split by CPU share (the floor, mostly the display, stays `idle`); on AC: CPU/GPU time only, no joules.
@@ -291,7 +291,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 
 ### M1 — MVP: daemon + sampler + CLI (≈ 3–4 weeks)
 
-**Status (2026-10-05):** 1.1–1.21 and 1.23 implemented and verified on the dev machine (1.5 merged into 1.4). Overhead (1.19, release build, 5 s ticks, 5 min): 0.38% of one CPU, 8.5 MB RSS. 1.22 (`xtask validate`) is implemented; its first real run (on battery) is pending, as are the manual unplug and suspend checks of 1.17 and 1.18.
+**Status (2026-10-05):** 1.1–1.21 and 1.23 implemented and verified on the dev machine (1.5 merged into 1.4). Overhead (1.19, release build, 5 s ticks, 5 min): 0.38% of one CPU, 8.5 MB RSS. 1.22 validated on battery ([docs/validation.md](docs/validation.md), [ADR 0004](docs/adr/0004-no-conversion-factor.md)): the daemon gave isolated loads 86–97% of their active energy; no battery/RAPL conversion factor. The manual suspend check of 1.18 is pending.
 | # | Task | Verify |
 |---|---|---|
 | 1.1 | `model`: domain types, `ConsumerKey`, identity rules (cgroup path → key, systemd unescape) | Table-driven unit tests over real cgroup names from this machine |
