@@ -23,6 +23,8 @@ const SAMPLE_EVERY: Duration = Duration::from_secs(2);
 /// Battery power lags load changes by 6–8 s (ADR 0001): skip the start of each phase.
 const SETTLE: f64 = 8.0;
 const REST: Duration = Duration::from_secs(20);
+/// Below this RAPL increase, k is dominated by measurement noise.
+const MIN_K_RAPL_W: f64 = 1.0;
 const SAMPLER: [&str; 3] = [
     "io.github.khaledsaeed18.Drainscope.Sampler",
     "/io/github/khaledsaeed18/Drainscope/Sampler",
@@ -76,6 +78,8 @@ struct Sample {
     rapl_uj: BTreeMap<String, u64>,
     /// Summed discharge power; `None` when not discharging.
     battery_w: Option<f64>,
+    /// Display backlight, to rule out dimming between phases (the display is outside RAPL).
+    backlight: Option<u64>,
     root_usec: u64,
     /// `usage_usec` per transient scope that exists at this moment.
     scope_usec: BTreeMap<String, u64>,
@@ -156,6 +160,19 @@ fn read_battery_w() -> Option<f64> {
     total
 }
 
+/// `actual_brightness` of the first backlight device.
+fn read_backlight() -> Option<u64> {
+    let device = fs::read_dir("/sys/class/backlight")
+        .ok()?
+        .flatten()
+        .next()?;
+    fs::read_to_string(device.path().join("actual_brightness"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
 fn usage_usec(cgroup_dir: &Path) -> Option<u64> {
     fs::read_to_string(cgroup_dir.join("cpu.stat"))
         .ok()?
@@ -185,6 +202,7 @@ fn sample(start: Instant, units: &[String]) -> Result<Sample> {
         generation,
         rapl_uj,
         battery_w: read_battery_w(),
+        backlight: read_backlight(),
         root_usec: usage_usec(Path::new("/sys/fs/cgroup")).context("root cpu.stat")?,
         scope_usec,
     })
@@ -317,7 +335,7 @@ fn write_raw(repo_root: &Path, run_id: i64, samples: &[Sample]) -> Result<String
     let dir = repo_root.join("testdata/local");
     fs::create_dir_all(&dir)?;
     let name = format!("validation-{run_id}.csv");
-    let mut csv = String::from("t,generation,battery_w,root_usec,rapl_uj,scope_usec\n");
+    let mut csv = String::from("t,generation,battery_w,backlight,root_usec,rapl_uj,scope_usec\n");
     for s in samples {
         let rapl: Vec<String> = s.rapl_uj.iter().map(|(d, v)| format!("{d}={v}")).collect();
         let scopes: Vec<String> = s
@@ -327,10 +345,11 @@ fn write_raw(repo_root: &Path, run_id: i64, samples: &[Sample]) -> Result<String
             .collect();
         let _ = writeln!(
             csv,
-            "{:.3},{},{},{},{},{}",
+            "{:.3},{},{},{},{},{},{}",
             s.t,
             s.generation,
             s.battery_w.map_or(String::new(), |w| format!("{w:.3}")),
+            s.backlight.map_or(String::new(), |b| b.to_string()),
             s.root_usec,
             rapl.join(";"),
             scopes.join(";")
@@ -484,7 +503,9 @@ fn report(phases: &[Phase], samples: &[Sample], raw: &str) -> Result<String> {
         let rapl = s.package_w + s.dram_w;
         let d_rapl = rapl - (idle.package_w + idle.dram_w);
         let d_battery = s.battery_w.zip(idle.battery_w).map(|(b, i)| b - i);
-        let k = d_battery.filter(|_| d_rapl > 0.05).map(|d| d / d_rapl);
+        let k = d_battery
+            .filter(|_| d_rapl >= MIN_K_RAPL_W)
+            .map(|d| d / d_rapl);
         if phase.unit.is_some() {
             fit_points.push((s.scope_cpus, s.package_w - idle.package_w));
             ks.extend(k);
@@ -505,22 +526,48 @@ fn report(phases: &[Phase], samples: &[Sample], raw: &str) -> Result<String> {
         );
     }
     let _ = writeln!(out);
-    if let Some((a, b, r2)) = fit(&fit_points) {
+    conclusions(&mut out, &fit_points, ks, samples);
+    Ok(out)
+}
+
+/// The fit, the conversion factor and the backlight check, below the table.
+fn conclusions(out: &mut String, fit_points: &[(f64, f64)], mut ks: Vec<f64>, samples: &[Sample]) {
+    if let Some((a, b, r2)) = fit(fit_points) {
         let _ = writeln!(
             out,
             "- Package power vs. load: ΔP ≈ {a:.2} W per busy CPU + {b:.2} W (R² = {r2:.3})."
         );
     }
     if ks.is_empty() {
-        let _ = writeln!(out, "- k unavailable: no battery data (run unplugged).");
-    } else {
-        let mean = ks.iter().sum::<f64>() / ks.len() as f64;
         let _ = writeln!(
             out,
-            "- Mean k = {mean:.2}: each watt measured by RAPL costs {mean:.2} W at the battery."
+            "- k unavailable: no battery data (run unplugged) or no phase above {MIN_K_RAPL_W:.0} W."
+        );
+    } else {
+        ks.sort_by(f64::total_cmp);
+        let median = ks[ks.len() / 2];
+        let _ = writeln!(
+            out,
+            "- k (phases with ΔRAPL ≥ {MIN_K_RAPL_W:.0} W): median {median:.2}, range {:.2}–{:.2}. \
+             k < 1 means the battery reported a smaller increase than RAPL, which is physically \
+             impossible; one of the two sensors is then miscalibrated.",
+            ks[0],
+            ks[ks.len() - 1]
         );
     }
-    Ok(out)
+    let levels: Vec<u64> = samples.iter().filter_map(|s| s.backlight).collect();
+    match (levels.iter().min(), levels.iter().max()) {
+        (Some(low), Some(high)) if low == high => {
+            let _ = writeln!(out, "- Backlight constant at {low} throughout: no dimming.");
+        }
+        (Some(low), Some(high)) => {
+            let _ = writeln!(
+                out,
+                "- **Backlight changed during the run ({low}–{high})**: battery deltas include display changes."
+            );
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -540,6 +587,7 @@ mod tests {
             generation: 1,
             rapl_uj: BTreeMap::from([("package".to_owned(), package_uj)]),
             battery_w,
+            backlight: Some(100),
             root_usec: scope_usec * 2,
             scope_usec: BTreeMap::from([("u".to_owned(), scope_usec)]),
         }
