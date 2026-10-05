@@ -1,5 +1,6 @@
 //! Developer tooling for drainscope. Never shipped.
 
+mod dist;
 mod install;
 mod record;
 mod spike;
@@ -48,6 +49,13 @@ enum Command {
         /// Attribution model to compare.
         #[arg(long, value_enum, default_value_t = spike::Model::Marginal)]
         model: spike::Model,
+    },
+    /// Release artifacts in target/dist/: source tarball (vendored crates, bundled extension),
+    /// SRPM and the extensions.gnome.org zip. Needs a clean git tree.
+    Dist {
+        /// Also build binary RPMs locally (with --nodeps, using the toolchain on PATH).
+        #[arg(long)]
+        rpm: bool,
     },
     /// Install the sampler and its systemd, D-Bus, polkit and sysusers files for development
     /// (to /etc and /usr/local; needs root).
@@ -106,6 +114,7 @@ fn main() -> Result<()> {
         }
         Command::SpikeAttribute { trace, top, model } => spike::run(&trace, top, model),
         Command::InstallDev => install::install(repo_root()?),
+        Command::Dist { rpm } => dist::run_dist(repo_root()?, rpm),
         Command::Validate {
             idle,
             phase,
