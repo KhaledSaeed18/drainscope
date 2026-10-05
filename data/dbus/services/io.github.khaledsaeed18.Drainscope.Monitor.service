@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=io.github.khaledsaeed18.Drainscope.Monitor
+Exec=/usr/bin/drainscope-daemon
+SystemdService=drainscope.service

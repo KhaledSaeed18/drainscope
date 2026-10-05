@@ -1,0 +1,37 @@
+# drainscope user daemon: measures and attributes energy for this user's session.
+# Enable with: systemctl --user enable --now drainscope.service
+
+[Unit]
+Description=drainscope energy usage daemon
+Documentation=https://github.com/KhaledSaeed18/drainscope
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=io.github.khaledsaeed18.Drainscope.Monitor
+ExecStart=/usr/bin/drainscope-daemon
+Restart=on-failure
+RestartSec=10s
+
+# Measuring must never compete with the user's own work.
+Nice=10
+CPUWeight=20
+IOWeight=20
+
+# Hardening that works in a user manager without user namespaces. Mount-namespace options
+# (ProtectSystem=, PrivateTmp=, ...) imply PrivateUsers=, which hides the user's other
+# processes' /proc/<pid>/fd and would break GPU attribution.
+NoNewPrivileges=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=graphical-session.target
