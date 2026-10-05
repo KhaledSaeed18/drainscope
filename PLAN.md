@@ -58,7 +58,7 @@ Linux laptop users cannot answer "what is draining my battery?" over time:
 │   collectors (sys)  ─► interval engine ─► attribution (model)   │
 │        │                                        │               │
 │        │  RAPL client · cgroup · DRM fdinfo ·   ▼               │
-│        │  power_supply · UPower · logind    store (SQLite)      │
+│        │  power_supply · logind             store (SQLite)      │
 │        └───────────────────────────────────►    │               │
 │   exports io.github.khaledsaeed18.Drainscope.Monitor1 (session) │
 └───────▲──────────────────────▲──────────────────────▲───────────┘
@@ -74,7 +74,7 @@ Layering follows **system integration → core → interface**, with storage iso
 | Crate / package | Layer | Responsibility | May depend on | Must NOT |
 |---|---|---|---|---|
 | `drainscope-model` | core | Domain types (`ConsumerKey`, `Snapshot`, `IntervalDelta`, `ClosedWindow`), the **attribution model**, identity rules for parsing cgroup names, calibration math. Port traits are added only where a fake is needed; the daemon tests against fixture trees and an in-memory store instead. | std, thiserror | do any I/O, depend on tokio/zbus/rusqlite |
-| `drainscope-sys` | system integration | Adapters implementing the ports: powercap reader (sampler side), cgroup v2 walker, `/proc/stat`, DRM fdinfo scanner, power_supply sysfs, D-Bus clients for UPower/logind/Sampler1. Every reader takes a `SysRoot` (base path) so it can be tested against fixture trees. | model, zbus (clients only), procfs/rustix | touch SQLite, define D-Bus servers |
+| `drainscope-sys` | system integration | Readers: powercap (sampler side), cgroup v2 walker, DRM fdinfo scanner, power_supply sysfs, `/proc/<pid>` facts, the logind client (sleep notifications and inhibitor). Every reader takes a `SysRoot` (base path) so it can be tested against fixture trees. | model, zbus (clients only), procfs/rustix | touch SQLite, define D-Bus servers |
 | `drainscope-store` | repository | SQLite schema, migrations, the `Store` repository (windows, usage, rollups, retention, events, calibration). **The only crate that imports `rusqlite`.** | model, rusqlite | depend on sys or dbus |
 | `drainscope-dbus` | interface contract | Introspection XML (source of truth in `data/dbus/`), zbus interface types and server/proxy definitions for Sampler1 and Monitor1, error enums. | model, zbus, serde | contain business logic |
 | `drainscope-sampler` (bin) | interface + composition | Sampler1 server, polkit check, rate limiting, quantization, idle exit. | dbus, sys, model | read anything outside powercap |
@@ -254,11 +254,13 @@ psys_check     (at_least_package, below_package)                               -
 | Component | Runs as | Privileges | Why |
 |---|---|---|---|
 | `drainscope-sampler` | dedicated system user `drainscope-sampler` from sysusers.d (ADR 0003) | `AmbientCapabilities=CAP_DAC_READ_SEARCH` + `CapabilityBoundingSet=CAP_DAC_READ_SEARCH` | `energy_uj` is `0400 root` because of CVE-2020-8694 (Platypus). Bypassing read DAC is the minimum privilege that can read it. **Not root.** |
-| `drainscope-daemon` | the user, `systemd --user` | none | cgroup files, `/proc/<own pids>`, DRM fdinfo of own processes, power_supply sysfs and UPower are all user-readable (verified on this machine) |
+| `drainscope-daemon` | the user, `systemd --user` | none | cgroup files, `/proc/<own pids>`, DRM fdinfo of own processes and power_supply sysfs are all user-readable (verified on this machine) |
 | CLI, extension, app | the user | none | only talk to Monitor1 |
 
 Sampler hardening (enforced in CI by `systemd-analyze security --offline=yes`, exposure score target ≤ 2.0):
 `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp`, `PrivateDevices`, `PrivateNetwork=yes`, `IPAddressDeny=any`, `NoNewPrivileges=yes`, `RestrictAddressFamilies=AF_UNIX`, `SystemCallFilter=@system-service`, `SystemCallArchitectures=native`, `MemoryDenyWriteExecute`, `LockPersonality`, `RestrictNamespaces`, `ProtectKernelTunables` (sysfs stays readable), `ProtectKernelModules`, `ProtectProc=invisible`, `UMask=0077`, `ReadOnlyPaths=/sys/class/powercap /sys/devices/virtual/powercap`.
+
+The user daemon's unit (`data/systemd/user/drainscope.service`) uses only hardening that works in a user manager without user namespaces: `NoNewPrivileges`, seccomp (`SystemCallFilter=@system-service`), `RestrictAddressFamilies=AF_UNIX`, `MemoryDenyWriteExecute`, `LockPersonality`, `RestrictRealtime`, `UMask=0077`, plus low `Nice`/`CPUWeight`. Its `systemd-analyze security` score (6.5) reflects the missing mount-namespace options, which would imply `PrivateUsers=` and hide the user's other processes' `/proc/<pid>/fd`, breaking GPU attribution. The daemon holds no privileges either way.
 
 Activation: D-Bus-activated (`Type=dbus`, `BusName=`), exits after 60 s without callers. It costs nothing when unused and never needs `systemctl enable`.
 
@@ -288,6 +290,8 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | 0.5 | Go/no-go note in `docs/adr/0001-feasibility.md` (domains present, `psys` behaviour, battery update rate) | ADR committed |
 
 ### M1 — MVP: daemon + sampler + CLI (≈ 3–4 weeks)
+
+**Status (2026-10-05):** 1.1–1.21 and 1.23 implemented and verified on the dev machine (1.5 merged into 1.4). 1.22 (`xtask validate`) is implemented; its first real run (on battery) is pending, as are the manual unplug and suspend checks of 1.17 and 1.18.
 | # | Task | Verify |
 |---|---|---|
 | 1.1 | `model`: domain types, `ConsumerKey`, identity rules (cgroup path → key, systemd unescape) | Table-driven unit tests over real cgroup names from this machine |
@@ -306,9 +310,9 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | 1.14 | `store`: rollups (raw → minute → hour) + retention | Tests: rollup sums equal raw sums |
 | 1.15 | `daemon`: tick loop composition, degraded modes, `Status` | Replay test: recorded trace → golden attribution output |
 | 1.16 | `daemon`: Monitor1 server (`GetSummary`, `GetUsage`, `Tick`) | p2p tests; `busctl --user call` on the live daemon |
-| 1.17 | `daemon`: power events (plug/unplug via UPower signals) and "since unplug" | Manual: unplug → `GetSummary` resets |
+| 1.17 | `daemon`: power events (plug/unplug from `power_supply` status transitions, read each tick; UPower isn't needed) and "since unplug" | Manual: unplug → `GetSummary` resets |
 | 1.18 | `daemon`: logind delay inhibitor + sleep sessions | Manual: suspend 2 min → a session row appears with Wh lost |
-| 1.19 | `daemon`: self-accounting + overhead budget | `drainscope report` shows `self`; < 0.5% CPU average over 1 h |
+| 1.19 | `daemon`: self-accounting + overhead budget | `drainscope report` shows `drainscope`; < 0.5% CPU average, < 30 MB RSS |
 | 1.20 | `cli`: `status`, `top` (live via `Tick`), `report --since <unplug\|1h\|24h\|7d> --by app\|unit\|kind` | Snapshot tests of rendering; manual run |
 | 1.21 | `cli`: `doctor` (domains, sampler reachable, polkit, cgroup layout, DRM fdinfo, batteries) | Prints actionable diagnostics on this machine |
 | 1.22 | `xtask validate`: scenarios (idle 10 min; `stress-ng --cpu {1,2,4}` and `--cpu 1 --cpu-load {25,50,100}` in dedicated transient scopes; GPU load via a WebGL page), launched by the harness itself (not a pasted shell line), recording RAPL and battery together | `docs/validation.md` with closure error %, linearity, leakage to other consumers, and the conversion-overhead factor (ADR 0001) |
