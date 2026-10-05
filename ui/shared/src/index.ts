@@ -42,3 +42,12 @@ export {
   type UsageEntry,
   type UsageModel,
 } from './views';
+export {
+  buildTimeline,
+  timelineBuckets,
+  TIMELINE_GROUPS,
+  type Bucket,
+  type Timeline,
+  type TimelineBar,
+  type TimelineGroup,
+} from './timeline';
