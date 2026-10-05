@@ -5,6 +5,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 
 import {
   buildHealth,
+  buildNetwork,
   buildSleep,
   buildTimeline,
   buildUsage,
@@ -75,6 +76,12 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     visible: false,
   });
   private readonly wakeupRows: Gtk.Widget[] = [];
+  private readonly networkGroup = new Adw.PreferencesGroup({
+    title: 'Network',
+    description: 'Average over the last minute. Network traffic keeps the Wi-Fi radio awake.',
+    visible: false,
+  });
+  private readonly networkRows: Gtk.Widget[] = [];
   private readonly sleepGroup = new Adw.PreferencesGroup({ title: 'Sleep' });
   private readonly sleepRows: Gtk.Widget[] = [];
   private readonly healthGroup = new Adw.PreferencesGroup({ title: 'Battery health' });
@@ -116,6 +123,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     page.add(this.timelineGroup);
     page.add(this.usageGroup);
     page.add(this.wakeupsGroup);
+    page.add(this.networkGroup);
     page.add(this.sleepGroup);
     page.add(this.healthGroup);
 
@@ -176,6 +184,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
       this.loadTimeline(summary.value, now),
       this.loadUsage(summary.value, now),
       this.loadWakeups(),
+      this.loadNetwork(),
       this.loadSleep(now),
       this.loadHealth(now),
     ]);
@@ -291,6 +300,21 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
       row.add_suffix(rate);
       this.wakeupsGroup.add(row);
       this.wakeupRows.push(row);
+    }
+  }
+
+  private async loadNetwork(): Promise<void> {
+    const network = await this.client.network();
+    removeAll(this.networkGroup, this.networkRows);
+    // Hidden without the probe's network counting, or with a daemon too old to ask.
+    const entries = network.ok ? buildNetwork(network.value, WAKEUP_ROWS, appName) : undefined;
+    this.networkGroup.set_visible(entries !== undefined && entries.length > 0);
+    for (const entry of entries ?? []) {
+      const row = dataRow(entry.label, entry.traffic);
+      row.add_prefix(new Gtk.Image({ gicon: consumerIcon(entry.consumer), pixel_size: 32 }));
+      row.add_suffix(new Gtk.ProgressBar({ fraction: entry.fraction, width_request: 80, valign: Gtk.Align.CENTER }));
+      this.networkGroup.add(row);
+      this.networkRows.push(row);
     }
   }
 

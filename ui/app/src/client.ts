@@ -7,15 +7,18 @@ import {
   decodeBatteryHealth,
   decodeSleepHistory,
   decodeSummary,
+  decodeNetwork,
   decodeUsage,
   decodeWakeups,
   HEALTH_SIGNATURE,
+  NETWORK_SIGNATURE,
   SLEEP_SIGNATURE,
   SUMMARY_SIGNATURE,
   USAGE_SIGNATURE,
   WAKEUPS_SIGNATURE,
   type Decoded,
   type HealthReading,
+  type Network,
   type SleepSession,
   type Summary,
   type UsageRow,
@@ -101,6 +104,10 @@ export class MonitorClient {
   sleepSessions(since: number): Promise<Result<SleepSession[]>> {
     const parameters = new GLib.Variant('(x)', [since]);
     return this.call('GetSleepHistory', parameters, SLEEP_SIGNATURE, decodeSleepHistory);
+  }
+
+  network(): Promise<Result<Network>> {
+    return this.call('GetNetwork', null, NETWORK_SIGNATURE, decodeNetwork);
   }
 
   wakeups(): Promise<Result<Wakeups>> {
