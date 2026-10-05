@@ -2,7 +2,8 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
 
 use drainscope_model::CgroupPath;
 use drainscope_model::cgroup::TERMINAL_SCOPE_PREFIXES;
@@ -23,8 +24,25 @@ pub const CGROUPFS: &str = "sys/fs/cgroup";
 /// Unexpected I/O errors, or a `cpu.stat` without `usage_usec`.
 pub fn read_cpu_usage(root: &SysRoot) -> Result<BTreeMap<CgroupPath, u64>, SysError> {
     let base = root.path(CGROUPFS);
+    let dirs = cgroup_dirs(&base)?;
+    let mut usage = BTreeMap::new();
+    for dir in dirs.iter().rev() {
+        let stat_path = dir.join("cpu.stat");
+        let Some(text) = root.read_optional(&stat_path)? else {
+            continue;
+        };
+        let usec = parse_usage_usec(&text)
+            .ok_or_else(|| SysError::parse(&stat_path, "missing usage_usec"))?;
+        let relative = dir.strip_prefix(&base).unwrap_or(dir);
+        usage.insert(CgroupPath::new(&relative.to_string_lossy()), usec);
+    }
+    Ok(usage)
+}
+
+/// Every cgroup directory under `base`, parents before their children.
+fn cgroup_dirs(base: &Path) -> Result<Vec<PathBuf>, SysError> {
     let mut dirs: Vec<PathBuf> = Vec::new();
-    let mut stack = vec![base.clone()];
+    let mut stack = vec![base.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let entries = match fs::read_dir(&dir) {
             Ok(entries) => entries,
@@ -39,19 +57,26 @@ pub fn read_cpu_usage(root: &SysRoot) -> Result<BTreeMap<CgroupPath, u64>, SysEr
         // Parents enter `dirs` before any of their children, so reversing reads leaves first.
         dirs.push(dir);
     }
+    Ok(dirs)
+}
 
-    let mut usage = BTreeMap::new();
-    for dir in dirs.iter().rev() {
-        let stat_path = dir.join("cpu.stat");
-        let Some(text) = root.read_optional(&stat_path)? else {
+/// Every cgroup by its ID: the inode number of its cgroupfs directory, which is what eBPF
+/// programs see (`kernfs_node.id`, `bpf_get_current_cgroup_id`).
+///
+/// # Errors
+/// If the cgroup hierarchy can't be listed.
+pub fn cgroup_ids(root: &SysRoot) -> Result<BTreeMap<u64, CgroupPath>, SysError> {
+    let base = root.path(CGROUPFS);
+    let mut ids = BTreeMap::new();
+    for dir in cgroup_dirs(&base)? {
+        // Removed since listing: skip.
+        let Ok(metadata) = fs::metadata(&dir) else {
             continue;
         };
-        let usec = parse_usage_usec(&text)
-            .ok_or_else(|| SysError::parse(&stat_path, "missing usage_usec"))?;
-        let relative = dir.strip_prefix(&base).unwrap_or(dir);
-        usage.insert(CgroupPath::new(&relative.to_string_lossy()), usec);
+        let relative = dir.strip_prefix(&base).unwrap_or(&dir);
+        ids.insert(metadata.ino(), CgroupPath::new(&relative.to_string_lossy()));
     }
-    Ok(usage)
+    Ok(ids)
 }
 
 fn parse_usage_usec(cpu_stat: &str) -> Option<u64> {
@@ -110,6 +135,22 @@ mod tests {
 
     fn cpu_stat(usec: u64) -> String {
         format!("usage_usec {usec}\nuser_usec 1\nsystem_usec 1\n")
+    }
+
+    #[test]
+    fn maps_cgroup_ids_to_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = SysRoot::at(dir.path());
+        let base = root.path(CGROUPFS);
+        fs::create_dir_all(base.join("user.slice/user-1000.slice")).unwrap();
+        let ids = cgroup_ids(&root).unwrap();
+        let inode = |p: &str| fs::metadata(base.join(p)).unwrap().ino();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(ids[&inode("")], CgroupPath::root());
+        assert_eq!(
+            ids[&inode("user.slice/user-1000.slice")],
+            CgroupPath::new("user.slice/user-1000.slice")
+        );
     }
 
     #[test]

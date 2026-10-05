@@ -11,7 +11,7 @@ pub mod process;
 pub mod root;
 pub mod sleep;
 
-pub use cgroup::{read_cpu_usage, terminal_labels};
+pub use cgroup::{cgroup_ids, read_cpu_usage, terminal_labels};
 pub use drm::{DrmScanner, EngineTime, gpu_drivers};
 pub use error::SysError;
 pub use power_supply::read_batteries;
