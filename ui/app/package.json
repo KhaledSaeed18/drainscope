@@ -5,6 +5,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "build": "node build.mjs",
+    "install-dev": "node build.mjs --install",
     "test": "true"
   },
   "dependencies": {
