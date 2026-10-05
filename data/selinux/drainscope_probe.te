@@ -1,4 +1,4 @@
-policy_module(drainscope_probe, 0.2.0)
+policy_module(drainscope_probe, 0.3.0)
 
 ########################################
 #
@@ -13,11 +13,13 @@ init_nnp_daemon_domain(drainscope_probe_t)
 
 ########################################
 #
-# Local policy: load and attach one tracing eBPF program, map cgroup IDs to paths, serve
+# Local policy: load and attach the eBPF programs, map cgroup IDs to paths, serve
 # totals on the system bus to polkit-authorized callers, log to the journal. Nothing else.
 #
 
 allow drainscope_probe_t self:capability2 { bpf perfmon };
+# Attaching the packet-counting programs to the root cgroup.
+allow drainscope_probe_t self:capability net_admin;
 allow drainscope_probe_t self:bpf { map_create map_read map_write prog_load prog_run };
 
 allow drainscope_probe_t self:fifo_file rw_fifo_file_perms;

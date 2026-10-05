@@ -10,12 +10,13 @@ Type=dbus
 BusName=io.github.khaledsaeed18.Drainscope.Probe
 ExecStart=/usr/libexec/drainscope-probe
 
-# A dedicated system user (from sysusers.d) that may load and attach tracing eBPF programs
-# and nothing else. Not root.
+# A dedicated system user (from sysusers.d) that may load eBPF programs and attach them to
+# tracepoints (CAP_PERFMON) and to the root cgroup's packet hooks (CAP_NET_ADMIN), and nothing
+# else. Not root.
 User=drainscope-probe
 Group=drainscope-probe
-AmbientCapabilities=CAP_BPF CAP_PERFMON
-CapabilityBoundingSet=CAP_BPF CAP_PERFMON
+AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
 NoNewPrivileges=yes
 
 # Filesystem: everything read-only (it reads /sys/kernel/btf and cgroupfs), no home, no
