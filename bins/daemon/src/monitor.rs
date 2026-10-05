@@ -45,6 +45,9 @@ pub struct LiveState {
     /// Idle exits per second by consumer key over the last minute, largest first; `None`
     /// without the eBPF probe.
     pub wakeups: Option<Vec<(String, f64)>>,
+    /// (key, received B/s, sent B/s) over the last minute, busiest first; `None` without the
+    /// probe's network counting.
+    pub network: Option<Vec<(String, f64, f64)>>,
 }
 
 impl Default for LiveState {
@@ -55,6 +58,7 @@ impl Default for LiveState {
             status: Status::TimeOnly,
             domains: Vec::new(),
             wakeups: None,
+            network: None,
         }
     }
 }
@@ -343,6 +347,15 @@ impl Monitor {
         let live = self.live();
         match &live.wakeups {
             Some(wakeups) => (true, wakeups.clone()),
+            None => (false, Vec::new()),
+        }
+    }
+
+    #[zbus(out_args("available", "traffic"))]
+    fn get_network(&self) -> (bool, Vec<(String, f64, f64)>) {
+        let live = self.live();
+        match &live.network {
+            Some(traffic) => (true, traffic.clone()),
             None => (false, Vec::new()),
         }
     }

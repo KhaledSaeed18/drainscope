@@ -19,7 +19,7 @@ use drainscope_daemon::probe::ProbeClient;
 use drainscope_daemon::rapl::RaplClient;
 use drainscope_dbus::monitor::{BUS_NAME, OBJECT_PATH};
 use drainscope_model::{
-    BatteryHealth, MODEL_VERSION, PowerSource, RaplDomain, Resolver, WakeupTracker, health,
+    BatteryHealth, MODEL_VERSION, PowerSource, RaplDomain, RateTracker, Resolver, health,
 };
 use drainscope_store::{PowerEvent, PowerEventKind, Store, WindowRecord};
 use drainscope_sys::sleep::{PrepareForSleep, PrepareForSleepStream};
@@ -49,8 +49,12 @@ struct Daemon {
     rapl: RaplClient,
     probe: ProbeClient,
     /// Idle exits per consumer from the probe, and when it was last read.
-    wakeups: WakeupTracker,
+    wakeups: RateTracker,
     last_probe_at: Option<Duration>,
+    /// Bytes received and sent per consumer from the probe, and when it was last read.
+    received: RateTracker,
+    sent: RateTracker,
+    last_network_at: Option<Duration>,
     own_uid: u32,
     power: PowerTracker,
     sleep: SleepTracker,
@@ -76,6 +80,7 @@ impl Daemon {
         let wall_ms = wall_now_ms();
         let rapl = self.rapl.read().await;
         let probe = self.probe.read().await;
+        let traffic = self.probe.read_network().await;
         let mut collector = self.collector.take().context("collector busy")?;
         let (collector, collected) = tokio::task::spawn_blocking(move || {
             let collected = collector.collect(taken_at);
@@ -107,6 +112,20 @@ impl Daemon {
             };
             self.wakeups
                 .observe(reading.generation, reading.wakeups, elapsed, &resolver);
+        }
+        if let Some(reading) = traffic {
+            let elapsed = self
+                .last_network_at
+                .map_or(Duration::ZERO, |at| taken_at.saturating_sub(at));
+            self.last_network_at = Some(taken_at);
+            let resolver = Resolver {
+                own_uid: self.own_uid,
+                terminal_labels: &collected.terminal_labels,
+            };
+            self.received
+                .observe(reading.generation, reading.received, elapsed, &resolver);
+            self.sent
+                .observe(reading.generation, reading.sent, elapsed, &resolver);
         }
         self.update_live_state(&level, &collected.snapshot.rapl);
         let outcome = self.engine.tick(Reading {
@@ -162,6 +181,10 @@ impl Daemon {
                 .map(|(key, rate)| (key.to_string(), rate))
                 .collect()
         });
+        live.network = self
+            .probe
+            .network_available()
+            .then(|| merge_traffic(&self.received.rates(), &self.sent.rates()));
     }
 
     async fn finish_tick(&self, outcome: TickOutcome) -> anyhow::Result<()> {
@@ -270,6 +293,9 @@ impl Daemon {
         self.engine.reset();
         self.wakeups.reset();
         self.last_probe_at = None;
+        self.received.reset();
+        self.sent.reset();
+        self.last_network_at = None;
         let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
         let root = SysRoot::host();
         let session = self.sleep.after_resume(
@@ -380,8 +406,11 @@ async fn main() -> anyhow::Result<()> {
         engine,
         rapl,
         probe,
-        wakeups: WakeupTracker::default(),
+        wakeups: RateTracker::default(),
         last_probe_at: None,
+        received: RateTracker::default(),
+        sent: RateTracker::default(),
+        last_network_at: None,
         own_uid: rustix::process::getuid().as_raw(),
         power: PowerTracker::default(),
         sleep: SleepTracker::default(),
@@ -444,4 +473,28 @@ fn init_logging() {
     } else {
         registry.with(tracing_subscriber::fmt::layer()).init();
     }
+}
+
+/// (key, received B/s, sent B/s), busiest first.
+fn merge_traffic(
+    received: &[(drainscope_model::ConsumerKey, f64)],
+    sent: &[(drainscope_model::ConsumerKey, f64)],
+) -> Vec<(String, f64, f64)> {
+    let mut by_key: BTreeMap<String, (f64, f64)> = BTreeMap::new();
+    for (key, rate) in received {
+        by_key.entry(key.to_string()).or_default().0 += rate;
+    }
+    for (key, rate) in sent {
+        by_key.entry(key.to_string()).or_default().1 += rate;
+    }
+    let mut rows: Vec<(String, f64, f64)> = by_key
+        .into_iter()
+        .map(|(key, (received, sent))| (key, received, sent))
+        .collect();
+    rows.sort_by(|a, b| {
+        (b.1 + b.2)
+            .total_cmp(&(a.1 + a.2))
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    rows
 }

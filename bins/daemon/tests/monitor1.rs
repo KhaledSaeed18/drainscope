@@ -100,6 +100,7 @@ fn shared() -> Arc<Shared> {
         status: Status::Full,
         domains: vec!["package".into(), "core".into()],
         wakeups: Some(vec![("app:org.mozilla.firefox".into(), 12.5)]),
+        network: None,
     };
     shared
 }
@@ -324,4 +325,12 @@ async fn wakeups_come_from_live_state() {
     let (available, wakeups) = proxy(&peer).await.get_wakeups().await.unwrap();
     assert!(available);
     assert_eq!(wakeups, [("app:org.mozilla.firefox".to_owned(), 12.5)]);
+}
+
+#[tokio::test]
+async fn network_is_unavailable_without_the_probe() {
+    let peer = serve().await;
+    let (available, traffic) = proxy(&peer).await.get_network().await.unwrap();
+    assert!(!available);
+    assert_eq!(traffic, Vec::new());
 }
