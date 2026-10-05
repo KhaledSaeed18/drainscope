@@ -67,7 +67,7 @@ Analysis was done with `xtask spike-attribute` and ad-hoc scripts over the trace
 
 ## Open questions for M1
 
-- **Conversion overhead factor:** at the battery, one busy core costs 2.3–3.6 W, but RAPL wasn't recorded during the load test. Measure `Δbattery / Δ(package + dram)` under load with RAPL (the first `xtask validate` run). If the factor is consistently > 1, attribute the matching share of "devices" to active consumers as conversion losses.
+- **Conversion overhead factor:** _(Resolved by [ADR 0004](0004-no-conversion-factor.md): measured k < 1, so no factor is applied.)_ at the battery, one busy core costs 2.3–3.6 W, but RAPL wasn't recorded during the load test. Measure `Δbattery / Δ(package + dram)` under load with RAPL (the first `xtask validate` run). If the factor is consistently > 1, attribute the matching share of "devices" to active consumers as conversion losses.
 - **Frequency weighting:** the higher cost of the first core (single-core turbo, package wake-up) means plain CPU-time shares under-weight bursty single-threaded apps relative to parallel ones. Revisit in model v2 (M4) with per-CPU frequency.
 - **AC mode** can only use package + dram on this machine, because `psys` is unusable.
 
