@@ -7,7 +7,7 @@ Per-app battery and energy usage for the Linux desktop.
 
 drainscope measures energy from hardware counters (RAPL via powercap) and the battery. It attributes that energy to apps, terminal workloads and system services through cgroup v2, DRM fdinfo and systemd scopes, keeps local history, and shows it in GNOME's quick settings and on the command line. No component runs as root.
 
-**Status:** early development. The daemon, the privileged sampler, the CLI (milestone M1), the GNOME Shell extension (M2) and a first version of the desktop app (M3) work on Fedora 44 / GNOME 50. RPMs build with `cargo xtask dist` ([packaging/](packaging/README.md)); they aren't published yet. See [PLAN.md](PLAN.md) for the architecture, privilege model and roadmap, and [ADR 0001](docs/adr/0001-feasibility.md) for what measurements on real hardware showed.
+**Status:** v0.1.0 is [released](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.0) with RPMs for Fedora 44. It includes the daemon, the sandboxed sampler and eBPF probe with SELinux policy, the CLI, the GNOME Shell extension and the desktop app. A COPR repository and extensions.gnome.org listing are coming ([docs/distribution.md](docs/distribution.md)). What's done and what's next: [ROADMAP.md](ROADMAP.md). Architecture and privilege model: [PLAN.md](PLAN.md). Measurements on real hardware: [ADR 0001](docs/adr/0001-feasibility.md), [docs/validation.md](docs/validation.md) and [docs/validation-activity.md](docs/validation-activity.md).
 
 ## What it looks like
 
@@ -59,6 +59,20 @@ The desktop app (`drainscope-app`) shows the same history with a stacked timelin
 | `drainscope` | you | Reads `Monitor1`. |
 
 Everything stays on your machine; no component uses the network.
+
+## Installing from the release
+
+Download the RPMs from the [v0.1.0 release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.0), then:
+
+```bash
+sudo dnf install ./drainscope-0.1.0-1.fc44.x86_64.rpm ./drainscope-sampler-0.1.0-1.fc44.x86_64.rpm \
+  ./drainscope-probe-0.1.0-1.fc44.x86_64.rpm ./drainscope-selinux-0.1.0-1.fc44.noarch.rpm \
+  ./drainscope-app-0.1.0-1.fc44.noarch.rpm ./gnome-shell-extension-drainscope-0.1.0-1.fc44.noarch.rpm
+systemctl --user enable --now drainscope.service
+drainscope doctor
+```
+
+The sampler and the probe are optional: without them drainscope falls back to battery-only measurement and shows no wakeup or network data. Log out and back in to load the GNOME Shell extension, then enable it with `gnome-extensions enable drainscope@khaledsaeed18.github.io`.
 
 ## Installing (development)
 
