@@ -200,12 +200,14 @@ fn record(
 ) -> Result<()> {
     let until = Instant::now() + length;
     while Instant::now() < until {
-        samples.push(sample(start, units)?);
+        // Check before sampling, so a load phase's last sample is taken while it still runs
+        // (its scope, and so its CPU counter, disappears when it exits).
         if let Some(child) = child.as_deref_mut()
             && child.try_wait()?.is_some()
         {
             break;
         }
+        samples.push(sample(start, units)?);
         sleep(SAMPLE_EVERY);
     }
     Ok(())
@@ -366,11 +368,18 @@ fn stats(phase: &Phase, samples: &[Sample]) -> Option<PhaseStats> {
         b.saturating_sub(a) as f64 / 1e6 / dt
     };
     let cpus = |a: u64, b: u64| b.saturating_sub(a) as f64 / 1e6 / dt;
+    // Only samples that saw the scope count: it may appear late or vanish early.
     let scope_cpus = phase.unit.as_ref().map_or(0.0, |unit| {
-        cpus(
-            first.scope_usec.get(unit).copied().unwrap_or(0),
-            last.scope_usec.get(unit).copied().unwrap_or(0),
-        )
+        let seen: Vec<(f64, u64)> = window
+            .iter()
+            .filter_map(|s| Some((s.t, *s.scope_usec.get(unit)?)))
+            .collect();
+        match (seen.first(), seen.last()) {
+            (Some(&(t0, u0)), Some(&(t1, u1))) if t1 > t0 => {
+                u1.saturating_sub(u0) as f64 / 1e6 / (t1 - t0)
+            }
+            _ => 0.0,
+        }
     });
     let batteries: Vec<f64> = window.iter().filter_map(|s| s.battery_w).collect();
     Some(PhaseStats {
