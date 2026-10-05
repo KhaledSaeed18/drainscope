@@ -6,10 +6,9 @@ use std::time::{Duration, Instant};
 use drainscope_dbus::sampler::SamplerError;
 use drainscope_sys::{PowercapZone, SysError, SysRoot, read_zones};
 use zbus::message::Header;
-use zbus::names::BusName;
 
 use crate::accumulator::Accumulator;
-use drainscope_access::{Authorizer, RateLimiter, quantize};
+use drainscope_access::{Authorizer, RateLimiter, caller_uid, quantize};
 
 /// Where counters come from: powercap in production, fixtures in tests.
 pub trait CounterSource: Send + Sync {
@@ -132,23 +131,14 @@ async fn rate_limit_key(
     connection: &zbus::Connection,
     caller: Option<&str>,
 ) -> Result<String, SamplerError> {
-    let Some(caller) = caller else {
-        return Ok("peer".to_owned());
-    };
-    let uid = async {
-        let name = BusName::try_from(caller)?;
-        zbus::fdo::DBusProxy::new(connection)
-            .await?
-            .get_connection_unix_user(name)
-            .await
-            .map_err(zbus::Error::from)
+    match caller_uid(connection, caller).await {
+        Ok(Some(uid)) => Ok(format!("uid:{uid}")),
+        Ok(None) => Ok("peer".to_owned()),
+        Err(err) => {
+            tracing::error!(%err, caller, "looking up the caller's uid failed");
+            Err(SamplerError::Failed("identifying the caller failed".into()))
+        }
     }
-    .await
-    .map_err(|err: zbus::Error| {
-        tracing::error!(%err, caller, "looking up the caller's uid failed");
-        SamplerError::Failed("identifying the caller failed".into())
-    })?;
-    Ok(format!("uid:{uid}"))
 }
 
 #[zbus::interface(name = "io.github.khaledsaeed18.Drainscope.Sampler1")]
