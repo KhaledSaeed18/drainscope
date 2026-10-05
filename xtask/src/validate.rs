@@ -87,8 +87,11 @@ const ACTIVITY_LOADS: [Workload; 5] = [
     },
 ];
 
-/// Serves large downloads without authentication (Cloudflare's speed test).
-const DOWNLOAD_URL: &str = "https://speed.cloudflare.com/__down?bytes=";
+/// Serves downloads without authentication (Cloudflare's speed test), up to just under 100 MB
+/// per request; phases repeat requests of this size.
+const DOWNLOAD_URL: &str = "https://speed.cloudflare.com/__down?bytes=50000000";
+/// Name of the rest phases between loads, which serve as local baselines.
+const REST_PHASE: &str = "rest";
 
 impl Workload {
     /// Stable names, so repeated runs add up under the same consumers.
@@ -141,21 +144,17 @@ impl Workload {
             ]
             .map(str::to_owned)
             .to_vec(),
-            Self::Download { kbytes_per_second } => {
-                // Twice what the phase can fetch, so the rate limit, not the size, ends it.
-                let bytes = u64::from(kbytes_per_second) * 1000 * secs * 2;
-                vec![
-                    "curl".into(),
-                    "--silent".into(),
-                    "--output".into(),
-                    "/dev/null".into(),
-                    "--max-time".into(),
-                    secs.to_string(),
-                    "--limit-rate".into(),
-                    format!("{kbytes_per_second}k"),
-                    format!("{DOWNLOAD_URL}{bytes}"),
-                ]
-            }
+            // Requests are capped below 100 MB, so repeat them until the phase ends.
+            Self::Download { kbytes_per_second } => vec![
+                "timeout".into(),
+                timeout,
+                "sh".into(),
+                "-c".into(),
+                format!(
+                    "while curl --silent --fail --output /dev/null --limit-rate {kbytes_per_second}k \
+                     '{DOWNLOAD_URL}'; do :; done"
+                ),
+            ],
         }
     }
 }
@@ -506,7 +505,16 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
             wall_start: w0,
             wall_end: unix_now(),
         });
+        let (t0, w0) = (recorder.elapsed(), unix_now());
         recorder.record(REST, &mut samples, None)?;
+        phases.push(Phase {
+            name: REST_PHASE.into(),
+            unit: None,
+            start: t0,
+            end: recorder.elapsed(),
+            wall_start: w0,
+            wall_end: unix_now(),
+        });
     }
 
     let raw = write_raw(repo_root, run_id, &samples, &phases)?;
@@ -755,7 +763,7 @@ fn report(buses: &Buses, phases: &[Phase], samples: &[Sample], raw: &str) -> Res
     );
     let mut fit_points = Vec::new();
     let mut ks = Vec::new();
-    for phase in phases {
+    for phase in phases.iter().filter(|p| p.name != REST_PHASE) {
         let Some(s) = stats(phase, samples) else {
             let _ = writeln!(out, "| {} | – | – | – | – | – | – | – | – |", phase.name);
             continue;
@@ -804,6 +812,31 @@ fn daemon_watts(buses: &Buses, phase: &Phase) -> Option<f64> {
     Some(joules / seconds)
 }
 
+/// The average of the phases just before and after `phases[index]` (the rests around it, or
+/// the idle phase), so slow drift during the run cancels out.
+fn local_baseline(phases: &[Phase], index: usize, samples: &[Sample]) -> Option<PhaseStats> {
+    let neighbours: Vec<PhaseStats> = [index.checked_sub(1), Some(index + 1)]
+        .into_iter()
+        .flatten()
+        .filter_map(|i| phases.get(i))
+        .filter(|p| p.unit.is_none())
+        .filter_map(|p| stats(p, samples))
+        .collect();
+    if neighbours.is_empty() {
+        return None;
+    }
+    let n = neighbours.len() as f64;
+    let mean = |f: fn(&PhaseStats) -> f64| neighbours.iter().map(f).sum::<f64>() / n;
+    let batteries: Option<Vec<f64>> = neighbours.iter().map(|s| s.battery_w).collect();
+    Some(PhaseStats {
+        battery_w: batteries.map(|b| b.iter().sum::<f64>() / n),
+        package_w: mean(|s| s.package_w),
+        dram_w: mean(|s| s.dram_w),
+        busy_cpus: mean(|s| s.busy_cpus),
+        ..PhaseStats::default()
+    })
+}
+
 fn activity_report(
     buses: &Buses,
     phases: &[Phase],
@@ -827,7 +860,8 @@ fn activity_report(
         "Timer phases wake a CPU at a fixed rate doing almost nothing (`stress-ng --timer`); \
          download phases fetch at a capped rate (`curl --limit-rate`). Wakeups and bytes are the \
          eBPF probe's counts for the load's scope. Averages skip the first {SETTLE:.0} s of each \
-         phase; Δ values are relative to idle. \"Outside RAPL\" is ΔBattery − ΔRAPL: the radio, \
+         phase; Δ values are relative to the rests just before and after the phase, which cancels \
+         slow drift in the battery's readings. \"Outside RAPL\" is ΔBattery − ΔRAPL: the radio, \
          chipset and other devices. \"Charged\" is what the running daemon (model v1) attributed to \
          the load's scope, as average watts.\n"
     );
@@ -839,7 +873,10 @@ fn activity_report(
     let watts = |w: Option<f64>| w.map_or("n/a".to_owned(), |w| format!("{w:.2}"));
     let mut wake_points = Vec::new();
     let mut net_points = Vec::new();
-    for phase in phases {
+    for (index, phase) in phases.iter().enumerate() {
+        if phase.name == REST_PHASE {
+            continue;
+        }
         let Some(s) = stats(phase, samples) else {
             let _ = writeln!(
                 out,
@@ -848,8 +885,9 @@ fn activity_report(
             );
             continue;
         };
-        let d_rapl = (s.package_w + s.dram_w) - (idle.package_w + idle.dram_w);
-        let d_battery = s.battery_w.zip(idle.battery_w).map(|(b, i)| b - i);
+        let baseline = local_baseline(phases, index, samples).unwrap_or(idle);
+        let d_rapl = (s.package_w + s.dram_w) - (baseline.package_w + baseline.dram_w);
+        let d_battery = s.battery_w.zip(baseline.battery_w).map(|(b, i)| b - i);
         let outside = d_battery.map(|d| d - d_rapl);
         let megabytes = (s.scope_rx + s.scope_tx) / 1e6;
         if phase.name.starts_with("Timer") {
@@ -873,6 +911,18 @@ fn activity_report(
         );
     }
     let _ = writeln!(out);
+    activity_conclusions(&mut out, &wake_points, &net_points);
+    conclusions_backlight(&mut out, samples);
+    Ok(out)
+}
+
+/// Costs fitted from the timer phases (wakeups/s, Δ RAPL, Δ battery) and the download phases
+/// (MB/s, Δ RAPL, power outside RAPL).
+fn activity_conclusions(
+    out: &mut String,
+    wake_points: &[(f64, f64, Option<f64>)],
+    net_points: &[(f64, f64, Option<f64>)],
+) {
     let rapl_fit: Vec<(f64, f64)> = wake_points.iter().map(|&(w, r, _)| (w, r)).collect();
     if let Some((a, b, r2)) = fit(&rapl_fit) {
         let _ = writeln!(
@@ -904,8 +954,6 @@ fn activity_report(
             a * 1000.0
         );
     }
-    conclusions_backlight(&mut out, samples);
-    Ok(out)
 }
 
 /// The fit, the conversion factor and the backlight check, below the table.
