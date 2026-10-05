@@ -50,6 +50,7 @@ impl NetworkSource for Network {
         Ok(Traffic {
             received: BTreeMap::from([(10, 1000), (11, 500)]),
             sent: BTreeMap::from([(10, 50)]),
+            softirq_ns: (30_000, 70_000),
         })
     }
 }
@@ -139,6 +140,14 @@ async fn reports_traffic_by_path() {
     let peer = serve(true, unlimited(), &counts, &names).await;
     let (_, _, traffic) = peer.proxy().await.read_network().await.unwrap();
     assert_eq!(traffic, [(FIREFOX.to_owned(), 1000, 50)]);
+}
+
+#[tokio::test]
+async fn reports_network_softirq_time() {
+    let (counts, names) = fixtures();
+    let peer = serve(true, unlimited(), &counts, &names).await;
+    let (_, _, tx, rx) = peer.proxy().await.read_network_time().await.unwrap();
+    assert_eq!((tx, rx), (30_000, 70_000));
 }
 
 #[tokio::test]

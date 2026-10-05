@@ -4,13 +4,14 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, PoisonError};
 
 use anyhow::Context;
-use aya::maps::{HashMap, MapData};
+use aya::maps::{Array, HashMap, MapData};
 use aya::programs::links::CgroupAttachMode;
 use aya::programs::{BtfTracePoint, CgroupSkb, CgroupSkbAttachType};
 use aya::{Btf, Ebpf, include_bytes_aligned};
 
 const WAKEUPS: &[u8] = include_bytes_aligned!(concat!(env!("OUT_DIR"), "/wakeups.bpf.o"));
 const NETWORK: &[u8] = include_bytes_aligned!(concat!(env!("OUT_DIR"), "/network.bpf.o"));
+const SOFTIRQ: &[u8] = include_bytes_aligned!(concat!(env!("OUT_DIR"), "/softirq.bpf.o"));
 const CGROUPFS: &str = "/sys/fs/cgroup";
 
 pub trait WakeupSource: Send + Sync {
@@ -69,6 +70,8 @@ fn read_counts(ebpf: &Ebpf, name: &str) -> anyhow::Result<BTreeMap<u64, u64>> {
 pub struct Traffic {
     pub received: BTreeMap<u64, u64>,
     pub sent: BTreeMap<u64, u64>,
+    /// Kernel time in the network softirqs (`NET_TX`, `NET_RX`), nanoseconds, machine-wide.
+    pub softirq_ns: (u64, u64),
 }
 
 pub trait NetworkSource: Send + Sync {
@@ -78,9 +81,10 @@ pub trait NetworkSource: Send + Sync {
 }
 
 /// `bpf/network.bpf.c`, attached to the root cgroup (alongside other programs, through BPF
-/// links) for as long as this lives.
+/// links), and `bpf/softirq.bpf.c`, timing the network softirqs, for as long as this lives.
 pub struct NetworkBpf {
     ebpf: Mutex<Ebpf>,
+    softirq: Mutex<Ebpf>,
 }
 
 impl NetworkBpf {
@@ -107,8 +111,26 @@ impl NetworkBpf {
                 .attach(&root, attach_type, CgroupAttachMode::Single)
                 .with_context(|| format!("attaching {name} to the root cgroup"))?;
         }
+        let mut softirq = Ebpf::load(SOFTIRQ).context("loading the softirq object")?;
+        let btf = Btf::from_sys_fs().context("reading kernel BTF")?;
+        for (name, tracepoint) in [
+            ("network_softirq_entry", "softirq_entry"),
+            ("network_softirq_exit", "softirq_exit"),
+        ] {
+            let program: &mut BtfTracePoint = softirq
+                .program_mut(name)
+                .with_context(|| format!("program {name} is missing"))?
+                .try_into()?;
+            program
+                .load(tracepoint, &btf)
+                .with_context(|| format!("loading {name}"))?;
+            program
+                .attach()
+                .with_context(|| format!("attaching {name}"))?;
+        }
         Ok(Self {
             ebpf: Mutex::new(ebpf),
+            softirq: Mutex::new(softirq),
         })
     }
 }
@@ -116,9 +138,16 @@ impl NetworkBpf {
 impl NetworkSource for NetworkBpf {
     fn read(&self) -> anyhow::Result<Traffic> {
         let ebpf = self.ebpf.lock().unwrap_or_else(PoisonError::into_inner);
+        let softirq = self.softirq.lock().unwrap_or_else(PoisonError::into_inner);
+        let times: Array<&MapData, u64> = Array::try_from(
+            softirq
+                .map("network_ns")
+                .context("map network_ns is missing")?,
+        )?;
         Ok(Traffic {
             received: read_counts(&ebpf, "received")?,
             sent: read_counts(&ebpf, "sent")?,
+            softirq_ns: (times.get(&0, 0)?, times.get(&1, 0)?),
         })
     }
 }

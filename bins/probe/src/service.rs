@@ -262,6 +262,24 @@ impl Probe {
         ))
     }
 
+    #[zbus(out_args("monotonic_ns", "generation", "tx_ns", "rx_ns"))]
+    async fn read_network_time(
+        &self,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
+    ) -> Result<(u64, u64, u64, u64), ProbeError> {
+        self.admit(&header, connection, "ReadNetworkTime").await?;
+        let network = self
+            .network
+            .as_ref()
+            .ok_or_else(|| ProbeError::Unsupported("network counting isn't available".into()))?;
+        let (tx_ns, rx_ns) = network
+            .read()
+            .map_err(|err| ProbeError::Failed(err.to_string()))?
+            .softirq_ns;
+        Ok((monotonic_ns(), self.generation, tx_ns, rx_ns))
+    }
+
     #[zbus(property)]
     fn min_interval_ms(&self) -> u32 {
         u32::try_from(self.config.min_interval.as_millis()).unwrap_or(u32::MAX)
