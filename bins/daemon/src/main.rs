@@ -20,7 +20,10 @@ use drainscope_dbus::monitor::{BUS_NAME, OBJECT_PATH};
 use drainscope_model::{BatteryHealth, MODEL_VERSION, PowerSource, RaplDomain, health};
 use drainscope_store::{PowerEvent, PowerEventKind, Store, WindowRecord};
 use drainscope_sys::sleep::{PrepareForSleep, PrepareForSleepStream};
-use drainscope_sys::{Login1ManagerProxy, SysRoot, read_batteries, read_mem_sleep};
+use drainscope_sys::{
+    Login1ManagerProxy, SysRoot, read_batteries, read_mem_sleep, read_wakeup_irq,
+    read_wakeup_sources,
+};
 use futures_util::StreamExt;
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::Level;
@@ -221,7 +224,8 @@ impl Daemon {
     fn before_sleep(&mut self) {
         let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
         let mode = read_mem_sleep(&SysRoot::host()).ok().flatten();
-        self.sleep.before_sleep(wall_now_ms(), level, mode);
+        let wakeups = read_wakeup_sources(&SysRoot::host());
+        self.sleep.before_sleep(wall_now_ms(), level, mode, wakeups);
         if let Err(err) = self
             .store()
             .record_power_event(&battery_event(PowerEventKind::Suspend, &level))
@@ -237,12 +241,18 @@ impl Daemon {
         // An interval spanning the sleep would be meaningless.
         self.engine.reset();
         let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
-        let session = self.sleep.after_resume(wall_now_ms(), level);
+        let root = SysRoot::host();
+        let session = self.sleep.after_resume(
+            wall_now_ms(),
+            level,
+            &read_wakeup_sources(&root),
+            read_wakeup_irq(&root).as_ref(),
+        );
         let result = (|| {
             let store = self.store();
             store.record_power_event(&battery_event(PowerEventKind::Resume, &level))?;
             if let Some(session) = &session {
-                tracing::info!(wh_lost = ?session.wh_lost, "recorded sleep session");
+                tracing::info!(wh_lost = ?session.wh_lost, wake = ?session.wake_reason, "recorded sleep session");
                 store.record_sleep_session(session)?;
             }
             anyhow::Ok(())

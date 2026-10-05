@@ -1,7 +1,7 @@
 //! Plug/unplug transitions and sleep sessions, from battery readings.
 
-use drainscope_model::Joules;
 use drainscope_model::snapshot::{BatteryReading, BatteryStatus};
+use drainscope_model::{Joules, WakeupIrq, WakeupSources, wake_reason};
 use drainscope_store::{PowerEvent, PowerEventKind, SleepSession};
 
 /// Combined state of all batteries.
@@ -73,6 +73,7 @@ struct BeforeSleep {
     wall_ms: i64,
     level: BatteryLevel,
     mem_sleep: Option<String>,
+    wakeups: WakeupSources,
 }
 
 /// Pairs the readings taken just before suspend and just after resume.
@@ -82,16 +83,29 @@ pub struct SleepTracker {
 }
 
 impl SleepTracker {
-    pub fn before_sleep(&mut self, wall_ms: i64, level: BatteryLevel, mem_sleep: Option<String>) {
+    pub fn before_sleep(
+        &mut self,
+        wall_ms: i64,
+        level: BatteryLevel,
+        mem_sleep: Option<String>,
+        wakeups: WakeupSources,
+    ) {
         self.before = Some(BeforeSleep {
             wall_ms,
             level,
             mem_sleep,
+            wakeups,
         });
     }
 
     /// The finished session, if a matching "before" reading exists.
-    pub fn after_resume(&mut self, wall_ms: i64, level: BatteryLevel) -> Option<SleepSession> {
+    pub fn after_resume(
+        &mut self,
+        wall_ms: i64,
+        level: BatteryLevel,
+        wakeups: &WakeupSources,
+        irq: Option<&WakeupIrq>,
+    ) -> Option<SleepSession> {
         let before = self.before.take()?;
         let wh_lost = match (before.level.energy, level.energy) {
             (Some(was), Some(now)) => Some((was.0 - now.0) / 3600.0),
@@ -107,7 +121,7 @@ impl SleepTracker {
             wh_lost,
             percent_lost,
             mem_sleep: before.mem_sleep,
-            wake_reason: None,
+            wake_reason: wake_reason(&before.wakeups, wakeups, irq),
         })
     }
 }
@@ -162,9 +176,21 @@ mod tests {
         let before = BatteryLevel::of(&[battery("BAT0", BatteryStatus::Discharging, 30.0, 40.0)]);
         let after = BatteryLevel::of(&[battery("BAT0", BatteryStatus::Discharging, 29.2, 40.0)]);
         let mut tracker = SleepTracker::default();
-        assert_eq!(tracker.after_resume(5, after), None);
-        tracker.before_sleep(1_000, before, Some("deep".into()));
-        let session = tracker.after_resume(3_601_000, after).unwrap();
+        let lid = |count| {
+            WakeupSources::from([(
+                "wakeup1".to_owned(),
+                drainscope_model::WakeupSource {
+                    name: "PNP0C0D:00".into(),
+                    wakeup_count: count,
+                },
+            )])
+        };
+        assert_eq!(tracker.after_resume(5, after, &lid(0), None), None);
+        tracker.before_sleep(1_000, before, Some("deep".into()), lid(0));
+        let session = tracker
+            .after_resume(3_601_000, after, &lid(1), None)
+            .unwrap();
+        assert_eq!(session.wake_reason.as_deref(), Some("Lid (PNP0C0D:00)"));
         assert_eq!((session.start_ms, session.end_ms), (1_000, 3_601_000));
         assert!((session.wh_lost.unwrap() - 0.8).abs() < 1e-9);
         assert!((session.percent_lost.unwrap() - 2.0).abs() < 1e-9);
