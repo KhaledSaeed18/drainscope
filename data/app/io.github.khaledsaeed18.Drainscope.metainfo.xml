@@ -36,6 +36,11 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.1" date="2026-10-06">
+      <description>
+        <p>The daemon now refuses to start when another daemon is already using the database, which could double-count energy. The GNOME Shell extension supports GNOME 51.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-05">
       <description>
         <p>First release.</p>

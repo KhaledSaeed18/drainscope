@@ -4,7 +4,7 @@
 %global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        Per-app battery and energy usage for the Linux desktop
 
@@ -235,6 +235,10 @@ fi
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Tue Oct 06 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.1-1
+- Daemon: hold an exclusive lock on the database so a second daemon can't double-count
+- GNOME Shell extension: support GNOME 51; extensions.gnome.org review fixes
+
 * Mon Oct 05 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.0-1
 - First release: per-user daemon, sandboxed RAPL sampler and eBPF probe with SELinux policy,
   CLI, GNOME Shell extension and app
