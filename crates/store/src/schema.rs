@@ -93,6 +93,18 @@ const MIGRATIONS: &[&str] = &[
         below_package    INTEGER NOT NULL
     );
     ",
+    // 2: battery wear, one row per battery per day (the day's last reading).
+    r"
+    CREATE TABLE battery_health (
+        battery               TEXT    NOT NULL,
+        day                   INTEGER NOT NULL, -- days since the Unix epoch, UTC
+        ts_ms                 INTEGER NOT NULL,
+        energy_full_wh        REAL    NOT NULL,
+        energy_full_design_wh REAL,
+        cycle_count           INTEGER,
+        PRIMARY KEY (battery, day)
+    ) WITHOUT ROWID;
+    ",
 ];
 
 pub(crate) fn supported_version() -> i64 {

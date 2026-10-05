@@ -3,6 +3,7 @@
 
 mod calibration;
 mod events;
+mod health;
 mod schema;
 mod usage;
 
@@ -14,6 +15,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 pub use events::{PowerEvent, PowerEventKind, SleepSession};
+pub use health::HealthRecord;
 pub use usage::{
     Granularity, HOUR_RETENTION_MS, MINUTE_RETENTION_MS, PruneStats, RAW_RETENTION_MS,
     SourceFilter, UsageRow, WindowRecord,
