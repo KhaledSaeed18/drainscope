@@ -6,6 +6,7 @@ use std::fs;
 use std::time::Duration;
 
 use drainscope_dbus::monitor::Monitor1Proxy;
+use drainscope_dbus::probe::{Probe1Proxy, ProbeError};
 use drainscope_dbus::sampler::{Sampler1Proxy, SamplerError};
 use drainscope_model::CgroupPath;
 use drainscope_sys::{
@@ -227,6 +228,44 @@ async fn sampler(system: Option<&zbus::Connection>) -> Check {
     }
 }
 
+/// The eBPF probe is optional: problems are warnings.
+async fn probe(system: Option<&zbus::Connection>) -> Check {
+    let Some(bus) = system else {
+        return check(Level::Warn, "no system bus: no wakeup counts", None);
+    };
+    let proxy = match Probe1Proxy::new(bus).await {
+        Ok(proxy) => proxy,
+        Err(err) => return check(Level::Warn, format!("probe proxy: {err}"), None),
+    };
+    match proxy.read_wakeups().await {
+        Ok((_, _, wakeups)) => check(
+            Level::Ok,
+            format!("probe: wakeups counted for {} cgroups", wakeups.len()),
+            None,
+        ),
+        Err(ProbeError::RateLimited(_)) => check(Level::Ok, "probe reachable", None),
+        Err(ProbeError::NotAuthorized(_)) => check(
+            Level::Warn,
+            "polkit refused access to wakeup counts",
+            Some("only the user at the machine's own seat may read them"),
+        ),
+        Err(ProbeError::ZBus(zbus::Error::MethodError(name, ..)))
+            if name.as_str() == "org.freedesktop.DBus.Error.ServiceUnknown" =>
+        {
+            check(
+                Level::Warn,
+                "the eBPF probe isn't installed: no wakeup counts",
+                Some("optional; install the drainscope-probe package"),
+            )
+        }
+        Err(err) => check(
+            Level::Warn,
+            format!("probe failed: {err}"),
+            Some("see: journalctl -u drainscope-probe.service"),
+        ),
+    }
+}
+
 async fn daemon(session: Option<&zbus::Connection>) -> Check {
     let not_running = || {
         check(
@@ -262,6 +301,7 @@ pub async fn run() -> bool {
         gpu(&root),
         rapl_zones(&root),
         sampler(system.as_ref()).await,
+        probe(system.as_ref()).await,
         daemon(session.as_ref()).await,
     ];
     print!("{}", render(&checks));
