@@ -312,7 +312,11 @@ async fn main() -> anyhow::Result<()> {
         .ok();
     let rapl = RaplClient::connect(system.as_ref()).await;
     let logind = match &system {
-        Some(bus) => Login1ManagerProxy::new(bus)
+        // Only its signal and Inhibit are used; caching properties would subscribe to every
+        // PropertiesChanged logind emits.
+        Some(bus) => Login1ManagerProxy::builder(bus)
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
             .await
             .map_err(|err| tracing::warn!(%err, "no logind"))
             .ok(),
