@@ -291,7 +291,9 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 
 ### M1 — MVP: daemon + sampler + CLI (≈ 3–4 weeks)
 
-**Status (2026-10-05):** 1.1–1.21 and 1.23 implemented and verified on the dev machine (1.5 merged into 1.4). Overhead (1.19, release build, 5 s ticks, 5 min): 0.38% of one CPU, 8.5 MB RSS. 1.22 validated on battery ([docs/validation.md](docs/validation.md), [ADR 0004](docs/adr/0004-no-conversion-factor.md)): the daemon gave isolated loads 86–97% of their active energy; no battery/RAPL conversion factor. The manual suspend check of 1.18 is pending.
+**Status (2026-10-05):** 1.1–1.21 and 1.23 implemented and verified on the dev machine (1.5 merged into 1.4). Overhead (1.19, release build, 5 s ticks, 5 min): 0.38% of one CPU, 8.5 MB RSS. 1.22 validated on battery ([docs/validation.md](docs/validation.md), [ADR 0004](docs/adr/0004-no-conversion-factor.md)): the daemon gave isolated loads 86–97% of their active energy; no battery/RAPL conversion factor. 1.17 verified live: plug/unplug recorded, and the attributed energy over the discharge (5% of capacity) matched the battery's own level drop (99.9% → 94.9%). 1.18 couldn't be verified live because suspend is disabled on the dev machine (`suspend.target` masked); the delay inhibitor is confirmed registered with logind, and the sleep logic is unit-tested.
+
+**M1 is complete.**
 | # | Task | Verify |
 |---|---|---|
 | 1.1 | `model`: domain types, `ConsumerKey`, identity rules (cgroup path → key, systemd unescape) | Table-driven unit tests over real cgroup names from this machine |
