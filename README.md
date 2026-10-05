@@ -32,6 +32,7 @@ GNOME Shell                  <1%             9%   0.12 Wh
 - `drainscope top` — live power per consumer
 - `drainscope sleep` — battery lost while suspended, and what woke the machine
 - `drainscope wakeups` — which apps keep waking the processor from idle (needs the optional eBPF probe)
+- `drainscope network` — network traffic by app, excluding loopback (needs the optional eBPF probe)
 - `drainscope health` — battery wear: full-charge capacity against design, and charge cycles
 - `drainscope status` / `drainscope doctor` — what's measurable, and what to fix if something isn't
 
@@ -53,7 +54,7 @@ The desktop app (`drainscope-app`) shows the same history with a stacked timelin
 | Part | Runs as | Does |
 |---|---|---|
 | `drainscope-sampler` | dedicated system user with only `CAP_DAC_READ_SEARCH`, sandboxed (`systemd-analyze security`: 0.6) | Reads the root-only RAPL counters and serves them on the system bus to callers polkit allows (the active local session only), rate-limited per user and quantized against the Platypus side channel. Starts on demand, exits when idle. |
-| `drainscope-probe` (optional) | dedicated system user with only `CAP_BPF` and `CAP_PERFMON`, sandboxed the same way (0.6) | Counts how often each cgroup wakes a CPU from idle with one eBPF program on `sched_switch`, and serves per-cgroup totals to the active session; other users' cgroups are never included ([ADR 0006](docs/adr/0006-ebpf-probe-service.md)). Starts on demand, exits when idle. |
+| `drainscope-probe` (optional) | dedicated system user with only `CAP_BPF`, `CAP_PERFMON` and `CAP_NET_ADMIN` (in an empty network namespace), sandboxed the same way (0.7) | Counts with eBPF how often each cgroup wakes a CPU from idle (`sched_switch`) and the bytes each one sends and receives (`cgroup_skb` on the root cgroup, alongside other programs), and serves per-cgroup totals to the active session. Other users' cgroups are never included, and no addresses or contents are seen ([ADR 0006](docs/adr/0006-ebpf-probe-service.md)). Starts on demand, exits when idle. |
 | `drainscope-daemon` | you, as a `systemd --user` service | Every 5 s: reads cgroup CPU time, GPU time from DRM fdinfo, batteries and RAPL; attributes energy above the machine's learned idle floor to whoever was active; reconciles with the battery over 10 s windows; stores history in `~/.local/state/drainscope/`; serves `Monitor1` on the session bus. |
 | `drainscope` | you | Reads `Monitor1`. |
 
