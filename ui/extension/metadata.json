@@ -2,7 +2,7 @@
   "uuid": "drainscope@khaledsaeed18.github.io",
   "name": "drainscope",
   "description": "Which apps used your battery since you unplugged. Needs the drainscope daemon.",
-  "shell-version": ["50"],
+  "shell-version": ["50", "51"],
   "url": "https://github.com/KhaledSaeed18/drainscope",
   "version-name": "0.1.0"
 }
