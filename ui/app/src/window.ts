@@ -16,6 +16,8 @@ import {
 
 import { appName, consumerIcon } from './apps';
 import type { MonitorClient } from './client';
+import { detailPage } from './detail';
+import { dataRow } from './rows';
 
 const SLEEP_HISTORY_SECONDS = 30 * 86_400;
 
@@ -42,6 +44,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private refreshing = false;
   private pending = false;
 
+  private readonly navigation = new Adw.NavigationView();
   private readonly stack = new Gtk.Stack();
   private readonly status = new Adw.StatusPage({ icon_name: 'battery-missing-symbolic' });
   private readonly banner = new Adw.Banner();
@@ -82,7 +85,8 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     const toolbar = new Adw.ToolbarView({ content: this.stack });
     toolbar.add_top_bar(header);
     toolbar.add_top_bar(this.banner);
-    this.set_content(toolbar);
+    this.navigation.add(new Adw.NavigationPage({ title: 'drainscope', tag: 'history', child: toolbar }));
+    this.set_content(this.navigation);
 
     this.client.subscribeTicks(() => {
       this.refresh();
@@ -170,15 +174,17 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     const model = buildUsage(usage.value, span, measured, this.byKind, appName);
     this.usageGroup.set_description(model.entries.length === 0 ? 'Nothing measured in this range yet.' : model.footer);
     for (const entry of model.entries) {
-      const row = new Adw.ActionRow({
-        title: GLib.markup_escape_text(entry.label, -1),
-        subtitle: `${entry.energy} · ${entry.average}`,
+      const row = dataRow(entry.label, `${entry.energy} · ${entry.average}`, true);
+      const rangeLabel = RANGES.find((r) => r.id === this.range)?.label ?? '';
+      row.connect('activated', () => {
+        this.navigation.push(detailPage(entry, rangeLabel));
       });
       row.add_prefix(new Gtk.Image({ gicon: consumerIcon(entry.consumer), pixel_size: 32 }));
       const share = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, valign: Gtk.Align.CENTER, spacing: 4 });
       share.append(new Gtk.Label({ label: entry.share, xalign: 1, css_classes: ['numeric'] }));
       share.append(new Gtk.ProgressBar({ fraction: entry.fraction, width_request: 80 }));
       row.add_suffix(share);
+      row.add_suffix(new Gtk.Image({ icon_name: 'go-next-symbolic' }));
       this.usageGroup.add(row);
       this.usageRows.push(row);
     }
@@ -194,7 +200,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     const entries = buildSleep(sessions.value, now);
     this.sleepGroup.set_description(entries.length === 0 ? 'No suspends in the last 30 days.' : '');
     for (const entry of entries) {
-      const row = new Adw.ActionRow({ title: entry.title, subtitle: entry.subtitle });
+      const row = dataRow(entry.title, entry.subtitle);
       row.add_prefix(new Gtk.Image({ icon_name: 'weather-clear-night-symbolic' }));
       this.sleepGroup.add(row);
       this.sleepRows.push(row);
