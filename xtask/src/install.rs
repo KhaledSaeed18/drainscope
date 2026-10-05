@@ -9,8 +9,8 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail, ensure};
 
-const BUILD: &str =
-    "cargo build --release -p drainscope-sampler -p drainscope-daemon -p drainscope-cli -p xtask";
+const BUILD: &str = "cargo build --release -p drainscope-sampler -p drainscope-probe \
+                     -p drainscope-daemon -p drainscope-cli -p xtask";
 
 /// (source relative to the repo, destination, mode). Config files referring to `/usr/libexec`
 /// or `/usr/bin` are rewritten to their `/usr/local` equivalents.
@@ -19,6 +19,11 @@ const FILES: &[(&str, &str, u32)] = &[
     (
         "target/release/drainscope-sampler",
         "/usr/local/libexec/drainscope-sampler",
+        0o755,
+    ),
+    (
+        "target/release/drainscope-probe",
+        "/usr/local/libexec/drainscope-probe",
         0o755,
     ),
     (
@@ -57,6 +62,32 @@ const FILES: &[(&str, &str, u32)] = &[
         "/etc/sysusers.d/drainscope.conf",
         0o644,
     ),
+    // The privileged eBPF probe (system bus).
+    (
+        "data/systemd/drainscope-probe.service",
+        "/etc/systemd/system/drainscope-probe.service",
+        0o644,
+    ),
+    (
+        "data/dbus/system-services/io.github.khaledsaeed18.Drainscope.Probe.service",
+        "/usr/local/share/dbus-1/system-services/io.github.khaledsaeed18.Drainscope.Probe.service",
+        0o644,
+    ),
+    (
+        "data/dbus/system.d/io.github.khaledsaeed18.Drainscope.Probe.conf",
+        "/etc/dbus-1/system.d/io.github.khaledsaeed18.Drainscope.Probe.conf",
+        0o644,
+    ),
+    (
+        "data/polkit/io.github.khaledsaeed18.Drainscope.Probe.policy",
+        "/etc/polkit-1/actions/io.github.khaledsaeed18.Drainscope.Probe.policy",
+        0o644,
+    ),
+    (
+        "data/sysusers/drainscope-probe.conf",
+        "/etc/sysusers.d/drainscope-probe.conf",
+        0o644,
+    ),
     // The user daemon (session bus).
     (
         "data/systemd/user/drainscope.service",
@@ -90,16 +121,21 @@ fn run(program: &str, args: &[&str]) -> Result<()> {
 }
 
 const SELINUX_MAKEFILE: &str = "/usr/share/selinux/devel/Makefile";
-const SELINUX_MODULE: &str = "drainscope_sampler";
+const SELINUX_MODULES: [&str; 2] = ["drainscope_sampler", "drainscope_probe"];
+const SYSTEM_SERVICES: [&str; 2] = ["drainscope-sampler.service", "drainscope-probe.service"];
+const SYSUSERS: [&str; 2] = [
+    "/etc/sysusers.d/drainscope.conf",
+    "/etc/sysusers.d/drainscope-probe.conf",
+];
 
-/// Builds and loads the sampler's `SELinux` module (data/selinux/), if `SELinux` is enabled and
-/// the policy development files are installed. Returns whether it was loaded.
+/// Builds and loads the privileged services' `SELinux` modules (data/selinux/), if `SELinux` is
+/// enabled and the policy development files are installed. Returns whether they were loaded.
 fn install_selinux(repo_root: &Path) -> Result<bool> {
     if !Path::new("/sys/fs/selinux/enforce").exists() {
         return Ok(false);
     }
     if !Path::new(SELINUX_MAKEFILE).exists() {
-        println!("skipped the SELinux module: install selinux-policy-devel to build it");
+        println!("skipped the SELinux modules: install selinux-policy-devel to build them");
         return Ok(false);
     }
     // Built outside the repo so no root-owned files end up in the user's tree.
@@ -108,33 +144,33 @@ fn install_selinux(repo_root: &Path) -> Result<bool> {
         fs::remove_dir_all(&build)?;
     }
     fs::create_dir_all(&build)?;
-    for extension in ["te", "fc", "if"] {
-        let name = format!("{SELINUX_MODULE}.{extension}");
-        fs::copy(
-            repo_root.join("data/selinux").join(&name),
-            build.join(&name),
-        )
-        .with_context(|| format!("copying {name}"))?;
+    for module in SELINUX_MODULES {
+        for extension in ["te", "fc", "if"] {
+            let name = format!("{module}.{extension}");
+            fs::copy(
+                repo_root.join("data/selinux").join(&name),
+                build.join(&name),
+            )
+            .with_context(|| format!("copying {name}"))?;
+        }
     }
+    let packages: Vec<String> = SELINUX_MODULES.iter().map(|m| format!("{m}.pp")).collect();
     let status = Command::new("make")
-        .args(["-f", SELINUX_MAKEFILE, &format!("{SELINUX_MODULE}.pp")])
+        .args(["-f", SELINUX_MAKEFILE])
+        .args(&packages)
         .current_dir(&build)
         .stdout(Stdio::null())
         .status()
         .context("running make")?;
     ensure!(
         status.success(),
-        "building the SELinux module failed: {status}"
+        "building the SELinux modules failed: {status}"
     );
-    run(
-        "semodule",
-        &[
-            "-i",
-            &build.join(format!("{SELINUX_MODULE}.pp")).to_string_lossy(),
-        ],
-    )?;
+    for package in &packages {
+        run("semodule", &["-i", &build.join(package).to_string_lossy()])?;
+    }
     fs::remove_dir_all(&build)?;
-    println!("loaded SELinux module {SELINUX_MODULE}");
+    println!("loaded SELinux modules {}", SELINUX_MODULES.join(", "));
     Ok(true)
 }
 
@@ -152,10 +188,12 @@ fn reload() -> Result<()> {
     )
 }
 
-/// Stops a running sampler so reinstalling takes effect immediately; not running is fine.
-fn stop_sampler() {
+/// Stops the running privileged services so reinstalling takes effect immediately (they are
+/// D-Bus activated again on the next call); not running is fine.
+fn stop_services() {
     let _ = Command::new("systemctl")
-        .args(["stop", "drainscope-sampler.service"])
+        .arg("stop")
+        .args(SYSTEM_SERVICES)
         .status();
 }
 
@@ -186,7 +224,7 @@ pub fn install(repo_root: &Path) -> Result<()> {
             );
         }
     }
-    stop_sampler();
+    stop_services();
     for (source, destination, mode) in FILES {
         let source = repo_root.join(source);
         let mut contents =
@@ -214,7 +252,7 @@ pub fn install(repo_root: &Path) -> Result<()> {
             .collect();
         run("restorecon", &[&["-F"], destinations.as_slice()].concat())?;
     }
-    run("systemd-sysusers", &["/etc/sysusers.d/drainscope.conf"])?;
+    run("systemd-sysusers", &SYSUSERS)?;
     reload()?;
     println!(
         "\nThe sampler starts on demand. Now, as your normal user (not root):\n  \
@@ -227,7 +265,7 @@ pub fn install(repo_root: &Path) -> Result<()> {
 
 pub fn uninstall() -> Result<()> {
     require_root()?;
-    stop_sampler();
+    stop_services();
     for (_, destination, _) in FILES {
         match fs::remove_file(destination) {
             Ok(()) => println!("removed {destination}"),
@@ -235,21 +273,23 @@ pub fn uninstall() -> Result<()> {
             Err(err) => return Err(err).with_context(|| format!("removing {destination}")),
         }
     }
-    // Not loaded (or no SELinux) is fine.
-    let removed = Command::new("semodule")
-        .args(["-r", SELINUX_MODULE])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success());
-    if removed {
-        println!("removed SELinux module {SELINUX_MODULE}");
+    for module in SELINUX_MODULES {
+        // Not loaded (or no SELinux) is fine.
+        let removed = Command::new("semodule")
+            .args(["-r", module])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if removed {
+            println!("removed SELinux module {module}");
+        }
     }
     reload()?;
     println!(
         "\nIf the daemon was enabled, also run as your normal user:\n  \
          systemctl --user disable --now drainscope.service\n\
-         The drainscope-sampler system user is kept (sysusers never deletes users), and so is \
+         The drainscope-sampler and drainscope-probe system users are kept (sysusers never deletes users), and so is \
          your history in ~/.local/state/drainscope/."
     );
     Ok(())
