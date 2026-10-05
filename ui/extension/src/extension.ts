@@ -16,7 +16,7 @@ import { QuickMenuToggle, SystemIndicator } from 'resource:///org/gnome/shell/ui
 
 import { buildMenu, iconName, type MenuModel, type MenuRow } from '@drainscope/shared';
 
-import { appIcon, appName, clearAppCache } from './apps';
+import { appIcon, appName } from './apps';
 import { MonitorClient } from './client';
 
 /** How often the tile's subtitle refreshes while the menu is closed. */
@@ -110,14 +110,14 @@ export default class DrainscopeExtension extends Extension {
   private menuSignal: number | null = null;
 
   override enable(): void {
-    const toggle = new UsageToggle();
-    const indicator = new SystemIndicator();
-    indicator.quickSettingsItems.push(toggle);
     const quickSettings = Main.panel.statusArea.quickSettings;
     if (quickSettings === undefined) {
       console.error('drainscope: quick settings unavailable');
       return;
     }
+    const toggle = new UsageToggle();
+    const indicator = new SystemIndicator();
+    indicator.quickSettingsItems.push(toggle);
     quickSettings.addExternalIndicator(indicator);
 
     const client = new MonitorClient();
@@ -164,7 +164,6 @@ export default class DrainscopeExtension extends Extension {
     this.indicator?.destroy();
     this.indicator = null;
     this.toggle = null;
-    clearAppCache();
   }
 
   private refresh(): void {
