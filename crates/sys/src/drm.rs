@@ -55,6 +55,53 @@ pub fn parse_fdinfo(text: &str) -> Option<FdInfo> {
     })
 }
 
+/// How much a GPU driver's fdinfo tells about per-client GPU use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineTime {
+    /// `drm-engine-*` busy time in nanoseconds, which attribution uses.
+    Nanoseconds,
+    /// Only `drm-cycles-*` GPU clock cycles (xe), not used yet.
+    Cycles,
+    /// No per-client busy time.
+    None,
+    Unknown,
+}
+
+impl EngineTime {
+    #[must_use]
+    pub fn of_driver(driver: &str) -> Self {
+        match driver {
+            "i915" | "amdgpu" | "msm" | "panfrost" | "panthor" | "v3d" => Self::Nanoseconds,
+            "xe" => Self::Cycles,
+            "nouveau" | "nvidia" | "nvidia-drm" | "radeon" | "simpledrm" | "vmwgfx" => Self::None,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// The kernel driver of each DRM card, e.g. `("card1", "i915")`, sorted by card.
+#[must_use]
+pub fn gpu_drivers(root: &SysRoot) -> Vec<(String, String)> {
+    let Ok(entries) = fs::read_dir(root.path("sys/class/drm")) else {
+        return Vec::new();
+    };
+    let mut cards: Vec<(String, String)> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let card = entry.file_name().to_string_lossy().into_owned();
+            // `card1`, not connectors like `card1-eDP-1` or render nodes.
+            let digits = card.strip_prefix("card")?;
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            let driver = fs::read_link(entry.path().join("device/driver")).ok()?;
+            Some((card, driver.file_name()?.to_string_lossy().into_owned()))
+        })
+        .collect();
+    cards.sort();
+    cards
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct KnownProcess {
     start_ticks: u64,
@@ -191,6 +238,62 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     const I915: &str = "pos:\t0\nflags:\t02100002\ndrm-driver:\ti915\ndrm-client-id:\t33\ndrm-engine-render:\t20462333122 ns\ndrm-engine-copy:\t5 ns\ndrm-engine-capacity-video:\t2\n";
+
+    // amdgpu on an APU: engine names differ from i915's, plus memory keys to ignore.
+    const AMDGPU: &str = "pos:\t0\nflags:\t02100002\nmnt_id:\t26\ndrm-driver:\tamdgpu\ndrm-client-id:\t87\ndrm-pdev:\t0000:04:00.0\npasid:\t32789\ndrm-memory-vram:\t4096 KiB\ndrm-memory-gtt:\t2048 KiB\ndrm-engine-gfx:\t1325640327 ns\ndrm-engine-compute:\t12 ns\ndrm-engine-dec:\t0 ns\n";
+
+    #[test]
+    fn parses_amdgpu_fdinfo() {
+        assert_eq!(
+            parse_fdinfo(AMDGPU),
+            Some(FdInfo {
+                client_id: 87,
+                engine_ns: 1_325_640_339,
+            })
+        );
+    }
+
+    #[test]
+    fn xe_cycles_are_not_busy_time() {
+        let xe = "drm-driver:\txe\ndrm-client-id:\t5\ndrm-cycles-rcs:\t28257900\ndrm-total-cycles-rcs:\t7655183225\n";
+        assert_eq!(
+            parse_fdinfo(xe),
+            Some(FdInfo {
+                client_id: 5,
+                engine_ns: 0,
+            })
+        );
+        assert_eq!(EngineTime::of_driver("xe"), EngineTime::Cycles);
+        assert_eq!(EngineTime::of_driver("amdgpu"), EngineTime::Nanoseconds);
+    }
+
+    #[test]
+    fn lists_card_drivers() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = SysRoot::at(dir.path());
+        let drm = root.path("sys/class/drm");
+        for (card, driver) in [("card1", "i915"), ("card0", "amdgpu")] {
+            let device = dir.path().join(format!("devices/{card}"));
+            fs::create_dir_all(&device).unwrap();
+            fs::create_dir_all(dir.path().join(format!("drivers/{driver}"))).unwrap();
+            symlink(
+                dir.path().join(format!("drivers/{driver}")),
+                device.join("driver"),
+            )
+            .unwrap();
+            fs::create_dir_all(drm.join(card)).unwrap();
+            symlink(&device, drm.join(card).join("device")).unwrap();
+        }
+        fs::create_dir_all(drm.join("card1-eDP-1")).unwrap();
+        fs::create_dir_all(drm.join("renderD128")).unwrap();
+        assert_eq!(
+            gpu_drivers(&root),
+            [
+                ("card0".to_owned(), "amdgpu".to_owned()),
+                ("card1".to_owned(), "i915".to_owned())
+            ]
+        );
+    }
 
     #[test]
     fn parses_i915_fdinfo() {

@@ -12,7 +12,7 @@ pub mod root;
 pub mod sleep;
 
 pub use cgroup::{read_cpu_usage, terminal_labels};
-pub use drm::DrmScanner;
+pub use drm::{DrmScanner, EngineTime, gpu_drivers};
 pub use error::SysError;
 pub use power_supply::read_batteries;
 pub use powercap::{PowercapZone, read_zones};
