@@ -74,6 +74,9 @@ enum Command {
         /// Allow running on AC (no battery figures), to check the harness itself.
         #[arg(long)]
         allow_ac: bool,
+        /// Measure wakeups and network traffic (needs drainscope-probe) instead of CPU load.
+        #[arg(long)]
+        activity: bool,
     },
     /// Cut a time window out of a trace into testdata/traces/, keeping only what the model reads.
     TrimTrace {
@@ -119,12 +122,14 @@ fn main() -> Result<()> {
             idle,
             phase,
             allow_ac,
+            activity,
         } => validate::run(
             repo_root()?,
             &validate::Options {
                 idle_secs: idle,
                 phase_secs: phase,
                 allow_ac,
+                activity,
             },
         ),
         Command::UninstallDev => install::uninstall(),

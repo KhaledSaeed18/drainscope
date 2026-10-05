@@ -5,6 +5,10 @@
 //! phase: the increase over idle at the battery and in RAPL, the conversion factor
 //! `k = Δbattery / Δ(package + dram)`, a linear fit of package power against load, and, if
 //! the daemon is running, how much of each phase's active energy it gave to the load's scope.
+//!
+//! With `--activity`, the loads are instead timers waking the CPU at known rates and downloads
+//! at known rates, measured through the eBPF probe as well (ADR 0006): what a wakeup and a
+//! megabyte cost, and how much of it model v1 charges to the app causing it.
 
 // Sample counts, seconds and microjoules are far below 2^52.
 #![allow(clippy::cast_precision_loss)]
@@ -19,6 +23,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
 use drainscope_dbus::monitor::{Monitor1Proxy, UsageRow};
+use drainscope_dbus::probe::{Probe1Proxy, ProbeError};
 use drainscope_dbus::sampler::{Sampler1Proxy, SamplerError};
 
 const SAMPLE_EVERY: Duration = Duration::from_secs(2);
@@ -35,33 +40,125 @@ pub struct Options {
     pub phase_secs: u64,
     /// Run on AC too (battery figures are then unavailable); for checking the harness.
     pub allow_ac: bool,
+    /// Measure wakeups and network traffic instead of CPU load.
+    pub activity: bool,
 }
 
-/// One load phase: `stress-ng --cpu <cpus> --cpu-load <load>`.
+/// One load phase, run in its own transient scope.
 #[derive(Debug, Clone, Copy)]
-struct Load {
-    cpus: u32,
-    load_percent: u32,
+enum Workload {
+    /// `stress-ng --cpu <cpus> --cpu-load <load_percent>`.
+    Cpu { cpus: u32, load_percent: u32 },
+    /// `stress-ng --timer 1 --timer-freq <hz>`: wakes a CPU `hz` times a second for almost no
+    /// work.
+    Timer { hz: u32 },
+    /// A download limited to `kbytes_per_second` kB/s.
+    Download { kbytes_per_second: u32 },
 }
 
-const LOADS: [Load; 4] = [
-    Load {
+const CPU_LOADS: [Workload; 4] = [
+    Workload::Cpu {
         cpus: 1,
         load_percent: 100,
     },
-    Load {
+    Workload::Cpu {
         cpus: 2,
         load_percent: 100,
     },
-    Load {
+    Workload::Cpu {
         cpus: 4,
         load_percent: 100,
     },
-    Load {
+    Workload::Cpu {
         cpus: 1,
         load_percent: 50,
     },
 ];
+
+const ACTIVITY_LOADS: [Workload; 5] = [
+    Workload::Timer { hz: 250 },
+    Workload::Timer { hz: 1000 },
+    Workload::Timer { hz: 4000 },
+    Workload::Download {
+        kbytes_per_second: 1000,
+    },
+    Workload::Download {
+        kbytes_per_second: 4000,
+    },
+];
+
+/// Serves large downloads without authentication (Cloudflare's speed test).
+const DOWNLOAD_URL: &str = "https://speed.cloudflare.com/__down?bytes=";
+
+impl Workload {
+    /// Stable names, so repeated runs add up under the same consumers.
+    fn unit(self) -> String {
+        match self {
+            Self::Cpu { cpus, load_percent } => {
+                format!("drainscope-validate-cpu{cpus}x{load_percent}")
+            }
+            Self::Timer { hz } => format!("drainscope-validate-timer{hz}"),
+            Self::Download { kbytes_per_second } => {
+                format!("drainscope-validate-net{kbytes_per_second}k")
+            }
+        }
+    }
+
+    fn label(self) -> String {
+        match self {
+            Self::Cpu { cpus, load_percent } => format!("{cpus} CPU × {load_percent}%"),
+            Self::Timer { hz } => format!("Timer {hz} Hz"),
+            Self::Download { kbytes_per_second } => {
+                format!("Download {:.1} MB/s", f64::from(kbytes_per_second) / 1000.0)
+            }
+        }
+    }
+
+    fn command(self, secs: u64) -> Vec<String> {
+        let timeout = format!("{secs}s");
+        match self {
+            Self::Cpu { cpus, load_percent } => [
+                "stress-ng",
+                "--cpu",
+                &cpus.to_string(),
+                "--cpu-load",
+                &load_percent.to_string(),
+                "--timeout",
+                &timeout,
+                "--quiet",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            Self::Timer { hz } => [
+                "stress-ng",
+                "--timer",
+                "1",
+                "--timer-freq",
+                &hz.to_string(),
+                "--timeout",
+                &timeout,
+                "--quiet",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            Self::Download { kbytes_per_second } => {
+                // Twice what the phase can fetch, so the rate limit, not the size, ends it.
+                let bytes = u64::from(kbytes_per_second) * 1000 * secs * 2;
+                vec![
+                    "curl".into(),
+                    "--silent".into(),
+                    "--output".into(),
+                    "/dev/null".into(),
+                    "--max-time".into(),
+                    secs.to_string(),
+                    "--limit-rate".into(),
+                    format!("{kbytes_per_second}k"),
+                    format!("{DOWNLOAD_URL}{bytes}"),
+                ]
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 struct Sample {
@@ -76,6 +173,16 @@ struct Sample {
     root_usec: u64,
     /// `usage_usec` per transient scope that exists at this moment.
     scope_usec: BTreeMap<String, u64>,
+    /// Cumulative idle exits and (received, sent) bytes per transient scope, from the probe
+    /// (`--activity` only), with the probe's generation.
+    probe: Option<ProbeSample>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ProbeSample {
+    generation: u64,
+    wakeups: BTreeMap<String, u64>,
+    bytes: BTreeMap<String, (u64, u64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +224,7 @@ struct Buses {
     sampler: Sampler1Proxy<'static>,
     /// `None` if the daemon isn't running.
     monitor: Option<Monitor1Proxy<'static>>,
+    probe: Probe1Proxy<'static>,
 }
 
 impl Buses {
@@ -124,19 +232,21 @@ impl Buses {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let (sampler, monitor) = runtime.block_on(async {
+        let (sampler, monitor, probe) = runtime.block_on(async {
             let system = zbus::Connection::system().await?;
             let sampler = Sampler1Proxy::new(&system).await?;
+            let probe = Probe1Proxy::new(&system).await?;
             let monitor = match zbus::Connection::session().await {
                 Ok(session) => Monitor1Proxy::new(&session).await.ok(),
                 Err(_) => None,
             };
-            anyhow::Ok((sampler, monitor))
+            anyhow::Ok((sampler, monitor, probe))
         })?;
         Ok(Self {
             runtime,
             sampler,
             monitor,
+            probe,
         })
     }
 
@@ -152,6 +262,46 @@ impl Buses {
             }
         }
         bail!("the sampler kept rate-limiting; is something else polling it every second?")
+    }
+
+    /// Wakeups and traffic of the transient scopes in `units`, retrying briefly when the
+    /// daemon's own calls (same user) hit the per-user limit.
+    fn read_probe(&self, units: &[String]) -> Result<ProbeSample> {
+        let scope_of = |path: &str| {
+            units
+                .iter()
+                .find(|unit| path.ends_with(&format!("/{unit}.scope")))
+                .cloned()
+        };
+        let mut sample = ProbeSample::default();
+        for _ in 0..5 {
+            match self.runtime.block_on(self.probe.read_wakeups()) {
+                Ok((_, generation, rows)) => {
+                    sample.generation = generation;
+                    sample.wakeups = rows
+                        .into_iter()
+                        .filter_map(|(path, count)| Some((scope_of(&path)?, count)))
+                        .collect();
+                    break;
+                }
+                Err(ProbeError::RateLimited(_)) => sleep(Duration::from_millis(300)),
+                Err(err) => bail!("reading wakeups from the probe: {err}"),
+            }
+        }
+        for _ in 0..5 {
+            match self.runtime.block_on(self.probe.read_network()) {
+                Ok((_, _, rows)) => {
+                    sample.bytes = rows
+                        .into_iter()
+                        .filter_map(|(path, rx, tx)| Some((scope_of(&path)?, (rx, tx))))
+                        .collect();
+                    return Ok(sample);
+                }
+                Err(ProbeError::RateLimited(_)) => sleep(Duration::from_millis(300)),
+                Err(err) => bail!("reading traffic from the probe: {err}"),
+            }
+        }
+        bail!("the probe kept rate-limiting")
     }
 
     /// The daemon's usage rows for `[since, until)`, if it's running.
@@ -207,8 +357,13 @@ fn app_slice() -> String {
     format!("/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service/app.slice")
 }
 
-fn sample(buses: &Buses, start: Instant, units: &[String]) -> Result<Sample> {
+fn sample(buses: &Buses, start: Instant, units: &[String], activity: bool) -> Result<Sample> {
     let (generation, rapl_uj) = buses.read_rapl()?;
+    let probe = if activity {
+        Some(buses.read_probe(units)?)
+    } else {
+        None
+    };
     let scope_usec = units
         .iter()
         .filter_map(|unit| {
@@ -224,31 +379,44 @@ fn sample(buses: &Buses, start: Instant, units: &[String]) -> Result<Sample> {
         backlight: read_backlight(),
         root_usec: usage_usec(Path::new("/sys/fs/cgroup")).context("root cpu.stat")?,
         scope_usec,
+        probe,
     })
 }
 
-/// Samples every `SAMPLE_EVERY` for `length`, or until `child` exits.
-fn record(
-    buses: &Buses,
+/// What every sample of a run reads.
+struct Recorder<'a> {
+    buses: &'a Buses,
     start: Instant,
-    length: Duration,
-    units: &[String],
-    samples: &mut Vec<Sample>,
-    mut child: Option<&mut Child>,
-) -> Result<()> {
-    let until = Instant::now() + length;
-    while Instant::now() < until {
-        // Check before sampling, so a load phase's last sample is taken while it still runs
-        // (its scope, and so its CPU counter, disappears when it exits).
-        if let Some(child) = child.as_deref_mut()
-            && child.try_wait()?.is_some()
-        {
-            break;
-        }
-        samples.push(sample(buses, start, units)?);
-        sleep(SAMPLE_EVERY);
+    units: &'a [String],
+    activity: bool,
+}
+
+impl Recorder<'_> {
+    fn elapsed(&self) -> f64 {
+        self.start.elapsed().as_secs_f64()
     }
-    Ok(())
+
+    /// Samples every `SAMPLE_EVERY` for `length`, or until `child` exits.
+    fn record(
+        &self,
+        length: Duration,
+        samples: &mut Vec<Sample>,
+        mut child: Option<&mut Child>,
+    ) -> Result<()> {
+        let until = Instant::now() + length;
+        while Instant::now() < until {
+            // Check before sampling, so a load phase's last sample is taken while it still runs
+            // (its scope, and so its CPU counter, disappears when it exits).
+            if let Some(child) = child.as_deref_mut()
+                && child.try_wait()?.is_some()
+            {
+                break;
+            }
+            samples.push(sample(self.buses, self.start, self.units, self.activity)?);
+            sleep(SAMPLE_EVERY);
+        }
+        Ok(())
+    }
 }
 
 /// Refuses runs that can't produce meaningful numbers.
@@ -268,20 +436,28 @@ fn preflight(options: &Options) -> Result<()> {
         SAMPLE_EVERY.as_secs()
     );
     run_output("stress-ng", &["--version"]).context("stress-ng is required")?;
+    if options.activity {
+        run_output("curl", &["--version"]).context("curl is required")?;
+    }
     Ok(())
 }
 
 pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
     preflight(options)?;
     let buses = Buses::connect().context("connecting to D-Bus")?;
-
+    let workloads: &[Workload] = if options.activity {
+        &ACTIVITY_LOADS
+    } else {
+        &CPU_LOADS
+    };
     let run_id = unix_now();
-    let units: Vec<String> = LOADS
-        .iter()
-        // Stable names, so repeated runs add up under the same consumers.
-        .map(|l| format!("drainscope-validate-cpu{}x{}", l.cpus, l.load_percent))
-        .collect();
-    let start = Instant::now();
+    let units: Vec<String> = workloads.iter().map(|w| w.unit()).collect();
+    let recorder = Recorder {
+        buses: &buses,
+        start: Instant::now(),
+        units: &units,
+        activity: options.activity,
+    };
     let mut samples = Vec::new();
     let mut phases = Vec::new();
 
@@ -289,32 +465,19 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
         "idle for {} s: please don't use the machine",
         options.idle_secs
     );
-    let (t0, w0) = (start.elapsed().as_secs_f64(), unix_now());
-    record(
-        &buses,
-        start,
-        Duration::from_secs(options.idle_secs),
-        &units,
-        &mut samples,
-        None,
-    )?;
+    let (t0, w0) = (recorder.elapsed(), unix_now());
+    recorder.record(Duration::from_secs(options.idle_secs), &mut samples, None)?;
     phases.push(Phase {
         name: "idle".into(),
         unit: None,
         start: t0,
-        end: start.elapsed().as_secs_f64(),
+        end: recorder.elapsed(),
         wall_start: w0,
         wall_end: unix_now(),
     });
 
-    for (load, unit) in LOADS.iter().zip(&units) {
-        eprintln!(
-            "{} CPU(s) at {}% for {} s",
-            load.cpus, load.load_percent, options.phase_secs
-        );
-        let timeout = format!("{}s", options.phase_secs);
-        let cpus = load.cpus.to_string();
-        let percent = load.load_percent.to_string();
+    for (workload, unit) in workloads.iter().zip(&units) {
+        eprintln!("{} for {} s", workload.label(), options.phase_secs);
         let mut child = Command::new("systemd-run")
             .args([
                 "--user",
@@ -324,43 +487,38 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
                 unit.as_str(),
                 "--",
             ])
-            .args([
-                "stress-ng",
-                "--cpu",
-                &cpus,
-                "--cpu-load",
-                &percent,
-                "--timeout",
-                &timeout,
-                "--quiet",
-            ])
+            .args(workload.command(options.phase_secs))
             .stdout(Stdio::null())
             .spawn()
-            .context("starting stress-ng in a transient scope")?;
-        let (t0, w0) = (start.elapsed().as_secs_f64(), unix_now());
-        record(
-            &buses,
-            start,
+            .context("starting the load in a transient scope")?;
+        let (t0, w0) = (recorder.elapsed(), unix_now());
+        recorder.record(
             Duration::from_secs(options.phase_secs + 2),
-            &units,
             &mut samples,
             Some(&mut child),
         )?;
         child.wait()?;
         phases.push(Phase {
-            name: format!("{} CPU × {}%", load.cpus, load.load_percent),
+            name: workload.label(),
             unit: Some(unit.clone()),
             start: t0,
-            end: start.elapsed().as_secs_f64(),
+            end: recorder.elapsed(),
             wall_start: w0,
             wall_end: unix_now(),
         });
-        record(&buses, start, REST, &units, &mut samples, None)?;
+        recorder.record(REST, &mut samples, None)?;
     }
 
     let raw = write_raw(repo_root, run_id, &samples, &phases)?;
-    let report = report(&buses, &phases, &samples, &raw)?;
-    let path = repo_root.join("docs/validation.md");
+    let (report, name) = if options.activity {
+        (
+            activity_report(&buses, &phases, &samples, &raw)?,
+            "validation-activity.md",
+        )
+    } else {
+        (report(&buses, &phases, &samples, &raw)?, "validation.md")
+    };
+    let path = repo_root.join("docs").join(name);
     fs::write(&path, &report).with_context(|| format!("writing {}", path.display()))?;
     print!("{report}");
     eprintln!("\nwrote {}", path.display());
@@ -394,7 +552,10 @@ fn write_raw(
         dir.join(format!("validation-{run_id}.phases.csv")),
         phase_csv,
     )?;
-    let mut csv = String::from("t,generation,battery_w,backlight,root_usec,rapl_uj,scope_usec\n");
+    let mut csv = String::from(
+        "t,generation,battery_w,backlight,root_usec,rapl_uj,scope_usec,probe_generation,\
+         scope_wakeups,scope_bytes\n",
+    );
     for s in samples {
         let rapl: Vec<String> = s.rapl_uj.iter().map(|(d, v)| format!("{d}={v}")).collect();
         let scopes: Vec<String> = s
@@ -402,16 +563,32 @@ fn write_raw(
             .iter()
             .map(|(u, v)| format!("{u}={v}"))
             .collect();
+        let probe = s.probe.clone().unwrap_or_default();
+        let wakeups: Vec<String> = probe
+            .wakeups
+            .iter()
+            .map(|(u, v)| format!("{u}={v}"))
+            .collect();
+        let bytes: Vec<String> = probe
+            .bytes
+            .iter()
+            .map(|(u, (rx, tx))| format!("{u}={rx}/{tx}"))
+            .collect();
         let _ = writeln!(
             csv,
-            "{:.3},{},{},{},{},{},{}",
+            "{:.3},{},{},{},{},{},{},{},{},{}",
             s.t,
             s.generation,
             s.battery_w.map_or(String::new(), |w| format!("{w:.3}")),
             s.backlight.map_or(String::new(), |b| b.to_string()),
             s.root_usec,
             rapl.join(";"),
-            scopes.join(";")
+            scopes.join(";"),
+            s.probe
+                .as_ref()
+                .map_or(String::new(), |p| p.generation.to_string()),
+            wakeups.join(";"),
+            bytes.join(";")
         );
     }
     fs::write(dir.join(&name), csv)?;
@@ -426,6 +603,30 @@ struct PhaseStats {
     dram_w: f64,
     busy_cpus: f64,
     scope_cpus: f64,
+    /// The scope's idle exits per second (`--activity`).
+    scope_wakeups: f64,
+    /// The scope's received and sent bytes per second (`--activity`).
+    scope_rx: f64,
+    scope_tx: f64,
+}
+
+/// Per-second rate of a per-scope probe counter over the samples that saw the scope (it may
+/// appear late or vanish early), within the first probe generation seen.
+fn scope_rate(window: &[&Sample], value: impl Fn(&ProbeSample) -> Option<u64>) -> f64 {
+    let seen: Vec<(f64, u64, u64)> = window
+        .iter()
+        .filter_map(|s| {
+            let probe = s.probe.as_ref()?;
+            Some((s.t, probe.generation, value(probe)?))
+        })
+        .collect();
+    let Some(&(t0, generation, v0)) = seen.first() else {
+        return 0.0;
+    };
+    match seen.iter().rev().find(|(_, g, _)| *g == generation) {
+        Some(&(t1, _, v1)) if t1 > t0 => v1.saturating_sub(v0) as f64 / (t1 - t0),
+        _ => 0.0,
+    }
 }
 
 fn stats(phase: &Phase, samples: &[Sample]) -> Option<PhaseStats> {
@@ -467,6 +668,15 @@ fn stats(phase: &Phase, samples: &[Sample]) -> Option<PhaseStats> {
         dram_w: rate("dram"),
         busy_cpus: cpus(first.root_usec, last.root_usec),
         scope_cpus,
+        scope_wakeups: phase.unit.as_ref().map_or(0.0, |unit| {
+            scope_rate(&window, |p| p.wakeups.get(unit).copied())
+        }),
+        scope_rx: phase.unit.as_ref().map_or(0.0, |unit| {
+            scope_rate(&window, |p| p.bytes.get(unit).map(|b| b.0))
+        }),
+        scope_tx: phase.unit.as_ref().map_or(0.0, |unit| {
+            scope_rate(&window, |p| p.bytes.get(unit).map(|b| b.1))
+        }),
     })
 }
 
@@ -580,6 +790,124 @@ fn report(buses: &Buses, phases: &[Phase], samples: &[Sample], raw: &str) -> Res
     Ok(out)
 }
 
+/// Energy the running daemon attributed to the phase's scope, as average watts over the phase.
+fn daemon_watts(buses: &Buses, phase: &Phase) -> Option<f64> {
+    let unit = phase.unit.as_ref()?;
+    let rows = buses.usage(phase.wall_start, phase.wall_end + 1)?;
+    let key = format!("user-unit:{unit}.scope");
+    let joules: f64 = rows
+        .iter()
+        .filter(|(name, ..)| *name == key)
+        .map(|(_, _, joules, ..)| joules)
+        .sum();
+    let seconds = (phase.wall_end - phase.wall_start).max(1) as f64;
+    Some(joules / seconds)
+}
+
+fn activity_report(
+    buses: &Buses,
+    phases: &[Phase],
+    samples: &[Sample],
+    raw: &str,
+) -> Result<String> {
+    let idle = phases
+        .first()
+        .and_then(|p| stats(p, samples))
+        .context("no idle measurement")?;
+    let date = run_output("date", &["-u", "+%Y-%m-%d %H:%M UTC"]).unwrap_or_default();
+    let mut out = String::new();
+    let _ = writeln!(out, "# Activity validation (ADR 0006)\n");
+    let _ = writeln!(
+        out,
+        "Generated by `cargo xtask validate --activity` on {}.\nRaw samples: `{raw}` (not committed).\n",
+        date.trim()
+    );
+    let _ = writeln!(
+        out,
+        "Timer phases wake a CPU at a fixed rate doing almost nothing (`stress-ng --timer`); \
+         download phases fetch at a capped rate (`curl --limit-rate`). Wakeups and bytes are the \
+         eBPF probe's counts for the load's scope. Averages skip the first {SETTLE:.0} s of each \
+         phase; Δ values are relative to idle. \"Outside RAPL\" is ΔBattery − ΔRAPL: the radio, \
+         chipset and other devices. \"Charged\" is what the running daemon (model v1) attributed to \
+         the load's scope, as average watts.\n"
+    );
+    let _ = writeln!(
+        out,
+        "| Phase | CPUs | Wakeups/s | In MB/s | Out MB/s | Battery W | ΔBattery W | ΔRAPL W | Outside RAPL W | Charged W |\n\
+         |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+    );
+    let watts = |w: Option<f64>| w.map_or("n/a".to_owned(), |w| format!("{w:.2}"));
+    let mut wake_points = Vec::new();
+    let mut net_points = Vec::new();
+    for phase in phases {
+        let Some(s) = stats(phase, samples) else {
+            let _ = writeln!(
+                out,
+                "| {} | – | – | – | – | – | – | – | – | – |",
+                phase.name
+            );
+            continue;
+        };
+        let d_rapl = (s.package_w + s.dram_w) - (idle.package_w + idle.dram_w);
+        let d_battery = s.battery_w.zip(idle.battery_w).map(|(b, i)| b - i);
+        let outside = d_battery.map(|d| d - d_rapl);
+        let megabytes = (s.scope_rx + s.scope_tx) / 1e6;
+        if phase.name.starts_with("Timer") {
+            wake_points.push((s.scope_wakeups, d_rapl, d_battery));
+        } else if phase.name.starts_with("Download") {
+            net_points.push((megabytes, d_rapl, outside));
+        }
+        let _ = writeln!(
+            out,
+            "| {} | {:.3} | {:.0} | {:.2} | {:.3} | {} | {} | {:.2} | {} | {} |",
+            phase.name,
+            s.scope_cpus,
+            s.scope_wakeups,
+            s.scope_rx / 1e6,
+            s.scope_tx / 1e6,
+            watts(s.battery_w),
+            watts(d_battery),
+            d_rapl,
+            watts(outside),
+            watts(daemon_watts(buses, phase)),
+        );
+    }
+    let _ = writeln!(out);
+    let rapl_fit: Vec<(f64, f64)> = wake_points.iter().map(|&(w, r, _)| (w, r)).collect();
+    if let Some((a, b, r2)) = fit(&rapl_fit) {
+        let _ = writeln!(
+            out,
+            "- RAPL power vs. wakeups: {:.1} mW per 100 wakeups/s + {b:.2} W (R² = {r2:.3}).",
+            a * 100.0 * 1000.0
+        );
+    }
+    let battery_fit: Vec<(f64, f64)> = wake_points
+        .iter()
+        .filter_map(|&(w, _, d)| Some((w, d?)))
+        .collect();
+    if let Some((a, b, r2)) = fit(&battery_fit) {
+        let _ = writeln!(
+            out,
+            "- Battery power vs. wakeups: {:.1} mW per 100 wakeups/s + {b:.2} W (R² = {r2:.3}).",
+            a * 100.0 * 1000.0
+        );
+    }
+    let outside_fit: Vec<(f64, f64)> = net_points
+        .iter()
+        .filter_map(|&(m, _, o)| Some((m, o?)))
+        .collect();
+    if let Some((a, b, r2)) = fit(&outside_fit) {
+        let _ = writeln!(
+            out,
+            "- Power outside RAPL vs. traffic: {:.0} mW per MB/s + {b:.2} W (R² = {r2:.3}; two \
+             points fit exactly, so R² is only meaningful with more).",
+            a * 1000.0
+        );
+    }
+    conclusions_backlight(&mut out, samples);
+    Ok(out)
+}
+
 /// The fit, the conversion factor and the backlight check, below the table.
 fn conclusions(out: &mut String, fit_points: &[(f64, f64)], mut ks: Vec<f64>, samples: &[Sample]) {
     if let Some((a, b, r2)) = fit(fit_points) {
@@ -605,6 +933,11 @@ fn conclusions(out: &mut String, fit_points: &[(f64, f64)], mut ks: Vec<f64>, sa
             ks[ks.len() - 1]
         );
     }
+    conclusions_backlight(out, samples);
+}
+
+/// Whether the display's backlight stayed constant (the display is outside RAPL).
+fn conclusions_backlight(out: &mut String, samples: &[Sample]) {
     let levels: Vec<u64> = samples.iter().filter_map(|s| s.backlight).collect();
     match (levels.iter().min(), levels.iter().max()) {
         (Some(low), Some(high)) if low == high => {
@@ -640,7 +973,33 @@ mod tests {
             backlight: Some(100),
             root_usec: scope_usec * 2,
             scope_usec: BTreeMap::from([("u".to_owned(), scope_usec)]),
+            probe: None,
         }
+    }
+
+    #[test]
+    fn scope_rates_stay_within_one_probe_generation() {
+        let with_probe = |t: f64, generation: u64, wakeups: Option<u64>| {
+            let mut s = sample(t, 0, None, 0);
+            s.probe = Some(ProbeSample {
+                generation,
+                wakeups: wakeups.map(|w| ("u".to_owned(), w)).into_iter().collect(),
+                bytes: BTreeMap::new(),
+            });
+            s
+        };
+        let samples = [
+            with_probe(10.0, 1, None),
+            with_probe(12.0, 1, Some(100)),
+            with_probe(14.0, 1, Some(300)),
+            with_probe(16.0, 1, Some(500)),
+            // The probe restarted: its counts start over and must not be compared.
+            with_probe(18.0, 2, Some(20)),
+        ];
+        let window: Vec<&Sample> = samples.iter().collect();
+        let rate = scope_rate(&window, |p| p.wakeups.get("u").copied());
+        assert!((rate - 100.0).abs() < 1e-9, "{rate}");
+        assert!(scope_rate(&window[..2], |p| p.wakeups.get("u").copied()).abs() < 1e-12);
     }
 
     #[test]
