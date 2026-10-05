@@ -7,7 +7,7 @@ Per-app battery and energy usage for the Linux desktop.
 
 drainscope measures energy from hardware counters (RAPL via powercap) and the battery. It attributes that energy to apps, terminal workloads and system services through cgroup v2, DRM fdinfo and systemd scopes, keeps local history, and shows it in GNOME's quick settings and on the command line. No component runs as root.
 
-**Status:** v0.1.0 is [released](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.0) with RPMs for Fedora 44. It includes the daemon, the sandboxed sampler and eBPF probe with SELinux policy, the CLI, the GNOME Shell extension and the desktop app. Packages for Fedora 44, 45 and rawhide are in [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/); an extensions.gnome.org listing is coming ([docs/distribution.md](docs/distribution.md)). What's done and what's next: [ROADMAP.md](ROADMAP.md). Architecture and privilege model: [PLAN.md](PLAN.md). Measurements on real hardware: [ADR 0001](docs/adr/0001-feasibility.md), [docs/validation.md](docs/validation.md) and [docs/validation-activity.md](docs/validation-activity.md).
+**Status:** v0.1.1 is [released](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.1). It includes the daemon, the sandboxed sampler and eBPF probe with SELinux policy, the CLI, the GNOME Shell extension and the desktop app. Packages for Fedora 44, 45 and rawhide are in [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/); an extensions.gnome.org listing is coming ([docs/distribution.md](docs/distribution.md)). What's done and what's next: [ROADMAP.md](ROADMAP.md). Architecture and privilege model: [PLAN.md](PLAN.md). Measurements on real hardware: [ADR 0001](docs/adr/0001-feasibility.md), [docs/validation.md](docs/validation.md) and [docs/validation-activity.md](docs/validation-activity.md).
 
 ## What it looks like
 
@@ -73,12 +73,12 @@ The packages are signed with the COPR project's key, which `dnf` imports on firs
 
 ## Installing from the release
 
-Download the RPMs from the [v0.1.0 release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.0), then:
+Prefer COPR above (signed packages, updates). To install without it, download the Fedora 44 RPMs from the [v0.1.1 release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.1), then:
 
 ```bash
-sudo dnf install ./drainscope-0.1.0-1.fc44.x86_64.rpm ./drainscope-sampler-0.1.0-1.fc44.x86_64.rpm \
-  ./drainscope-probe-0.1.0-1.fc44.x86_64.rpm ./drainscope-selinux-0.1.0-1.fc44.noarch.rpm \
-  ./drainscope-app-0.1.0-1.fc44.noarch.rpm ./gnome-shell-extension-drainscope-0.1.0-1.fc44.noarch.rpm
+sudo dnf install ./drainscope-0.1.1-1.fc44.x86_64.rpm ./drainscope-sampler-0.1.1-1.fc44.x86_64.rpm \
+  ./drainscope-probe-0.1.1-1.fc44.x86_64.rpm ./drainscope-selinux-0.1.1-1.fc44.noarch.rpm \
+  ./drainscope-app-0.1.1-1.fc44.noarch.rpm ./gnome-shell-extension-drainscope-0.1.1-1.fc44.noarch.rpm
 systemctl --user enable --now drainscope.service
 drainscope doctor
 ```
