@@ -11,6 +11,7 @@ pub mod snapshot;
 pub mod unit_name;
 pub mod units;
 pub mod wake;
+pub mod wakeups;
 pub mod window;
 
 pub use activity::{Activity, Resolver};
@@ -23,4 +24,5 @@ pub use health::{BatteryHealth, health};
 pub use snapshot::{RaplDomain, Snapshot};
 pub use units::{Joules, Microjoules, Watts};
 pub use wake::{WakeupIrq, WakeupSource, WakeupSources, wake_reason};
+pub use wakeups::{WAKEUP_WINDOW, WakeupTracker};
 pub use window::{ClosedWindow, Measurement, PowerSource, Window};
