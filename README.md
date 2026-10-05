@@ -38,7 +38,7 @@ GNOME Shell                  <1%             9%   0.12 Wh
 | Part | Runs as | Does |
 |---|---|---|
 | `drainscope-sampler` | dedicated system user with only `CAP_DAC_READ_SEARCH`, sandboxed (`systemd-analyze security`: 0.6) | Reads the root-only RAPL counters and serves them on the system bus to callers polkit allows (the active local session only), rate-limited per user and quantized against the Platypus side channel. Starts on demand, exits when idle. |
-| `drainscope-daemon` | you, as a `systemd --user` service | Every 2 s on battery (5 s on AC): reads cgroup CPU time, GPU time from DRM fdinfo, batteries and RAPL; attributes energy above the machine's learned idle floor to whoever was active; reconciles with the battery over 10 s windows; stores history in `~/.local/state/drainscope/`; serves `Monitor1` on the session bus. |
+| `drainscope-daemon` | you, as a `systemd --user` service | Every 5 s: reads cgroup CPU time, GPU time from DRM fdinfo, batteries and RAPL; attributes energy above the machine's learned idle floor to whoever was active; reconciles with the battery over 10 s windows; stores history in `~/.local/state/drainscope/`; serves `Monitor1` on the session bus. |
 | `drainscope` | you | Reads `Monitor1`. |
 
 Everything stays on your machine; no component uses the network.

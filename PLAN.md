@@ -152,7 +152,7 @@ drainscope/
 - Intervals are measured on `CLOCK_MONOTONIC` (excludes suspend, so suspend is handled as a separate session). Wall-clock (`CLOCK_REALTIME`) is used only for stored timestamps.
 - Counters: `u64` microjoules. Model math: `f64` joules. Time deltas: `u64` nanoseconds.
 
-### Tick (default every 2 s on battery, 5 s on AC; configurable)
+### Tick (every 5 s; at 2 s the daemon would exceed its 0.5% CPU budget, measured in task 1.19)
 
 ```
 1. read energy      Sampler1.ReadCounters() → {domain → cumulative µJ} (wrap handled sampler-side)
@@ -291,7 +291,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 
 ### M1 — MVP: daemon + sampler + CLI (≈ 3–4 weeks)
 
-**Status (2026-10-05):** 1.1–1.21 and 1.23 implemented and verified on the dev machine (1.5 merged into 1.4). 1.22 (`xtask validate`) is implemented; its first real run (on battery) is pending, as are the manual unplug and suspend checks of 1.17 and 1.18.
+**Status (2026-10-05):** 1.1–1.21 and 1.23 implemented and verified on the dev machine (1.5 merged into 1.4). Overhead (1.19, release build, 5 s ticks, 5 min): 0.38% of one CPU, 8.5 MB RSS. 1.22 (`xtask validate`) is implemented; its first real run (on battery) is pending, as are the manual unplug and suspend checks of 1.17 and 1.18.
 | # | Task | Verify |
 |---|---|---|
 | 1.1 | `model`: domain types, `ConsumerKey`, identity rules (cgroup path → key, systemd unescape) | Table-driven unit tests over real cgroup names from this machine |
