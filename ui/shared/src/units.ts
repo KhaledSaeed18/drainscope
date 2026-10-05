@@ -49,3 +49,8 @@ export function formatEnergy(joules: number): string {
   }
   return wh >= 0.1 ? `${wh.toFixed(2)} Wh` : `${wh.toFixed(3)} Wh`;
 }
+
+/** `0.73 W`, `12.4 W` (matches the CLI). */
+export function formatWatts(watts: number): string {
+  return watts >= 10 ? `${watts.toFixed(1)} W` : `${watts.toFixed(2)} W`;
+}

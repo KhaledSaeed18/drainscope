@@ -7,11 +7,27 @@ export {
   type ConsumerKind,
 } from './consumers';
 export { buildMenu, MENU_ROWS, type MenuModel, type MenuRow } from './menu';
-export { decodeSummary, SUMMARY_SIGNATURE, type Decoded, type Summary, type TopConsumer } from './monitor';
+export {
+  COVERAGE_SIGNATURE,
+  decodeCoverage,
+  decodeSleepSessions,
+  decodeSummary,
+  decodeUsage,
+  SLEEP_SIGNATURE,
+  SUMMARY_SIGNATURE,
+  USAGE_SIGNATURE,
+  type Decoded,
+  type SleepSession,
+  type Summary,
+  type TopConsumer,
+  type UsageRow,
+} from './monitor';
 export {
   batteryPercent,
   formatDuration,
   formatEnergy,
   formatPercent,
+  formatWatts,
   joulesToWattHours,
 } from './units';
+export { buildSleep, buildUsage, kindLabel, type SleepEntry, type UsageEntry, type UsageModel } from './views';
