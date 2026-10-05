@@ -58,6 +58,8 @@ pub mod probe {
 
     /// One `ReadWakeups` reply: (monotonic ns, generation, (cgroup path, cumulative idle exits)).
     pub type Wakeups = (u64, u64, Vec<(String, u64)>);
+    /// One `ReadNetwork` reply: (monotonic ns, generation, (cgroup path, bytes in, bytes out)).
+    pub type Traffic = (u64, u64, Vec<(String, u64, u64)>);
 
     #[zbus::proxy(
         interface = "io.github.khaledsaeed18.Drainscope.Probe1",
@@ -66,6 +68,8 @@ pub mod probe {
     )]
     pub trait Probe1 {
         fn read_wakeups(&self) -> Result<Wakeups, ProbeError>;
+
+        fn read_network(&self) -> Result<Traffic, ProbeError>;
 
         #[zbus(property)]
         fn min_interval_ms(&self) -> zbus::Result<u32>;

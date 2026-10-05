@@ -29,7 +29,18 @@
       <arg name="generation" type="t" direction="out"/>
       <arg name="wakeups" type="a(st)" direction="out"/>
     </method>
-    <!-- MinIntervalMs: the shortest allowed interval between calls from one user. -->
+    <!--
+      ReadNetwork: like ReadWakeups, for network traffic outside loopback.
+        traffic  (cgroup path, cumulative bytes received, cumulative bytes sent) by the cgroup
+                 of the socket's owner. Fails with Unsupported when the network programs
+                 couldn't be attached.
+    -->
+    <method name="ReadNetwork">
+      <arg name="monotonic_ns" type="t" direction="out"/>
+      <arg name="generation" type="t" direction="out"/>
+      <arg name="traffic" type="a(stt)" direction="out"/>
+    </method>
+    <!-- MinIntervalMs: the shortest allowed interval between calls to each method from one user. -->
     <property name="MinIntervalMs" type="u" access="read"/>
   </interface>
 </node>
