@@ -15,9 +15,12 @@ use drainscope_daemon::collector::{Collector, monotonic_now, wall_now_ms};
 use drainscope_daemon::engine::{Engine, Reading, TickOutcome};
 use drainscope_daemon::monitor::{Monitor, Shared, Status};
 use drainscope_daemon::power::{BatteryLevel, PowerTracker, SleepTracker};
+use drainscope_daemon::probe::ProbeClient;
 use drainscope_daemon::rapl::RaplClient;
 use drainscope_dbus::monitor::{BUS_NAME, OBJECT_PATH};
-use drainscope_model::{BatteryHealth, MODEL_VERSION, PowerSource, RaplDomain, health};
+use drainscope_model::{
+    BatteryHealth, MODEL_VERSION, PowerSource, RaplDomain, Resolver, WakeupTracker, health,
+};
 use drainscope_store::{PowerEvent, PowerEventKind, Store, WindowRecord};
 use drainscope_sys::sleep::{PrepareForSleep, PrepareForSleepStream};
 use drainscope_sys::{
@@ -44,6 +47,11 @@ struct Daemon {
     collector: Option<Collector>,
     engine: Engine,
     rapl: RaplClient,
+    probe: ProbeClient,
+    /// Idle exits per consumer from the probe, and when it was last read.
+    wakeups: WakeupTracker,
+    last_probe_at: Option<Duration>,
+    own_uid: u32,
     power: PowerTracker,
     sleep: SleepTracker,
     logind: Option<Login1ManagerProxy<'static>>,
@@ -67,6 +75,7 @@ impl Daemon {
         let taken_at = monotonic_now();
         let wall_ms = wall_now_ms();
         let rapl = self.rapl.read().await;
+        let probe = self.probe.read().await;
         let mut collector = self.collector.take().context("collector busy")?;
         let (collector, collected) = tokio::task::spawn_blocking(move || {
             let collected = collector.collect(taken_at);
@@ -86,6 +95,18 @@ impl Daemon {
         let generation = rapl.as_ref().map(|r| r.generation);
         if let Some(reading) = rapl {
             collected.snapshot.rapl = reading.counters;
+        }
+        if let Some(reading) = probe {
+            let elapsed = self
+                .last_probe_at
+                .map_or(Duration::ZERO, |at| taken_at.saturating_sub(at));
+            self.last_probe_at = Some(taken_at);
+            let resolver = Resolver {
+                own_uid: self.own_uid,
+                terminal_labels: &collected.terminal_labels,
+            };
+            self.wakeups
+                .observe(reading.generation, reading.wakeups, elapsed, &resolver);
         }
         self.update_live_state(&level, &collected.snapshot.rapl);
         let outcome = self.engine.tick(Reading {
@@ -134,6 +155,13 @@ impl Daemon {
         live.capacity = level.capacity;
         live.status = status;
         live.domains = domains;
+        live.wakeups = self.probe.available().then(|| {
+            self.wakeups
+                .rates()
+                .into_iter()
+                .map(|(key, rate)| (key.to_string(), rate))
+                .collect()
+        });
     }
 
     async fn finish_tick(&self, outcome: TickOutcome) -> anyhow::Result<()> {
@@ -240,6 +268,8 @@ impl Daemon {
     async fn after_resume(&mut self) {
         // An interval spanning the sleep would be meaningless.
         self.engine.reset();
+        self.wakeups.reset();
+        self.last_probe_at = None;
         let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
         let root = SysRoot::host();
         let session = self.sleep.after_resume(
@@ -326,6 +356,7 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|err| tracing::warn!(%err, "no system bus: no RAPL, no sleep tracking"))
         .ok();
     let rapl = RaplClient::connect(system.as_ref()).await;
+    let probe = ProbeClient::connect(system.as_ref()).await;
     let logind = match &system {
         // Only its signal and Inhibit are used; caching properties would subscribe to every
         // PropertiesChanged logind emits.
@@ -348,6 +379,10 @@ async fn main() -> anyhow::Result<()> {
         collector: Some(Collector::new(SysRoot::host())),
         engine,
         rapl,
+        probe,
+        wakeups: WakeupTracker::default(),
+        last_probe_at: None,
+        own_uid: rustix::process::getuid().as_raw(),
         power: PowerTracker::default(),
         sleep: SleepTracker::default(),
         logind,

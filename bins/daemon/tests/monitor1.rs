@@ -99,6 +99,7 @@ fn shared() -> Arc<Shared> {
         capacity: Some(Joules(100_000.0)),
         status: Status::Full,
         domains: vec!["package".into(), "core".into()],
+        wakeups: Some(vec![("app:org.mozilla.firefox".into(), 12.5)]),
     };
     shared
 }
@@ -315,4 +316,12 @@ async fn served_interface_matches_the_contract() {
             .unwrap()
     };
     assert_eq!(find(&served), find(&contract));
+}
+
+#[tokio::test]
+async fn wakeups_come_from_live_state() {
+    let peer = serve().await;
+    let (available, wakeups) = proxy(&peer).await.get_wakeups().await.unwrap();
+    assert!(available);
+    assert_eq!(wakeups, [("app:org.mozilla.firefox".to_owned(), 12.5)]);
 }

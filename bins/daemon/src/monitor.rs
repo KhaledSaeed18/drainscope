@@ -42,6 +42,9 @@ pub struct LiveState {
     pub status: Status,
     /// RAPL domains in use (psys only when trusted).
     pub domains: Vec<String>,
+    /// Idle exits per second by consumer key over the last minute, largest first; `None`
+    /// without the eBPF probe.
+    pub wakeups: Option<Vec<(String, f64)>>,
 }
 
 impl Default for LiveState {
@@ -51,6 +54,7 @@ impl Default for LiveState {
             capacity: None,
             status: Status::TimeOnly,
             domains: Vec::new(),
+            wakeups: None,
         }
     }
 }
@@ -332,6 +336,15 @@ impl Monitor {
                 )
             })
             .collect())
+    }
+
+    #[zbus(out_args("available", "wakeups"))]
+    fn get_wakeups(&self) -> (bool, Vec<(String, f64)>) {
+        let live = self.live();
+        match &live.wakeups {
+            Some(wakeups) => (true, wakeups.clone()),
+            None => (false, Vec::new()),
+        }
     }
 
     #[zbus(signal)]
