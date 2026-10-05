@@ -3,7 +3,7 @@
 > Per-app battery and energy usage for the Linux desktop.
 > "Firefox used 14% of your battery since you unplugged." Windows, macOS and Android have had this for years; Linux has not.
 
-Status: **planning, awaiting approval**. Nothing is implemented yet.
+Status: **v0.1.0 released** (2026-10-05). M0–M2 are done; M3–M5 are done apart from the items in [ROADMAP.md](ROADMAP.md), which tracks status and what's next. This file keeps the architecture, the privilege model and the original milestone scopes.
 
 ---
 
@@ -328,10 +328,10 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 
 | Milestone | Scope |
 |---|---|
-| **M2 — GNOME Shell extension** (done 2026-10-05: tile + top-5 menu, verified on GNOME 50.3) | Quick-settings section "Battery usage since unplug" (top 5 + "Open drainscope"); live refresh via `Tick`; app names and icons via `Gio.DesktopAppInfo`; GNOME 50 ESM; strict TS with validated GVariant decoders; EGO-compliant (no work outside `enable`, full cleanup in `disable`). |
-| **M3 — Desktop app + sleep and health** (in progress 2026-10-05: app with range views, stacked timeline, per-consumer breakdown and sleep sessions; battery health is recorded daily. Pending: exposing health and wake reasons over Monitor1 (interface change, needs approval), foreground vs background) | libadwaita app: since-unplug / 24 h / 7 d views, stacked timeline, per-app detail (CPU vs GPU, foreground vs background), sleep sessions with wake reason, battery health chart (`energy_full` vs design, cycle count). |
-| **M4 — eBPF precision (aya)** (in progress 2026-10-05, ADR 0006: drainscope-probe counts idle exits and network bytes per cgroup; the daemon serves recent rates via Monitor1.GetWakeups and GetNetwork, shown in the CLI and app. Both validated live: a 20 MB download in its own scope counted 20.64 MB received (+3.2%, TCP/IP and TLS overhead) and 0.47 MB sent (ACKs). SELinux modules enforcing with no denials. Costs measured on battery (docs/validation-activity.md): wakeups 1.2–1.5 mW per 100/s, too small for the model; network processing 211 mW per MB/s, charged to Kernel by v1. Model v2 (ADR 0007, accepted) implemented: the probe times the network softirqs and the model moves that time from Kernel to apps by bytes; identical to v1 without probe data. Pending: a validate --activity run on battery with v2 installed. Then exit capture) | Per-app wakeups (timer/sched tracepoints) to find idle-drain culprits; capture short-lived processes at exit; per-cgroup network bytes (cgroup_skb) for a Wi-Fi share of "devices"; model v2 weighting CPU time by per-CPU frequency. eBPF runs in the privileged sampler (or a sibling) and exports only aggregated per-cgroup counters. |
-| **M5 — Hardening and distribution** (packaging done 2026-10-05: `cargo xtask dist` builds the tarball, SRPM, RPMs and the extensions.gnome.org zip; see packaging/README.md. v0.1.0 released on GitHub on 2026-10-05 with the tarball, SRPM, RPMs and extension zip. Publishing to COPR and extensions.gnome.org is pending) | SELinux policy module for the sampler; COPR stable channel; EGO publication; Flatpak for the app; AMD support (no `psys`, different domains) tested on a donor machine or in CI with fixtures; docs site and a write-up of the model and validation. |
+| **M2 — GNOME Shell extension** (done) | Quick-settings section "Battery usage since unplug" (top 5 + "Open drainscope"); live refresh via `Tick`; app names and icons via `Gio.DesktopAppInfo`; GNOME 50 ESM; strict TS with validated GVariant decoders; EGO-compliant (no work outside `enable`, full cleanup in `disable`). |
+| **M3 — Desktop app + sleep and health** (done, except foreground vs background) | libadwaita app: since-unplug / 24 h / 7 d views, stacked timeline, per-app detail (CPU vs GPU, foreground vs background), sleep sessions with wake reason, battery health chart (`energy_full` vs design, cycle count). |
+| **M4 — eBPF precision** (done for wakeups, network bytes and model v2; ADRs 0006, 0007; exit capture remains) | Per-app wakeups (timer/sched tracepoints) to find idle-drain culprits; capture short-lived processes at exit; per-cgroup network bytes (cgroup_skb) for a Wi-Fi share of "devices"; model v2 weighting CPU time by per-CPU frequency. eBPF runs in a sibling of the sampler (`drainscope-probe`) and exports only aggregated per-cgroup counters. As built, model v2 charges network-softirq time to apps by bytes; frequency weighting was not needed on the measured hardware. |
+| **M5 — Hardening and distribution** (SELinux, packaging and the GitHub release done; COPR, EGO and Flatpak pending, see [docs/distribution.md](docs/distribution.md)) | SELinux policy modules for the sampler and the probe; COPR stable channel; EGO publication; Flatpak for the app; AMD support (no `psys`, different domains) tested on a donor machine or in CI with fixtures; docs site and a write-up of the model and validation. |
 | **Later ideas** | Backlight-weighted display share; per-app notifications ("Slack has used 8% in the background"); export to CSV/JSON; Prometheus textfile output for homelab users; KDE Plasma widget (the D-Bus API makes it a pure UI addition). |
 
 ---
@@ -356,13 +356,15 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 
 | Artifact | Contents | Channel |
 |---|---|---|
-| `drainscope` RPM | daemon, CLI, user unit, Monitor1 activation file | COPR (`khaledsaeed18/drainscope`), GitHub Releases |
-| `drainscope-sampler` RPM | sampler binary in `/usr/libexec`, system unit, sysusers.d entry, D-Bus system policy + activation file, polkit policy | same; required by `drainscope` |
-| `gnome-shell-extension-drainscope` RPM (noarch) + zip | bundled ESM extension | COPR + extensions.gnome.org |
-| `drainscope-app` (M3) | GJS app | Flatpak (Flathub later) with `--talk-name=io.github.khaledsaeed18.Drainscope.Monitor1`; also an RPM |
+| `drainscope` RPM | daemon, CLI, user unit, Monitor1 activation file, D-Bus interface XML | GitHub Releases (v0.1.0); COPR (`khaledsaeed18/drainscope`) pending |
+| `drainscope-sampler` RPM | sampler binary in `/usr/libexec`, system unit, sysusers.d entry, D-Bus system policy + activation file, polkit policy | same; recommended by `drainscope` |
+| `drainscope-probe` RPM | eBPF probe in `/usr/libexec`, system unit, sysusers.d entry, D-Bus policy + activation file, polkit policy | same; recommended by `drainscope` |
+| `drainscope-selinux` RPM (noarch) | policy modules for the sampler and the probe | same; pulled in by the sampler and probe on SELinux systems |
+| `gnome-shell-extension-drainscope` RPM (noarch) + zip | bundled ESM extension | same, plus extensions.gnome.org (pending) |
+| `drainscope-app` RPM (noarch) | GJS app, desktop entry, metainfo, icon | same; Flatpak on Flathub later, with `--talk-name=io.github.khaledsaeed18.Drainscope.Monitor` |
 
 Notes:
-- The spec follows Fedora Rust packaging guidelines, building from a vendored crate tarball (`cargo vendor`) so COPR builds offline; `.copr/Makefile` produces the SRPM.
+- The spec (`packaging/drainscope.spec`) builds from a source tarball with vendored crates (`cargo vendor`), so COPR builds offline. `cargo xtask dist` produces the tarball, SRPM and RPMs (packaging/README.md). Fedora's official repositories would need every crate packaged separately (docs/distribution.md).
 - The user service is enabled on first run (`systemctl --user enable --now drainscope.service`), documented in the README; `%systemd_user_post` handles presets.
 - The sampler is never enabled: D-Bus activation starts it on demand.
 - Portable to any systemd + cgroup v2 distro; Fedora is the first-class target.
@@ -382,4 +384,4 @@ Notes:
 | GNOME Shell API churn | Pin `shell-version` to `["50"]`; small extension surface |
 | polkit behaviour for D-Bus-activated system services under SELinux enforcing | Verify in task 1.11/1.12; ADR if a policy tweak is needed |
 | ~~Open: reverse-DNS / app ID prefix~~ | Resolved: `io.github.khaledsaeed18` (GitHub `KhaledSaeed18`) |
-| **Open:** license | Proposal: **GPL-3.0-or-later** (GNOME ecosystem norm; required for EGO extensions to be GPL-compatible) vs MIT/Apache-2.0 for the Rust crates |
+| ~~Open: license~~ | Resolved: **GPL-3.0-or-later** for everything (GNOME ecosystem norm; EGO requires GPL-compatible extensions) |
