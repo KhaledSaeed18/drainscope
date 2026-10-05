@@ -7,7 +7,7 @@ Per-app battery and energy usage for the Linux desktop.
 
 drainscope measures energy from hardware counters (RAPL via powercap) and the battery. It attributes that energy to apps, terminal workloads and system services through cgroup v2, DRM fdinfo and systemd scopes, keeps local history, and shows it in GNOME's quick settings and on the command line. No component runs as root.
 
-**Status:** early development. The daemon, the privileged sampler, the CLI (milestone M1) and the GNOME Shell extension (M2) work on Fedora 44 / GNOME 50. See [PLAN.md](PLAN.md) for the architecture, privilege model and roadmap, and [ADR 0001](docs/adr/0001-feasibility.md) for what measurements on real hardware showed.
+**Status:** early development. The daemon, the privileged sampler, the CLI (milestone M1), the GNOME Shell extension (M2) and a first version of the desktop app (M3) work on Fedora 44 / GNOME 50. RPMs build with `cargo xtask dist` ([packaging/](packaging/README.md)); they aren't published yet. See [PLAN.md](PLAN.md) for the architecture, privilege model and roadmap, and [ADR 0001](docs/adr/0001-feasibility.md) for what measurements on real hardware showed.
 
 ## What it looks like
 
@@ -32,6 +32,19 @@ GNOME Shell                  <1%             9%   0.12 Wh
 - `drainscope top` — live power per consumer
 - `drainscope sleep` — battery lost while suspended
 - `drainscope status` / `drainscope doctor` — what's measurable, and what to fix if something isn't
+
+The desktop app (`drainscope-app`) shows the same history with a stacked timeline (since unplugged, last hour, 24 h, 7 days), a breakdown per consumer, and battery lost in each suspend.
+
+## Hardware support
+
+| | Status |
+|---|---|
+| Intel laptops (RAPL `package`, `core`, `uncore`, `dram`) with i915 | Developed and validated here ([docs/validation.md](docs/validation.md)) |
+| AMD Zen laptops (RAPL `package`, `core`) with amdgpu | Expected to work; integrated-GPU energy is split by CPU time ([ADR 0005](docs/adr/0005-amd-and-other-gpus.md)). Not yet tested on real hardware. |
+| Intel xe driver (Lunar Lake and newer) | Works, but per-app GPU energy isn't split yet (ADR 0005) |
+| No RAPL (VMs, some ARM) | Battery readings split by CPU time |
+
+`drainscope doctor` reports which case applies to your machine.
 
 ## How it works
 
@@ -60,6 +73,12 @@ The GNOME Shell extension (log out and back in afterwards; Wayland loads extensi
 ```bash
 cd ui && pnpm install && pnpm --filter @drainscope/extension install-dev
 gnome-extensions enable drainscope@khaledsaeed18.github.io
+```
+
+The desktop app (installs to `~/.local`):
+
+```bash
+cd ui && pnpm --filter @drainscope/app install-dev
 ```
 
 Remove with `sudo target/release/xtask uninstall-dev` (and `systemctl --user disable --now drainscope.service`).
