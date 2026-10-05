@@ -30,8 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Sampler unit exposure must stay SAFE (≤ 2.0, i.e. threshold 20/100)
-        run: systemd-analyze security --offline=yes --threshold=20 data/systemd/drainscope-sampler.service
+      - name: Privileged unit exposure must stay SAFE (≤ 2.0, i.e. threshold 20/100)
+        run: |
+          systemd-analyze security --offline=yes --threshold=20 data/systemd/drainscope-sampler.service
+          systemd-analyze security --offline=yes --threshold=20 data/systemd/drainscope-probe.service
       - name: D-Bus and polkit files are well-formed
         run: |
           sudo apt-get install -y --no-install-recommends libxml2-utils
@@ -43,9 +45,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: dnf install -y --setopt=install_weak_deps=False selinux-policy-devel make
-      - name: The sampler's policy module compiles
+      - name: The policy modules compile
         working-directory: data/selinux
-        run: make -f /usr/share/selinux/devel/Makefile drainscope_sampler.pp
+        run: make -f /usr/share/selinux/devel/Makefile drainscope_sampler.pp drainscope_probe.pp
 
   cargo-deny:
     runs-on: ubuntu-latest
