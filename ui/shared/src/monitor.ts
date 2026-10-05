@@ -71,8 +71,10 @@ export function decodeSummary(value: unknown): Decoded<Summary> {
 export const USAGE_SIGNATURE = '(a(ssdddd))';
 /** D-Bus type of `GetCoverage`'s reply. */
 export const COVERAGE_SIGNATURE = '(t)';
-/** D-Bus type of `GetSleepSessions`' reply. */
-export const SLEEP_SIGNATURE = '(a(xxdds))';
+/** D-Bus type of `GetSleepHistory`'s reply. */
+export const SLEEP_SIGNATURE = '(a(xxddss))';
+/** D-Bus type of `GetBatteryHealth`'s reply. */
+export const HEALTH_SIGNATURE = '(a(sxddu))';
 
 export interface UsageRow {
   key: string;
@@ -92,6 +94,19 @@ export interface SleepSession {
   percentLost: number;
   /** e.g. `deep`; empty when unknown. */
   mode: string;
+  /** e.g. `Lid (PNP0C0D:00)`; empty when unknown. */
+  wakeReason: string;
+}
+
+export interface HealthReading {
+  battery: string;
+  /** Unix seconds. */
+  time: number;
+  fullWh: number;
+  /** NaN when unknown. */
+  designWh: number;
+  /** 0 when unknown. */
+  cycles: number;
 }
 
 /** Unwraps a one-element reply tuple. */
@@ -132,22 +147,49 @@ export function decodeCoverage(value: unknown): Decoded<number> {
   return isNumber(seconds) ? { ok: true, value: seconds } : { ok: false, error: 'expected (t)' };
 }
 
-/** Decodes the unpacked `(a(xxdds))` reply of `GetSleepSessions`. */
-export function decodeSleepSessions(value: unknown): Decoded<SleepSession[]> {
+/** Decodes the unpacked `(a(xxddss))` reply of `GetSleepHistory`. */
+export function decodeSleepHistory(value: unknown): Decoded<SleepSession[]> {
   const rows = single(value);
   if (!isArray(rows)) {
-    return { ok: false, error: 'expected (a(xxdds))' };
+    return { ok: false, error: 'expected (a(xxddss))' };
   }
   const sessions: SleepSession[] = [];
   for (const row of rows) {
-    if (!isArray(row) || row.length !== 5) {
+    if (!isArray(row) || row.length !== 6) {
       return { ok: false, error: 'malformed sleep session' };
     }
-    const [start, end, whLost, percentLost, mode] = row;
-    if (!isNumber(start) || !isNumber(end) || !isNumber(whLost) || !isNumber(percentLost) || typeof mode !== 'string') {
+    const [start, end, whLost, percentLost, mode, wakeReason] = row;
+    if (
+      !isNumber(start) ||
+      !isNumber(end) ||
+      !isNumber(whLost) ||
+      !isNumber(percentLost) ||
+      typeof mode !== 'string' ||
+      typeof wakeReason !== 'string'
+    ) {
       return { ok: false, error: 'malformed sleep session' };
     }
-    sessions.push({ start, end, whLost, percentLost, mode });
+    sessions.push({ start, end, whLost, percentLost, mode, wakeReason });
   }
   return { ok: true, value: sessions };
+}
+
+/** Decodes the unpacked `(a(sxddu))` reply of `GetBatteryHealth`. */
+export function decodeBatteryHealth(value: unknown): Decoded<HealthReading[]> {
+  const rows = single(value);
+  if (!isArray(rows)) {
+    return { ok: false, error: 'expected (a(sxddu))' };
+  }
+  const readings: HealthReading[] = [];
+  for (const row of rows) {
+    if (!isArray(row) || row.length !== 5) {
+      return { ok: false, error: 'malformed health reading' };
+    }
+    const [battery, time, fullWh, designWh, cycles] = row;
+    if (typeof battery !== 'string' || !isNumber(time) || !isNumber(fullWh) || !isNumber(designWh) || !isNumber(cycles)) {
+      return { ok: false, error: 'malformed health reading' };
+    }
+    readings.push({ battery, time, fullWh, designWh, cycles });
+  }
+  return { ok: true, value: readings };
 }

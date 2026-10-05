@@ -1,7 +1,7 @@
 /** View models for the desktop app's history and sleep pages. */
 
 import { describeConsumer, parseConsumer, type Consumer } from './consumers';
-import type { SleepSession, UsageRow } from './monitor';
+import type { HealthReading, SleepSession, UsageRow } from './monitor';
 import { formatDuration, formatEnergy, formatPercent, formatWatts } from './units';
 
 export interface EnergyPart {
@@ -62,17 +62,43 @@ export function kindLabel(kind: string): string {
  * Rows from `GetUsage` over a span of `spanSeconds`, of which `measuredSeconds` were measured
  * (`GetCoverage`); averages are over measured time.
  */
+/** Rows beyond this many (largest first) are folded into one "N others" entry. */
+export const USAGE_LIMIT = 15;
+
+/** Keeps the `limit` largest rows (rows come largest first) and sums the rest into one. */
+function fold(rows: readonly UsageRow[], limit: number): { kept: readonly UsageRow[]; rest: UsageRow | undefined; count: number } {
+  if (rows.length <= limit + 1) {
+    return { kept: rows, rest: undefined, count: 0 };
+  }
+  const tail = rows.slice(limit);
+  const rest = tail.reduce(
+    (sum, row) => ({
+      ...sum,
+      total: sum.total + row.total,
+      cpu: sum.cpu + row.cpu,
+      gpu: sum.gpu + row.gpu,
+      other: sum.other + row.other,
+    }),
+    { key: 'others', kind: 'others', total: 0, cpu: 0, gpu: 0, other: 0 },
+  );
+  return { kept: rows.slice(0, limit), rest, count: tail.length };
+}
+
 export function buildUsage(
   rows: readonly UsageRow[],
   spanSeconds: number,
   measuredSeconds: number,
   byKind: boolean,
   appName: (id: string) => string | undefined,
+  limit = USAGE_LIMIT,
 ): UsageModel {
   const total = rows.reduce((sum, row) => sum + row.total, 0);
   const seconds = Math.max(measuredSeconds, 1);
-  const entries = rows.map((row) => {
-    const consumer = byKind ? undefined : parseConsumer(row.key);
+  const { kept, rest, count } = fold(rows, limit);
+  const listed = rest === undefined ? kept : [...kept, rest];
+  const entries = listed.map((row) => {
+    const folded = row === rest;
+    const consumer = byKind || folded ? undefined : parseConsumer(row.key);
     const fraction = total > 0 ? row.total / total : 0;
     const parts = [
       { label: 'Processor & memory', joules: row.cpu },
@@ -92,7 +118,11 @@ export function buildUsage(
     return {
       key: row.key,
       consumer,
-      label: consumer === undefined ? kindLabel(row.key) : describeConsumer(consumer, appName),
+      label: folded
+        ? `${String(count)} others`
+        : consumer === undefined
+          ? kindLabel(row.key)
+          : describeConsumer(consumer, appName),
       energy: formatEnergy(row.total),
       average: formatWatts(row.total / seconds),
       fraction,
@@ -127,9 +157,10 @@ export function buildSleep(sessions: readonly SleepSession[], nowSeconds: number
           ? `${(session.percentLost / hours).toFixed(1)}%/h`
           : '?%/h';
       const mode = session.mode === '' ? '' : ` · ${session.mode}`;
+      const woke = session.wakeReason === '' ? '' : ` · woke: ${session.wakeReason}`;
       return {
         title: `Slept ${formatDuration(slept)}, lost ${lost}`,
-        subtitle: `${formatDuration(nowSeconds - session.start)} ago · ${energy} · ${rate}${mode}`,
+        subtitle: `${formatDuration(nowSeconds - session.start)} ago · ${energy} · ${rate}${mode}${woke}`,
       };
     });
 }
@@ -162,4 +193,49 @@ export function rangeQuery(
     return sinceUnplug > 0 ? { since: sinceUnplug, until: nowSeconds, source: 'battery' } : undefined;
   }
   return { since: nowSeconds - RANGE_SECONDS[range], until: nowSeconds, source: 'any' };
+}
+
+export interface HealthEntry {
+  battery: string;
+  /** e.g. `79% of design`, or `30.9 Wh` when the design capacity is unknown. */
+  title: string;
+  /** e.g. `30.9 of 39.0 Wh · 312 cycles · −0.3 Wh in 30 d`. */
+  subtitle: string;
+  /** Full charge over design, 0–1, for a bar; undefined when unknown. */
+  fraction: number | undefined;
+}
+
+/** The latest reading per battery, with the change since its oldest (readings oldest first). */
+export function buildHealth(readings: readonly HealthReading[]): HealthEntry[] {
+  const first = new Map<string, HealthReading>();
+  const last = new Map<string, HealthReading>();
+  for (const reading of readings) {
+    if (!first.has(reading.battery)) {
+      first.set(reading.battery, reading);
+    }
+    last.set(reading.battery, reading);
+  }
+  return [...last.values()].map((latest) => {
+    const oldest = first.get(latest.battery) ?? latest;
+    const known = Number.isFinite(latest.designWh) && latest.designWh > 0;
+    const fraction = known ? latest.fullWh / latest.designWh : undefined;
+    const parts = [
+      known ? `${latest.fullWh.toFixed(1)} of ${latest.designWh.toFixed(1)} Wh` : `${latest.fullWh.toFixed(1)} Wh`,
+    ];
+    if (latest.cycles > 0) {
+      parts.push(`${String(latest.cycles)} cycles`);
+    }
+    const span = latest.time - oldest.time;
+    if (span > 0) {
+      const change = latest.fullWh - oldest.fullWh;
+      const sign = change < 0 ? '−' : '+';
+      parts.push(`${sign}${Math.abs(change).toFixed(1)} Wh in ${formatDuration(span)}`);
+    }
+    return {
+      battery: latest.battery,
+      title: fraction === undefined ? 'Design capacity unknown' : `${formatPercent(fraction * 100)} of design`,
+      subtitle: parts.join(' · '),
+      fraction,
+    };
+  });
 }
