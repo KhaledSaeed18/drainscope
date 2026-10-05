@@ -18,6 +18,7 @@
       GetSummary: the battery story since the charger was last unplugged.
         on_battery        Whether the machine is discharging now.
         since_unplug      When the current (or last) discharge started.
+                          0 if no unplug was ever recorded.
         battery_percent   Battery percentage used since then.
         top               (key, joules, percent of battery, percent of attributable energy)
                           for the largest consumers, largest first.

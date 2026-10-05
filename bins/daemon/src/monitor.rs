@@ -125,9 +125,11 @@ impl Monitor {
             .store
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let since = store
-            .last_power_event(PowerEventKind::Unplug)?
-            .map_or(now, |event| event.ts_ms);
+        let Some(unplug) = store.last_power_event(PowerEventKind::Unplug)? else {
+            // Never unplugged while drainscope was running: nothing to summarize.
+            return Ok((live.on_battery, 0, 0.0, Vec::new()));
+        };
+        let since = unplug.ts_ms;
         // On AC, report the last discharge: up to the plug-in that ended it.
         let until = if live.on_battery {
             now
