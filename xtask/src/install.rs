@@ -5,7 +5,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail, ensure};
 
@@ -89,6 +89,55 @@ fn run(program: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+const SELINUX_MAKEFILE: &str = "/usr/share/selinux/devel/Makefile";
+const SELINUX_MODULE: &str = "drainscope_sampler";
+
+/// Builds and loads the sampler's `SELinux` module (data/selinux/), if `SELinux` is enabled and
+/// the policy development files are installed. Returns whether it was loaded.
+fn install_selinux(repo_root: &Path) -> Result<bool> {
+    if !Path::new("/sys/fs/selinux/enforce").exists() {
+        return Ok(false);
+    }
+    if !Path::new(SELINUX_MAKEFILE).exists() {
+        println!("skipped the SELinux module: install selinux-policy-devel to build it");
+        return Ok(false);
+    }
+    // Built outside the repo so no root-owned files end up in the user's tree.
+    let build = std::env::temp_dir().join("drainscope-selinux");
+    if build.exists() {
+        fs::remove_dir_all(&build)?;
+    }
+    fs::create_dir_all(&build)?;
+    for extension in ["te", "fc", "if"] {
+        let name = format!("{SELINUX_MODULE}.{extension}");
+        fs::copy(
+            repo_root.join("data/selinux").join(&name),
+            build.join(&name),
+        )
+        .with_context(|| format!("copying {name}"))?;
+    }
+    let status = Command::new("make")
+        .args(["-f", SELINUX_MAKEFILE, &format!("{SELINUX_MODULE}.pp")])
+        .current_dir(&build)
+        .stdout(Stdio::null())
+        .status()
+        .context("running make")?;
+    ensure!(
+        status.success(),
+        "building the SELinux module failed: {status}"
+    );
+    run(
+        "semodule",
+        &[
+            "-i",
+            &build.join(format!("{SELINUX_MODULE}.pp")).to_string_lossy(),
+        ],
+    )?;
+    fs::remove_dir_all(&build)?;
+    println!("loaded SELinux module {SELINUX_MODULE}");
+    Ok(true)
+}
+
 fn reload() -> Result<()> {
     run("systemctl", &["daemon-reload"])?;
     run(
@@ -152,6 +201,14 @@ pub fn install(repo_root: &Path) -> Result<()> {
         replace(Path::new(destination), &contents, *mode)?;
         println!("installed {destination}");
     }
+    if install_selinux(repo_root)? {
+        // Files renamed into place keep the label they were created with.
+        let destinations: Vec<&str> = FILES
+            .iter()
+            .map(|(_, destination, _)| *destination)
+            .collect();
+        run("restorecon", &[&["-F"], destinations.as_slice()].concat())?;
+    }
     run("systemd-sysusers", &["/etc/sysusers.d/drainscope.conf"])?;
     reload()?;
     println!(
@@ -172,6 +229,16 @@ pub fn uninstall() -> Result<()> {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => return Err(err).with_context(|| format!("removing {destination}")),
         }
+    }
+    // Not loaded (or no SELinux) is fine.
+    let removed = Command::new("semodule")
+        .args(["-r", SELINUX_MODULE])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if removed {
+        println!("removed SELinux module {SELINUX_MODULE}");
     }
     reload()?;
     println!(
