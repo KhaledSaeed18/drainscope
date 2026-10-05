@@ -1,7 +1,7 @@
 /** View models for the desktop app's history and sleep pages. */
 
 import { describeConsumer, parseConsumer, type Consumer } from './consumers';
-import type { HealthReading, SleepSession, UsageRow } from './monitor';
+import type { HealthReading, SleepSession, UsageRow, Wakeups } from './monitor';
 import { formatDuration, formatEnergy, formatPercent, formatWatts } from './units';
 
 export interface EnergyPart {
@@ -236,6 +236,36 @@ export function buildHealth(readings: readonly HealthReading[]): HealthEntry[] {
       title: fraction === undefined ? 'Design capacity unknown' : `${formatPercent(fraction * 100)} of design`,
       subtitle: parts.join(' · '),
       fraction,
+    };
+  });
+}
+
+export interface WakeupEntry {
+  consumer: Consumer;
+  label: string;
+  /** e.g. `41/s`, `2.5/s`. */
+  rate: string;
+  /** Fraction of the largest rate, 0–1, for bars. */
+  fraction: number;
+}
+
+/** The top `limit` wakers, or `undefined` when the probe isn't available. */
+export function buildWakeups(
+  wakeups: Wakeups,
+  limit: number,
+  appName: (id: string) => string | undefined,
+): WakeupEntry[] | undefined {
+  if (!wakeups.available) {
+    return undefined;
+  }
+  const top = wakeups.rates[0]?.perSecond ?? 0;
+  return wakeups.rates.slice(0, limit).map(({ key, perSecond }) => {
+    const consumer = parseConsumer(key);
+    return {
+      consumer,
+      label: describeConsumer(consumer, appName),
+      rate: perSecond >= 10 ? `${perSecond.toFixed(0)}/s` : `${perSecond.toFixed(1)}/s`,
+      fraction: top > 0 ? perSecond / top : 0,
     };
   });
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeBatteryHealth, decodeCoverage, decodeSleepHistory, decodeUsage } from './monitor';
-import { buildHealth, buildSleep, buildUsage, rangeQuery } from './views';
+import { decodeBatteryHealth, decodeCoverage, decodeSleepHistory, decodeUsage, decodeWakeups } from './monitor';
+import { buildHealth, buildSleep, buildUsage, buildWakeups, rangeQuery } from './views';
 
 const appNames = (id: string): string | undefined => (id === 'org.mozilla.firefox' ? 'Firefox' : undefined);
 
@@ -118,5 +118,26 @@ describe('buildHealth', () => {
       },
       { battery: 'BAT1', title: 'Design capacity unknown', subtitle: '30.0 Wh', fraction: undefined },
     ]);
+  });
+});
+
+describe('buildWakeups', () => {
+  it('decodes and lists the top wakers', () => {
+    const decoded = decodeWakeups([true, [['app:org.mozilla.firefox', 41.2], ['unit:NetworkManager.service', 2.46]]]);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) {
+      return;
+    }
+    expect(buildWakeups(decoded.value, 5, appNames)).toEqual([
+      { consumer: { kind: 'app', name: 'org.mozilla.firefox' }, label: 'Firefox', rate: '41/s', fraction: 1 },
+      {
+        consumer: { kind: 'unit', name: 'NetworkManager.service' },
+        label: 'System: NetworkManager',
+        rate: '2.5/s',
+        fraction: 2.46 / 41.2,
+      },
+    ]);
+    expect(buildWakeups({ available: false, rates: [] }, 5, appNames)).toBeUndefined();
+    expect(decodeWakeups([true, [['x']]]).ok).toBe(false);
   });
 });

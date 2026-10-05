@@ -73,6 +73,8 @@ export const USAGE_SIGNATURE = '(a(ssdddd))';
 export const COVERAGE_SIGNATURE = '(t)';
 /** D-Bus type of `GetSleepHistory`'s reply. */
 export const SLEEP_SIGNATURE = '(a(xxddss))';
+/** D-Bus type of `GetWakeups`' reply. */
+export const WAKEUPS_SIGNATURE = '(ba(sd))';
 /** D-Bus type of `GetBatteryHealth`'s reply. */
 export const HEALTH_SIGNATURE = '(a(sxddu))';
 
@@ -192,4 +194,34 @@ export function decodeBatteryHealth(value: unknown): Decoded<HealthReading[]> {
     readings.push({ battery, time, fullWh, designWh, cycles });
   }
   return { ok: true, value: readings };
+}
+
+export interface Wakeups {
+  /** False without the eBPF probe. */
+  available: boolean;
+  /** (key, idle exits per second), largest first. */
+  rates: { key: string; perSecond: number }[];
+}
+
+/** Decodes the unpacked `(ba(sd))` reply of `GetWakeups`. */
+export function decodeWakeups(value: unknown): Decoded<Wakeups> {
+  if (!isArray(value) || value.length !== 2) {
+    return { ok: false, error: 'expected (ba(sd))' };
+  }
+  const [available, rows] = value;
+  if (typeof available !== 'boolean' || !isArray(rows)) {
+    return { ok: false, error: 'expected (ba(sd))' };
+  }
+  const rates: Wakeups['rates'] = [];
+  for (const row of rows) {
+    if (!isArray(row) || row.length !== 2) {
+      return { ok: false, error: 'malformed wakeup row' };
+    }
+    const [key, perSecond] = row;
+    if (typeof key !== 'string' || !isNumber(perSecond)) {
+      return { ok: false, error: 'malformed wakeup row' };
+    }
+    rates.push({ key, perSecond });
+  }
+  return { ok: true, value: { available, rates } };
 }

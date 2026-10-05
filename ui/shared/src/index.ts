@@ -14,16 +14,19 @@ export {
   decodeSleepHistory,
   decodeSummary,
   decodeUsage,
+  decodeWakeups,
   HEALTH_SIGNATURE,
   SLEEP_SIGNATURE,
   SUMMARY_SIGNATURE,
   USAGE_SIGNATURE,
+  WAKEUPS_SIGNATURE,
   type Decoded,
   type HealthReading,
   type SleepSession,
   type Summary,
   type TopConsumer,
   type UsageRow,
+  type Wakeups,
 } from './monitor';
 export {
   batteryPercent,
@@ -37,6 +40,7 @@ export {
   buildHealth,
   buildSleep,
   buildUsage,
+  buildWakeups,
   kindLabel,
   RANGES,
   rangeQuery,
@@ -47,6 +51,7 @@ export {
   type SleepEntry,
   type UsageEntry,
   type UsageModel,
+  type WakeupEntry,
 } from './views';
 export {
   buildTimeline,
