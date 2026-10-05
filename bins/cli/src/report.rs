@@ -46,7 +46,9 @@ fn daemon_hint(err: zbus::Error) -> anyhow::Error {
 /// The top `limit` rows, the rest folded into one line, as table rows with shares of the
 /// listed total.
 #[must_use]
-pub fn render_usage(rows: &[Row], span: Duration, limit: usize) -> String {
+/// `measured` is how much of `span` the daemon recorded (see `GetCoverage`); averages are over
+/// measured time, not the whole span.
+pub fn render_usage(rows: &[Row], span: Duration, measured: Duration, limit: usize) -> String {
     let total: f64 = rows.iter().map(|r| r.joules).sum();
     let mut shown: Vec<Row> = rows.iter().take(limit).cloned().collect();
     let rest: f64 = rows.iter().skip(limit).map(|r| r.joules).sum();
@@ -56,7 +58,7 @@ pub fn render_usage(rows: &[Row], span: Duration, limit: usize) -> String {
             joules: rest,
         });
     }
-    let secs = span.as_secs_f64().max(1.0);
+    let secs = measured.as_secs_f64().max(1.0);
     let cells: Vec<Vec<String>> = shown
         .iter()
         .map(|row| {
@@ -73,13 +75,25 @@ pub fn render_usage(rows: &[Row], span: Duration, limit: usize) -> String {
         })
         .collect();
     let mut out = table(&["Consumer", "Energy", "Average", "Share"], &cells);
-    let _ = writeln!(
-        out,
-        "\nTotal {} over {} (average {})",
-        energy(total),
-        duration(span),
-        watts(total / secs)
-    );
+    // Within 5% counts as the whole span (window edges don't line up with it exactly).
+    if measured.as_secs_f64() >= span.as_secs_f64() * 0.95 {
+        let _ = writeln!(
+            out,
+            "\nTotal {} over {} (average {})",
+            energy(total),
+            duration(span),
+            watts(total / secs)
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "\nTotal {} in {} measured of the last {} (average {} while measured)",
+            energy(total),
+            duration(measured),
+            duration(span),
+            watts(total / secs)
+        );
+    }
     out
 }
 
@@ -292,6 +306,12 @@ pub async fn usage(
         .get_usage(start, now + 1, group, source)
         .await
         .map_err(daemon_hint)?;
+    let measured = Duration::from_secs(
+        monitor
+            .get_coverage(start, now + 1, source)
+            .await
+            .map_err(daemon_hint)?,
+    );
     let mut names = Names::default();
     let rows: Vec<Row> = usage
         .into_iter()
@@ -300,7 +320,7 @@ pub async fn usage(
             joules,
         })
         .collect();
-    print!("{}", render_usage(&rows, since, limit));
+    print!("{}", render_usage(&rows, since, measured, limit));
     Ok(())
 }
 
@@ -371,7 +391,12 @@ mod tests {
             row("Zed", 0.36),
         ];
         assert_eq!(
-            render_usage(&rows, Duration::from_secs(3600), 2),
+            render_usage(
+                &rows,
+                Duration::from_secs(3600),
+                Duration::from_secs(3600),
+                2
+            ),
             "Consumer             Energy  Average  Share\n\
              ───────────────────────────────────────────\n\
              Display & devices   0.75 Wh   0.75 W    75%\n\
@@ -379,6 +404,22 @@ mod tests {
              2 more             0.050 Wh   0.05 W     5%\n\
              \n\
              Total 1.00 Wh over 1 h (average 1.00 W)\n"
+        );
+    }
+
+    #[test]
+    fn usage_averages_over_measured_time_only() {
+        let rendered = render_usage(
+            &[row("Firefox", 1800.0)],
+            Duration::from_secs(1800),
+            Duration::from_secs(900),
+            5,
+        );
+        assert!(
+            rendered.ends_with(
+                "Total 0.50 Wh in 15 min measured of the last 30 min (average 2.00 W while measured)\n"
+            ),
+            "{rendered}"
         );
     }
 
