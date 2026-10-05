@@ -1,5 +1,6 @@
-//! Idle exits per consumer (ADR 0006): which apps keep waking the processor. A metric of its
-//! own, not (yet) an input to attribution.
+//! Recent rates per consumer from cumulative per-cgroup counters (ADR 0006): idle exits
+//! (which apps keep waking the processor) and network bytes. Metrics of their own, not (yet)
+//! inputs to attribution.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Duration;
@@ -9,17 +10,17 @@ use crate::cgroup::CgroupPath;
 use crate::consumer::ConsumerKey;
 
 /// Rates are averaged over at least this much recent time.
-pub const WAKEUP_WINDOW: Duration = Duration::from_secs(60);
+pub const RATE_WINDOW: Duration = Duration::from_secs(60);
 
 /// Turns cumulative per-cgroup counts from the probe into recent rates per consumer.
 #[derive(Debug, Default)]
-pub struct WakeupTracker {
+pub struct RateTracker {
     previous: Option<(u64, BTreeMap<CgroupPath, u64>)>,
-    /// Per-tick counts, newest last, covering about [`WAKEUP_WINDOW`].
+    /// Per-tick counts, newest last, covering about [`RATE_WINDOW`].
     recent: VecDeque<(Duration, BTreeMap<ConsumerKey, u64>)>,
 }
 
-impl WakeupTracker {
+impl RateTracker {
     /// Adds one reading (`generation` and cumulative counts by cgroup) taken `elapsed` after
     /// the previous one. A new generation (the probe restarted) only sets a new baseline.
     pub fn observe(
@@ -53,7 +54,7 @@ impl WakeupTracker {
                 .skip(1)
                 .map(|(d, _)| *d)
                 .sum::<Duration>()
-                >= WAKEUP_WINDOW
+                >= RATE_WINDOW
         {
             self.recent.pop_front();
         }
@@ -65,7 +66,7 @@ impl WakeupTracker {
         self.recent.clear();
     }
 
-    /// Idle exits per second over the recent window, largest first.
+    /// Counts per second over the recent window, largest first.
     #[must_use]
     pub fn rates(&self) -> Vec<(ConsumerKey, f64)> {
         let seconds: f64 = self.recent.iter().map(|(d, _)| d.as_secs_f64()).sum();
@@ -103,7 +104,7 @@ mod tests {
             .collect()
     }
 
-    fn rate(tracker: &WakeupTracker, key: &ConsumerKey) -> f64 {
+    fn rate(tracker: &RateTracker, key: &ConsumerKey) -> f64 {
         tracker
             .rates()
             .into_iter()
@@ -121,7 +122,7 @@ mod tests {
         let firefox = ConsumerKey::App("org.mozilla.firefox".into());
         let nm = ConsumerKey::SystemUnit("NetworkManager.service".into());
         let five = Duration::from_secs(5);
-        let mut tracker = WakeupTracker::default();
+        let mut tracker = RateTracker::default();
         tracker.observe(1, counts(&[(FIREFOX, 100), (NM, 10)]), five, &resolver);
         assert!(
             tracker.rates().is_empty(),
@@ -145,7 +146,7 @@ mod tests {
             own_uid: 1000,
             terminal_labels: &labels,
         };
-        let mut tracker = WakeupTracker::default();
+        let mut tracker = RateTracker::default();
         let five = Duration::from_secs(5);
         tracker.observe(1, counts(&[(NM, 1000)]), five, &resolver);
         tracker.observe(2, counts(&[(NM, 3)]), five, &resolver);
@@ -162,7 +163,7 @@ mod tests {
             own_uid: 1000,
             terminal_labels: &labels,
         };
-        let mut tracker = WakeupTracker::default();
+        let mut tracker = RateTracker::default();
         let five = Duration::from_secs(5);
         let mut total = 0;
         tracker.observe(1, counts(&[(NM, total)]), five, &resolver);
