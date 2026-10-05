@@ -5,7 +5,8 @@ import Adw from 'gi://Adw?version=1';
  * `use_markup` passed to the constructor is applied after the title is parsed.
  */
 export function dataRow(title: string, subtitle = '', activatable = false): Adw.ActionRow {
-  const row = new Adw.ActionRow({ use_markup: false, activatable });
+  // One-line titles: long service names would otherwise wrap over several lines.
+  const row = new Adw.ActionRow({ use_markup: false, activatable, title_lines: 1 });
   row.set_title(title);
   row.set_subtitle(subtitle);
   return row;
