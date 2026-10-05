@@ -81,6 +81,15 @@
       <arg name="readings" type="a(sxddu)" direction="out"/>
     </method>
     <!--
+      GetWakeups: which consumers keep waking the processor from idle, from the eBPF probe.
+        available  False when the probe isn't installed or reachable; wakeups is then empty.
+        wakeups    (key, idle exits per second over the last minute), largest first.
+    -->
+    <method name="GetWakeups">
+      <arg name="available" type="b" direction="out"/>
+      <arg name="wakeups" type="a(sd)" direction="out"/>
+    </method>
+    <!--
       Tick: emitted after every attribution tick, for live views.
         duration_ms  Length of the tick.
         usage        (key, watts) for consumers active during the tick.

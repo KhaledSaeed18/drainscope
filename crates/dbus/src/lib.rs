@@ -113,6 +113,9 @@ pub mod monitor {
 
         fn get_battery_health(&self, since: i64) -> zbus::Result<Vec<HealthRow>>;
 
+        /// (probe available, (key, idle exits per second) largest first).
+        fn get_wakeups(&self) -> zbus::Result<(bool, Vec<(String, f64)>)>;
+
         /// (tick length in ms, (key, watts) for consumers active during the tick).
         #[zbus(signal)]
         fn tick(&self, duration_ms: u32, usage: Vec<(String, f64)>) -> zbus::Result<()>;
