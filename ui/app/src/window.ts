@@ -5,6 +5,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 
 import {
   buildSleep,
+  buildTimeline,
   buildUsage,
   formatDuration,
   formatPercent,
@@ -12,14 +13,19 @@ import {
   rangeQuery,
   type Range,
   type Summary,
+  timelineBuckets,
+  type UsageRow,
 } from '@drainscope/shared';
 
 import { appName, consumerIcon } from './apps';
+import { axisStart, legend, TimelineChart } from './chart';
 import type { MonitorClient } from './client';
 import { detailPage } from './detail';
 import { dataRow } from './rows';
 
 const SLEEP_HISTORY_SECONDS = 30 * 86_400;
+/** The timeline makes a query per bar, so it reloads at most this often on ticks. */
+const TIMELINE_REFRESH_SECONDS = 60;
 
 function nowSeconds(): number {
   return Math.floor(GLib.get_real_time() / 1_000_000);
@@ -48,6 +54,13 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private readonly stack = new Gtk.Stack();
   private readonly status = new Adw.StatusPage({ icon_name: 'battery-missing-symbolic' });
   private readonly banner = new Adw.Banner();
+  private readonly timelineGroup = new Adw.PreferencesGroup({ title: 'Timeline' });
+  private readonly chart = new TimelineChart();
+  private readonly axisStart = new Gtk.Label({ xalign: 0, hexpand: true, css_classes: ['caption', 'dim-label'] });
+  private readonly axisEnd = new Gtk.Label({ xalign: 1, css_classes: ['caption', 'dim-label'] });
+  private readonly legendSlot = new Gtk.Box();
+  /** Range and time of the last timeline load. */
+  private timelineLoaded: { range: Range; at: number } | undefined;
   private readonly usageGroup = new Adw.PreferencesGroup();
   private readonly usageRows: Gtk.Widget[] = [];
   private readonly sleepGroup = new Adw.PreferencesGroup({ title: 'Sleep' });
@@ -75,7 +88,17 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     header.pack_start(rangeChoice);
     header.pack_end(kindToggle);
 
+    const axis = new Gtk.Box();
+    axis.append(this.axisStart);
+    axis.append(this.axisEnd);
+    const timeline = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, spacing: 6 });
+    timeline.append(this.chart);
+    timeline.append(axis);
+    timeline.append(this.legendSlot);
+    this.timelineGroup.add(timeline);
+
     const page = new Adw.PreferencesPage();
+    page.add(this.timelineGroup);
     page.add(this.usageGroup);
     page.add(this.sleepGroup);
 
@@ -132,7 +155,11 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     this.stack.set_visible_child_name('history');
     this.updateBanner(summary.value);
     const now = nowSeconds();
-    await Promise.all([this.loadUsage(summary.value, now), this.loadSleep(now)]);
+    await Promise.all([
+      this.loadTimeline(summary.value, now),
+      this.loadUsage(summary.value, now),
+      this.loadSleep(now),
+    ]);
   }
 
   private updateBanner(summary: Summary): void {
@@ -147,6 +174,46 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
       this.banner.set_title('Plugged in');
     }
     this.banner.set_revealed(true);
+  }
+
+  private async loadTimeline(summary: Summary, now: number): Promise<void> {
+    const range = this.range;
+    const loaded = this.timelineLoaded;
+    if (loaded?.range === range && now - loaded.at < TIMELINE_REFRESH_SECONDS) {
+      return;
+    }
+    const query = rangeQuery(range, now, summary.sinceUnplug);
+    this.timelineGroup.set_visible(query !== undefined);
+    if (query === undefined) {
+      return;
+    }
+    this.timelineLoaded = { range, at: now };
+    const buckets = timelineBuckets(range, query.since, query.until);
+    const replies = await Promise.all(
+      buckets.map((bucket) => this.client.usage(bucket.since, bucket.until, 'kind', query.source)),
+    );
+    if (this.range !== range) {
+      return;
+    }
+    const rows: UsageRow[][] = [];
+    for (const reply of replies) {
+      if (!reply.ok) {
+        this.timelineGroup.set_description(GLib.markup_escape_text(reply.error, -1));
+        this.timelineLoaded = undefined;
+        return;
+      }
+      rows.push(reply.value);
+    }
+    const timeline = buildTimeline(buckets, rows);
+    this.timelineGroup.set_description('');
+    this.chart.setTimeline(timeline);
+    this.axisStart.set_label(axisStart(query.since, query.until));
+    this.axisEnd.set_label('Now');
+    const previous = this.legendSlot.get_first_child();
+    if (previous !== null) {
+      this.legendSlot.remove(previous);
+    }
+    this.legendSlot.append(legend(timeline));
   }
 
   private async loadUsage(summary: Summary, now: number): Promise<void> {
