@@ -234,14 +234,12 @@ async fn battery_health_marks_unknowns() {
     assert_eq!((battery.as_str(), *ts, *cycles), ("BAT0", T0 / 1000, 42));
     assert!((full - 31.0).abs() < 1e-9);
     assert!(design.is_nan());
-    assert!(
-        proxy(&peer)
-            .await
-            .get_battery_health(T0 / 1000 + 1)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    let later = proxy(&peer)
+        .await
+        .get_battery_health(T0 / 1000 + 1)
+        .await
+        .unwrap();
+    assert_eq!(later, Vec::new());
 }
 
 #[tokio::test]
