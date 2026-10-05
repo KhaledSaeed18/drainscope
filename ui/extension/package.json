@@ -1,0 +1,20 @@
+{
+  "name": "@drainscope/extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node build.mjs",
+    "install-dev": "node build.mjs --install",
+    "test": "true"
+  },
+  "devDependencies": {
+    "@girs/gjs": "4.9.0",
+    "@girs/gnome-shell": "^50.0.4",
+    "esbuild": "^0.28.2",
+    "typescript": "~6.0.3"
+  },
+  "dependencies": {
+    "@drainscope/shared": "workspace:*"
+  }
+}

@@ -17,5 +17,10 @@ export default defineConfig(
       '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
     },
   },
-  { files: ['**/*.js'], extends: [tseslint.configs.disableTypeChecked] },
+  { files: ['**/*.js', '**/*.mjs'], extends: [tseslint.configs.disableTypeChecked] },
+  {
+    // Node build scripts.
+    files: ['**/*.mjs'],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
+  },
 );

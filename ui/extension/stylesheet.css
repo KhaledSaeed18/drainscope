@@ -1,0 +1,20 @@
+.drainscope-label {
+  min-width: 10em;
+}
+
+.drainscope-detail {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: smaller;
+  padding: 0 0.6em;
+}
+
+.drainscope-share {
+  font-weight: bold;
+  min-width: 3em;
+  text-align: right;
+}
+
+.drainscope-footer {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: smaller;
+}

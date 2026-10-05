@@ -1,2 +1,7 @@
 packages:
   - shared
+  - extension
+
+# Only esbuild may run its install script (it fetches its platform binary).
+allowBuilds:
+  esbuild: true
