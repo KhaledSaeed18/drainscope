@@ -71,7 +71,7 @@ systemctl --user enable --now drainscope.service
 drainscope doctor
 ```
 
-With `selinux-policy-devel` installed, `install-dev` also loads SELinux modules confining the sampler and the probe (permissive for now: denials are logged, not enforced).
+With `selinux-policy-devel` installed, `install-dev` also loads the SELinux modules that confine the sampler and the probe to their own domains (packaged as `drainscope-selinux`).
 
 The GNOME Shell extension (log out and back in afterwards; Wayland loads extensions at login):
 
