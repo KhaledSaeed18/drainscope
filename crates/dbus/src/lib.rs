@@ -1,4 +1,4 @@
-//! D-Bus contracts for the Sampler1 and Monitor1 interfaces.
+//! D-Bus contracts for the Sampler1, Probe1 and Monitor1 interfaces.
 //!
 //! The introspection XML in `data/dbus/interfaces/` is authoritative; servers (in the bins)
 //! are tested against it. This crate holds names, error types and client proxies only.
@@ -44,6 +44,31 @@ pub mod sampler {
 
         #[zbus(property)]
         fn quantum_uj(&self) -> zbus::Result<u64>;
+    }
+}
+
+pub mod probe {
+    pub const BUS_NAME: &str = "io.github.khaledsaeed18.Drainscope.Probe";
+    pub const OBJECT_PATH: &str = "/io/github/khaledsaeed18/Drainscope/Probe";
+    pub const INTERFACE: &str = "io.github.khaledsaeed18.Drainscope.Probe1";
+    pub const POLKIT_ACTION: &str = "io.github.khaledsaeed18.Drainscope.read-activity";
+
+    /// Probe1 shares Sampler1's error names.
+    pub use crate::sampler::SamplerError as ProbeError;
+
+    /// One `ReadWakeups` reply: (monotonic ns, generation, (cgroup path, cumulative idle exits)).
+    pub type Wakeups = (u64, u64, Vec<(String, u64)>);
+
+    #[zbus::proxy(
+        interface = "io.github.khaledsaeed18.Drainscope.Probe1",
+        default_service = "io.github.khaledsaeed18.Drainscope.Probe",
+        default_path = "/io/github/khaledsaeed18/Drainscope/Probe"
+    )]
+    pub trait Probe1 {
+        fn read_wakeups(&self) -> Result<Wakeups, ProbeError>;
+
+        #[zbus(property)]
+        fn min_interval_ms(&self) -> zbus::Result<u32>;
     }
 }
 

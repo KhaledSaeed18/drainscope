@@ -1,0 +1,35 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<!--
+  io.github.khaledsaeed18.Drainscope.Probe1
+
+  Kernel activity counted with eBPF (ADR 0006), served on the system bus by drainscope-probe:
+
+    bus name     io.github.khaledsaeed18.Drainscope.Probe
+    object path  /io/github/khaledsaeed18/Drainscope/Probe
+
+  Every call is authorized by polkit (io.github.khaledsaeed18.Drainscope.read-activity, active
+  local sessions only) and rate-limited per user. Errors use the
+  io.github.khaledsaeed18.Drainscope.Error.* names of Sampler1.
+-->
+<node>
+  <interface name="io.github.khaledsaeed18.Drainscope.Probe1">
+    <!--
+      ReadWakeups:
+        monotonic_ns  CLOCK_MONOTONIC when the counters were read.
+        generation    Changes whenever the counters restart from zero (e.g. the probe
+                      restarted). Only compare readings of the same generation.
+        wakeups       (cgroup path relative to /sys/fs/cgroup, "" for the root; cumulative
+                      idle exits) for every cgroup that left a CPU's idle task at least once.
+                      Other users' cgroups (user.slice/user-UID.slice for another UID) are
+                      never included.
+    -->
+    <method name="ReadWakeups">
+      <arg name="monotonic_ns" type="t" direction="out"/>
+      <arg name="generation" type="t" direction="out"/>
+      <arg name="wakeups" type="a(st)" direction="out"/>
+    </method>
+    <!-- MinIntervalMs: the shortest allowed interval between calls from one user. -->
+    <property name="MinIntervalMs" type="u" access="read"/>
+  </interface>
+</node>
