@@ -61,3 +61,4 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm --filter @drainscope/extension build
+      - run: pnpm --filter @drainscope/app build
