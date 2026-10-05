@@ -17,4 +17,6 @@ pub use error::SysError;
 pub use power_supply::read_batteries;
 pub use powercap::{PowercapZone, read_zones};
 pub use root::SysRoot;
-pub use sleep::{Login1ManagerProxy, on_battery, read_mem_sleep};
+pub use sleep::{
+    Login1ManagerProxy, on_battery, read_mem_sleep, read_wakeup_irq, read_wakeup_sources,
+};

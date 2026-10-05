@@ -1,6 +1,9 @@
 //! Suspend: logind's sleep notifications and the kernel's sleep mode.
 
+use std::fs;
+
 use drainscope_model::snapshot::BatteryStatus;
+use drainscope_model::{WakeupIrq, WakeupSource, WakeupSources};
 
 use crate::error::SysError;
 use crate::root::SysRoot;
@@ -41,6 +44,60 @@ pub fn read_mem_sleep(root: &SysRoot) -> Result<Option<String>, SysError> {
     }))
 }
 
+/// Every wakeup source in `/sys/class/wakeup` (all world-readable). Unreadable entries are
+/// skipped: sources come and go with devices.
+#[must_use]
+pub fn read_wakeup_sources(root: &SysRoot) -> WakeupSources {
+    let Ok(entries) = fs::read_dir(root.path("sys/class/wakeup")) else {
+        return WakeupSources::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let dir = entry.path();
+            let name = fs::read_to_string(dir.join("name")).ok()?.trim().to_owned();
+            let wakeup_count = fs::read_to_string(dir.join("wakeup_count"))
+                .ok()?
+                .trim()
+                .parse()
+                .ok()?;
+            Some((
+                entry.file_name().to_string_lossy().into_owned(),
+                WakeupSource { name, wakeup_count },
+            ))
+        })
+        .collect()
+}
+
+/// The IRQ that ended the last suspend (`/sys/power/pm_wakeup_irq`, which fails with ENODATA
+/// when there was none), named from `/proc/interrupts`.
+#[must_use]
+pub fn read_wakeup_irq(root: &SysRoot) -> Option<WakeupIrq> {
+    let irq: u32 = fs::read_to_string(root.path("sys/power/pm_wakeup_irq"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    let interrupts = fs::read_to_string(root.path("proc/interrupts")).unwrap_or_default();
+    let action = interrupts
+        .lines()
+        .find_map(|line| {
+            let (label, rest) = line.split_once(':')?;
+            if label.trim().parse::<u32>().ok()? != irq {
+                return None;
+            }
+            // Per-CPU counts, then the chip, the hardware IRQ and the handlers.
+            let fields: Vec<&str> = rest
+                .split_whitespace()
+                .skip_while(|f| f.bytes().all(|b| b.is_ascii_digit()))
+                .skip(2)
+                .collect();
+            Some(fields.join(" "))
+        })
+        .unwrap_or_default();
+    Some(WakeupIrq { irq, action })
+}
+
 /// Whether any battery is discharging: the machine is on battery power.
 #[must_use]
 pub fn on_battery(statuses: impl IntoIterator<Item = BatteryStatus>) -> bool {
@@ -52,7 +109,52 @@ pub fn on_battery(statuses: impl IntoIterator<Item = BatteryStatus>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use drainscope_model::WakeupIrq;
+
+    #[test]
+    fn reads_wakeup_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = SysRoot::at(dir.path());
+        assert!(read_wakeup_sources(&root).is_empty());
+        for (entry, name, count) in [("wakeup3", "PNP0C0D:00", "2"), ("wakeup7", "rtc0", "0")] {
+            let path = root.path(&format!("sys/class/wakeup/{entry}"));
+            fs::create_dir_all(&path).unwrap();
+            fs::write(path.join("name"), format!("{name}\n")).unwrap();
+            fs::write(path.join("wakeup_count"), format!("{count}\n")).unwrap();
+        }
+        fs::create_dir_all(root.path("sys/class/wakeup/wakeup9")).unwrap();
+        let sources = read_wakeup_sources(&root);
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources["wakeup3"].name, "PNP0C0D:00");
+        assert_eq!(sources["wakeup3"].wakeup_count, 2);
+    }
+
+    #[test]
+    fn names_the_wakeup_irq() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = SysRoot::at(dir.path());
+        assert_eq!(read_wakeup_irq(&root), None);
+        fs::create_dir_all(root.path("sys/power")).unwrap();
+        fs::create_dir_all(root.path("proc")).unwrap();
+        fs::write(root.path("sys/power/pm_wakeup_irq"), "9\n").unwrap();
+        fs::write(
+            root.path("proc/interrupts"),
+            "            CPU0       CPU1\n   1:          0       3317 IR-IO-APIC    1-edge      i8042\n   9:       5485          0 IR-IO-APIC    9-fasteoi   acpi\n  16:          0    1081716 IR-IO-APIC   16-fasteoi   i2c_designware.0, idma64.0\n NMI:          0          0   Non-maskable interrupts\n",
+        )
+        .unwrap();
+        assert_eq!(
+            read_wakeup_irq(&root),
+            Some(WakeupIrq {
+                irq: 9,
+                action: "acpi".into()
+            })
+        );
+        fs::write(root.path("sys/power/pm_wakeup_irq"), "16\n").unwrap();
+        assert_eq!(
+            read_wakeup_irq(&root).unwrap().action,
+            "i2c_designware.0, idma64.0"
+        );
+    }
 
     #[test]
     fn reads_the_active_sleep_mode() {
