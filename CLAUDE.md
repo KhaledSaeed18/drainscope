@@ -2,6 +2,7 @@
 
 Per-app battery and energy usage for the Linux desktop. Rust daemons plus a TypeScript (GJS) GNOME UI.
 **PLAN.md is the source of truth** for architecture, milestones and the privilege model. Read it before non-trivial work and keep it updated when decisions change.
+**ROADMAP.md tracks status**: what's done and what's next, in priority order. Update it when work lands. Distribution accounts and keys: docs/distribution.md.
 
 ## Repo map
 
