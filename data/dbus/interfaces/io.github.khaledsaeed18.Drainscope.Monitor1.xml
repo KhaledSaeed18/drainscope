@@ -43,6 +43,16 @@
       <arg name="usage" type="a(ssdddd)" direction="out"/>
     </method>
     <!--
+      GetCoverage: how much of [since, until) the daemon actually measured, in seconds (it
+      may not have been running all the time). Use it to turn GetUsage totals into averages.
+    -->
+    <method name="GetCoverage">
+      <arg name="since" type="x" direction="in"/>
+      <arg name="until" type="x" direction="in"/>
+      <arg name="power_source" type="s" direction="in"/>
+      <arg name="seconds" type="t" direction="out"/>
+    </method>
+    <!--
       GetSleepSessions: suspends that started at or after `since`.
         sessions  (start, end, Wh lost, percent lost, sleep mode); unknown amounts are NaN
                   and an unknown mode is ""

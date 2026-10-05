@@ -76,6 +76,8 @@ pub mod monitor {
             power_source: &str,
         ) -> zbus::Result<Vec<UsageRow>>;
 
+        fn get_coverage(&self, since: i64, until: i64, power_source: &str) -> zbus::Result<u64>;
+
         fn get_sleep_sessions(&self, since: i64) -> zbus::Result<Vec<SleepRow>>;
 
         /// (tick length in ms, (key, watts) for consumers active during the tick).

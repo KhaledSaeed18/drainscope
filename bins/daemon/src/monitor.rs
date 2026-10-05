@@ -93,6 +93,16 @@ fn failed(err: &StoreError) -> fdo::Error {
     fdo::Error::Failed("reading usage history failed".into())
 }
 
+/// `any`, `battery` or `ac`.
+fn source_filter(power_source: &str) -> fdo::Result<SourceFilter> {
+    match power_source {
+        "any" => Ok(SourceFilter::Any),
+        other => PowerSource::from_wire_name(other)
+            .map(SourceFilter::Only)
+            .ok_or_else(|| fdo::Error::InvalidArgs(format!("power_source {other:?}"))),
+    }
+}
+
 fn to_ms(unix_seconds: i64) -> i64 {
     unix_seconds.saturating_mul(1000)
 }
@@ -208,13 +218,7 @@ impl Monitor {
             "kind" => true,
             other => return Err(fdo::Error::InvalidArgs(format!("group_by {other:?}"))),
         };
-        let filter = match power_source {
-            "any" => SourceFilter::Any,
-            other => SourceFilter::Only(
-                PowerSource::from_wire_name(other)
-                    .ok_or_else(|| fdo::Error::InvalidArgs(format!("power_source {other:?}")))?,
-            ),
-        };
+        let filter = source_filter(power_source)?;
         let rows = self
             .shared
             .store
@@ -239,6 +243,19 @@ impl Monitor {
             .collect();
         usage.sort_by(|a, b| b.2.total_cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
         Ok(usage)
+    }
+
+    #[zbus(out_args("seconds"))]
+    fn get_coverage(&self, since: i64, until: i64, power_source: &str) -> fdo::Result<u64> {
+        let filter = source_filter(power_source)?;
+        let covered_ms = self
+            .shared
+            .store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .covered_ms(to_ms(since), to_ms(until), filter, (self.now_ms)())
+            .map_err(|err| failed(&err))?;
+        Ok(u64::try_from(covered_ms / 1000).unwrap_or(0))
     }
 
     #[zbus(out_args("sessions"))]

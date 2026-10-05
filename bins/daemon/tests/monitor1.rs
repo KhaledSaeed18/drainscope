@@ -162,6 +162,28 @@ async fn usage_groups_by_kind_and_validates_arguments() {
 }
 
 #[tokio::test]
+async fn coverage_reports_measured_seconds() {
+    let peer = serve().await;
+    let proxy = proxy(&peer).await;
+    // One 10 s window was recorded.
+    assert_eq!(
+        proxy
+            .get_coverage(T0 / 1000, now() / 1000, "any")
+            .await
+            .unwrap(),
+        10
+    );
+    assert_eq!(
+        proxy
+            .get_coverage(T0 / 1000, now() / 1000, "ac")
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(proxy.get_coverage(0, 1, "solar").await.is_err());
+}
+
+#[tokio::test]
 async fn sleep_sessions_mark_unknowns_as_nan() {
     let peer = serve().await;
     let sessions = proxy(&peer)
