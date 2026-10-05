@@ -13,7 +13,7 @@ crates/dbus     D-Bus contracts: zbus interfaces/proxies generated from data/dbu
 bins/sampler    privileged system service (Sampler1), D-Bus activated
 bins/daemon     user service, composition root, Monitor1 server
 bins/cli        `drainscope` CLI, talks only to Monitor1
-xtask           dev tooling: record-fixture, validate, install-dev, srpm
+xtask           dev tooling: record-fixture, validate, install-dev, dist
 ui/shared       TS: typed Monitor1 client, GVariant decoders, formatting (runs under Node for tests)
 ui/extension    TS → GJS: GNOME Shell 50 extension
 ui/app          TS → GJS: libadwaita app (M3)
@@ -34,6 +34,7 @@ cargo build -p xtask && sudo target/debug/xtask record-fixture <name> --secs 600
 cargo xtask spike-attribute testdata/traces/<name>.jsonl.gz                       # M0 throwaway
 cargo xtask validate                           # accuracy harness, run on battery (M1)
 cargo xtask install-dev | uninstall-dev        # installs units/policy to /usr/local (sudo)
+cargo xtask dist [--rpm]                       # tarball (vendored), SRPM [+ RPMs], EGO zip → target/dist/
 
 # TypeScript (from ui/)
 pnpm install
@@ -42,6 +43,8 @@ pnpm lint                                      # eslint, type-aware, whole works
 pnpm test                                      # vitest in every package
 pnpm --filter @drainscope/extension build       # esbuild → dist/, unminified ESM
 pnpm --filter @drainscope/extension install-dev # also copy to ~/.local/share/gnome-shell/extensions/
+pnpm --filter @drainscope/app build             # esbuild → app/dist/drainscope-app (gjs -m)
+pnpm --filter @drainscope/app install-dev       # also install to ~/.local (bin, desktop entry, icon)
 
 # Checks
 systemd-analyze security --offline=yes data/systemd/drainscope-sampler.service   # must stay ≤ 2.0
