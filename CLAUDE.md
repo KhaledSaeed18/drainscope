@@ -40,7 +40,8 @@ pnpm install
 pnpm typecheck                                 # tsc in every package
 pnpm lint                                      # eslint, type-aware, whole workspace
 pnpm test                                      # vitest in every package
-pnpm --filter extension build                  # (M2) esbuild → dist/, unminified ESM
+pnpm --filter @drainscope/extension build       # esbuild → dist/, unminified ESM
+pnpm --filter @drainscope/extension install-dev # also copy to ~/.local/share/gnome-shell/extensions/
 
 # Checks
 systemd-analyze security --offline=yes data/systemd/drainscope-sampler.service   # must stay ≤ 2.0
