@@ -35,6 +35,16 @@ jobs:
           sudo apt-get install -y --no-install-recommends libxml2-utils
           xmllint --noout data/dbus/interfaces/*.xml data/dbus/system.d/*.conf data/polkit/*.policy
 
+  selinux:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - uses: actions/checkout@v5
+      - run: dnf install -y --setopt=install_weak_deps=False selinux-policy-devel make
+      - name: The sampler's policy module compiles
+        working-directory: data/selinux
+        run: make -f /usr/share/selinux/devel/Makefile drainscope_sampler.pp
+
   cargo-deny:
     runs-on: ubuntu-latest
     steps:
