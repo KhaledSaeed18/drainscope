@@ -17,12 +17,17 @@ Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 BuildRequires:  cargo >= 1.88
 BuildRequires:  rust >= 1.88
 BuildRequires:  gcc
+# The probe's eBPF program (bins/probe/bpf/) is compiled with clang.
+BuildRequires:  clang
+BuildRequires:  libbpf-devel
+BuildRequires:  kernel-headers
 BuildRequires:  systemd-rpm-macros
 BuildRequires:  desktop-file-utils
 BuildRequires:  appstream
 
 # The daemon degrades gracefully without RAPL (battery-only attribution).
 Recommends:     %{name}-sampler = %{version}-%{release}
+Recommends:     %{name}-probe = %{version}-%{release}
 Suggests:       gnome-shell-extension-%{name} = %{version}-%{release}
 Suggests:       %{name}-app = %{version}-%{release}
 
@@ -41,6 +46,15 @@ Summary:        Sandboxed RAPL energy counter service for drainscope
 Reads the root-only RAPL energy counters with only CAP_DAC_READ_SEARCH, as a dedicated
 system user in a tight sandbox, and serves them over D-Bus to the active local session
 (polkit), rate-limited and quantized. Started on demand; exits when idle.
+
+%package probe
+Summary:        Sandboxed eBPF activity probe for drainscope
+
+%description probe
+Counts how often each app and service wakes the processor from idle with an eBPF program,
+as a dedicated system user with only CAP_BPF and CAP_PERFMON in a tight sandbox, and serves
+per-cgroup totals over D-Bus to the active local session (polkit). Other users' activity is
+never exposed. Started on demand; exits when idle.
 
 %package -n gnome-shell-extension-%{name}
 Summary:        GNOME Shell quick-settings tile for drainscope
@@ -79,16 +93,19 @@ EOF
 %build
 export RUSTFLAGS="%{build_rustflags}"
 cargo build --release --frozen --offline \
-    -p drainscope-sampler -p drainscope-daemon -p drainscope-cli
+    -p drainscope-sampler -p drainscope-probe -p drainscope-daemon -p drainscope-cli
 
 %install
 install -Dpm0755 target/release/drainscope-sampler %{buildroot}%{_libexecdir}/drainscope-sampler
+install -Dpm0755 target/release/drainscope-probe %{buildroot}%{_libexecdir}/drainscope-probe
 install -Dpm0755 target/release/drainscope-daemon %{buildroot}%{_bindir}/drainscope-daemon
 install -Dpm0755 target/release/drainscope %{buildroot}%{_bindir}/drainscope
 
 install -Dpm0644 data/systemd/drainscope-sampler.service %{buildroot}%{_unitdir}/drainscope-sampler.service
+install -Dpm0644 data/systemd/drainscope-probe.service %{buildroot}%{_unitdir}/drainscope-probe.service
 install -Dpm0644 data/systemd/user/drainscope.service %{buildroot}%{_userunitdir}/drainscope.service
 install -Dpm0644 data/sysusers/drainscope.conf %{buildroot}%{_sysusersdir}/drainscope.conf
+install -Dpm0644 data/sysusers/drainscope-probe.conf %{buildroot}%{_sysusersdir}/drainscope-probe.conf
 
 install -Dpm0644 -t %{buildroot}%{_datadir}/dbus-1/system.d data/dbus/system.d/*.conf
 install -Dpm0644 -t %{buildroot}%{_datadir}/dbus-1/system-services data/dbus/system-services/*.service
@@ -125,6 +142,15 @@ cargo test --release --frozen --offline --workspace --exclude xtask
 %postun sampler
 %systemd_postun_with_restart drainscope-sampler.service
 
+%post probe
+%systemd_post drainscope-probe.service
+
+%preun probe
+%systemd_preun drainscope-probe.service
+
+%postun probe
+%systemd_postun_with_restart drainscope-probe.service
+
 %files
 %license LICENSE LICENSE.dependencies
 %doc README.md PLAN.md docs/validation.md
@@ -134,6 +160,7 @@ cargo test --release --frozen --offline --workspace --exclude xtask
 %{_datadir}/dbus-1/services/io.github.khaledsaeed18.Drainscope.Monitor.service
 %{_datadir}/dbus-1/interfaces/io.github.khaledsaeed18.Drainscope.Monitor1.xml
 %{_datadir}/dbus-1/interfaces/io.github.khaledsaeed18.Drainscope.Sampler1.xml
+%{_datadir}/dbus-1/interfaces/io.github.khaledsaeed18.Drainscope.Probe1.xml
 
 %files sampler
 %license LICENSE LICENSE.dependencies
@@ -143,6 +170,15 @@ cargo test --release --frozen --offline --workspace --exclude xtask
 %{_datadir}/dbus-1/system.d/io.github.khaledsaeed18.Drainscope.Sampler.conf
 %{_datadir}/dbus-1/system-services/io.github.khaledsaeed18.Drainscope.Sampler.service
 %{_datadir}/polkit-1/actions/io.github.khaledsaeed18.Drainscope.policy
+
+%files probe
+%license LICENSE LICENSE.dependencies
+%{_libexecdir}/drainscope-probe
+%{_unitdir}/drainscope-probe.service
+%{_sysusersdir}/drainscope-probe.conf
+%{_datadir}/dbus-1/system.d/io.github.khaledsaeed18.Drainscope.Probe.conf
+%{_datadir}/dbus-1/system-services/io.github.khaledsaeed18.Drainscope.Probe.service
+%{_datadir}/polkit-1/actions/io.github.khaledsaeed18.Drainscope.Probe.policy
 
 %files -n gnome-shell-extension-%{name}
 %license LICENSE
