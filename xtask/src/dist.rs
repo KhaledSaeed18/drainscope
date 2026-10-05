@@ -1,7 +1,7 @@
 //! `dist`: release artifacts in `target/dist/`.
 //!
 //! - `drainscope-<version>.tar.gz`: the committed tree, the Rust crates vendored for an
-//!   offline build (as COPR builds), the bundled GNOME Shell extension, and
+//!   offline build (as COPR builds), the bundled GNOME Shell extension and app, and
 //!   `LICENSE.dependencies`.
 //! - the SRPM built from `packaging/drainscope.spec` (and binary RPMs with `--rpm`).
 //! - the extensions.gnome.org upload zip.
@@ -203,7 +203,7 @@ fn build_tarball(repo: &Path, dist: &Path, name: &str, dependency_list: &str) ->
     )?;
     fs::write(staging.join("LICENSE.dependencies"), dependency_list)?;
 
-    eprintln!("building the GNOME Shell extension…");
+    eprintln!("building the GNOME Shell extension and the app…");
     let ui = repo.join("ui");
     run("pnpm", &["install", "--frozen-lockfile"], &ui)?;
     run("pnpm", &["--filter", "@drainscope/extension", "build"], &ui)?;
@@ -211,6 +211,8 @@ fn build_tarball(repo: &Path, dist: &Path, name: &str, dependency_list: &str) ->
         &ui.join("extension/dist"),
         &staging.join("ui/extension/dist"),
     )?;
+    run("pnpm", &["--filter", "@drainscope/app", "build"], &ui)?;
+    copy_dir(&ui.join("app/dist"), &staging.join("ui/app/dist"))?;
 
     let tarball = dist.join(format!("{name}.tar.gz"));
     run(

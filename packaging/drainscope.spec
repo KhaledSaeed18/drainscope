@@ -1,4 +1,5 @@
 %global uuid drainscope@khaledsaeed18.github.io
+%global app_id io.github.khaledsaeed18.Drainscope
 
 Name:           drainscope
 Version:        0.1.0
@@ -17,10 +18,13 @@ BuildRequires:  cargo >= 1.88
 BuildRequires:  rust >= 1.88
 BuildRequires:  gcc
 BuildRequires:  systemd-rpm-macros
+BuildRequires:  desktop-file-utils
+BuildRequires:  appstream
 
 # The daemon degrades gracefully without RAPL (battery-only attribution).
 Recommends:     %{name}-sampler = %{version}-%{release}
 Suggests:       gnome-shell-extension-%{name} = %{version}-%{release}
+Suggests:       %{name}-app = %{version}-%{release}
 
 %description
 drainscope measures energy from hardware counters (RAPL) and the battery and attributes it
@@ -47,6 +51,18 @@ Requires:       gnome-shell >= 50
 %description -n gnome-shell-extension-%{name}
 A "Battery" tile in GNOME's quick settings listing what used the battery since the charger
 was unplugged.
+
+%package app
+Summary:        Battery usage history for drainscope
+BuildArch:      noarch
+Requires:       %{name} = %{version}-%{release}
+Requires:       gjs
+Requires:       gtk4
+Requires:       libadwaita >= 1.6
+
+%description app
+A GNOME app showing what used the battery since you unplugged, over the last hour, day or
+week, and how much each suspend cost.
 
 %prep
 %autosetup
@@ -83,7 +99,14 @@ install -Dpm0644 -t %{buildroot}%{_datadir}/polkit-1/actions data/polkit/*.polic
 install -dm0755 %{buildroot}%{_datadir}/gnome-shell/extensions/%{uuid}
 cp -a ui/extension/dist/. %{buildroot}%{_datadir}/gnome-shell/extensions/%{uuid}/
 
+install -Dpm0755 ui/app/dist/drainscope-app %{buildroot}%{_bindir}/drainscope-app
+install -Dpm0644 -t %{buildroot}%{_datadir}/applications data/app/%{app_id}.desktop
+install -Dpm0644 -t %{buildroot}%{_metainfodir} data/app/%{app_id}.metainfo.xml
+install -Dpm0644 -t %{buildroot}%{_datadir}/icons/hicolor/scalable/apps data/app/icons/%{app_id}.svg
+
 %check
+desktop-file-validate %{buildroot}%{_datadir}/applications/%{app_id}.desktop
+appstreamcli validate --no-net %{buildroot}%{_metainfodir}/%{app_id}.metainfo.xml
 export RUSTFLAGS="%{build_rustflags}"
 cargo test --release --frozen --offline --workspace --exclude xtask
 
@@ -125,6 +148,13 @@ cargo test --release --frozen --offline --workspace --exclude xtask
 %license LICENSE
 %{_datadir}/gnome-shell/extensions/%{uuid}/
 
+%files app
+%license LICENSE
+%{_bindir}/drainscope-app
+%{_datadir}/applications/%{app_id}.desktop
+%{_metainfodir}/%{app_id}.metainfo.xml
+%{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
+
 %changelog
 * Mon Oct 05 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.0-1
-- First release: per-user daemon, sandboxed RAPL sampler, CLI and GNOME Shell extension
+- First release: per-user daemon, sandboxed RAPL sampler, CLI, GNOME Shell extension and app
