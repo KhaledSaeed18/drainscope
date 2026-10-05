@@ -56,6 +56,12 @@ enum Command {
         #[arg(long, default_value_t = 15)]
         top: usize,
     },
+    /// Network traffic by consumer (needs drainscope-probe).
+    Network {
+        /// Rows to show.
+        #[arg(long, default_value_t = 15)]
+        top: usize,
+    },
     /// Battery lost while asleep.
     Sleep {
         /// How far back, e.g. 7d.
@@ -123,6 +129,9 @@ async fn run(command: Command) -> anyhow::Result<ExitCode> {
         Command::Top { top } => report::top(&session_bus().await?, top).await?,
         Command::Wakeups { top } => {
             report::wakeups(&session_bus().await?, top).await?;
+        }
+        Command::Network { top } => {
+            report::network(&session_bus().await?, top).await?;
         }
         Command::Sleep { since } => {
             report::sleep(&session_bus().await?, format::parse_duration(&since)?).await?;

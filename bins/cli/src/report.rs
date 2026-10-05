@@ -7,7 +7,7 @@ use anyhow::Context;
 use drainscope_dbus::monitor::Monitor1Proxy;
 use futures_util::StreamExt;
 
-use crate::format::{duration, energy, percent, table, table_aligned, truncate, watts};
+use crate::format::{byte_rate, duration, energy, percent, table, table_aligned, truncate, watts};
 use crate::names::Names;
 
 const LABEL_WIDTH: usize = 40;
@@ -463,6 +463,41 @@ pub async fn wakeups(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()>
     Ok(())
 }
 
+/// Renders `(label, received B/s, sent B/s)` rows, busiest first.
+#[must_use]
+pub fn render_network(available: bool, rows: &[(String, f64, f64)], limit: usize) -> String {
+    if !available {
+        return "Network counts need the drainscope-probe service (eBPF) with network counting; \
+                it isn't installed or reachable.\n"
+            .to_owned();
+    }
+    if rows.is_empty() {
+        return "No network traffic measured yet; check again in a minute.\n".to_owned();
+    }
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .take(limit)
+        .map(|(label, received, sent)| {
+            vec![truncate(label, 40), byte_rate(*received), byte_rate(*sent)]
+        })
+        .collect();
+    let mut out = table(&["Consumer", "Received", "Sent"], &cells);
+    let _ = writeln!(out, "\nAverage over the last minute, excluding loopback.");
+    out
+}
+
+pub async fn network(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()> {
+    let monitor = connect(bus).await?;
+    let (available, traffic) = monitor.get_network().await.map_err(daemon_hint)?;
+    let mut names = Names::default();
+    let rows: Vec<(String, f64, f64)> = traffic
+        .into_iter()
+        .map(|(key, received, sent)| (names.label(&key), received, sent))
+        .collect();
+    print!("{}", render_network(available, &rows, limit));
+    Ok(())
+}
+
 pub async fn sleep(bus: &zbus::Connection, since: Duration) -> anyhow::Result<()> {
     let monitor = connect(bus).await?;
     let now = now_secs();
@@ -644,6 +679,19 @@ mod tests {
             render_sleep(&[]),
             "No sleep sessions recorded in that period.\n"
         );
+    }
+
+    #[test]
+    fn network_lists_traffic() {
+        let rows = vec![("Firefox".to_owned(), 1_520_000.0, 41_000.0)];
+        assert_eq!(
+            render_network(true, &rows, 5),
+            "Consumer  Received       Sent\n\
+             ─────────────────────────────\n\
+             Firefox   1.5 MB/s  41.0 kB/s\n\
+             \nAverage over the last minute, excluding loopback.\n"
+        );
+        assert!(render_network(false, &rows, 5).contains("drainscope-probe"));
     }
 
     #[test]

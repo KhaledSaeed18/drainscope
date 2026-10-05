@@ -135,9 +135,26 @@ pub fn table_aligned(header: &[&str], rows: &[Vec<String>], left: &[usize]) -> S
     out
 }
 
+/// `850 B/s`, `12.3 kB/s`, `4.1 MB/s` (decimal units, like network tools).
+#[must_use]
+pub fn byte_rate(bytes_per_second: f64) -> String {
+    match bytes_per_second {
+        b if b >= 1e6 => format!("{:.1} MB/s", b / 1e6),
+        b if b >= 1e3 => format!("{:.1} kB/s", b / 1e3),
+        b => format!("{b:.0} B/s"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_rates_use_decimal_units() {
+        assert_eq!(byte_rate(850.4), "850 B/s");
+        assert_eq!(byte_rate(12_340.0), "12.3 kB/s");
+        assert_eq!(byte_rate(4_100_000.0), "4.1 MB/s");
+    }
 
     #[test]
     fn parses_durations() {
