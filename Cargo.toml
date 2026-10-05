@@ -19,6 +19,7 @@ drainscope-dbus = { path = "crates/dbus" }
 drainscope-access = { path = "crates/access" }
 drainscope-testkit = { path = "crates/testkit" }
 
+aya = "0.14"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 flate2 = "1"

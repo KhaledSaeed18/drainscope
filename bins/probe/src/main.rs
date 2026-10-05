@@ -1,0 +1,67 @@
+//! Privileged, sandboxed eBPF probe exposing Probe1 on the system bus (ADR 0006).
+//!
+//! Started by D-Bus activation and exits after [`IDLE_EXIT`] without calls, which also detaches
+//! the eBPF program. Runs as a dedicated system user with only `CAP_BPF` and `CAP_PERFMON`
+//! (see `data/systemd/drainscope-probe.service`).
+
+use std::time::Duration;
+
+use anyhow::Context;
+use drainscope_access::Polkit;
+use drainscope_dbus::probe::{BUS_NAME, OBJECT_PATH, POLKIT_ACTION};
+use drainscope_probe::service::Cgroupfs;
+use drainscope_probe::{Bpf, Config, Probe};
+use drainscope_sys::SysRoot;
+use tracing::Level;
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+
+const IDLE_EXIT: Duration = Duration::from_secs(60);
+const IDLE_CHECK: Duration = Duration::from_secs(5);
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> anyhow::Result<()> {
+    init_logging();
+    let bpf = Bpf::load().context("loading the eBPF program")?;
+    let bus = zbus::Connection::system()
+        .await
+        .context("connecting to the system bus")?;
+    let polkit = Polkit::new(&bus, POLKIT_ACTION)
+        .await
+        .context("connecting to polkit")?;
+    let probe = Probe::new(
+        Box::new(bpf),
+        Box::new(Cgroupfs(SysRoot::host())),
+        Box::new(polkit),
+        Config::default(),
+    );
+    let last_call = probe.last_call();
+    bus.object_server()
+        .at(OBJECT_PATH, probe)
+        .await
+        .context("exporting Probe1")?;
+    bus.request_name(BUS_NAME)
+        .await
+        .with_context(|| format!("acquiring {BUS_NAME}"))?;
+    tracing::info!("serving {BUS_NAME}");
+
+    while last_call.idle_for() < IDLE_EXIT {
+        tokio::time::sleep(IDLE_CHECK).await;
+    }
+    tracing::info!("idle for {}s, exiting", IDLE_EXIT.as_secs());
+    Ok(())
+}
+
+/// Logs to the journal when running under systemd, to stderr otherwise. zbus traces every
+/// message below `warn`, which would flood the journal.
+fn init_logging() {
+    let filter = Targets::new()
+        .with_default(Level::INFO)
+        .with_target("zbus", Level::WARN);
+    let registry = tracing_subscriber::registry().with(filter);
+    match tracing_journald::layer() {
+        Ok(journald) => registry.with(journald).init(),
+        Err(_) => registry.with(tracing_subscriber::fmt::layer()).init(),
+    }
+}
