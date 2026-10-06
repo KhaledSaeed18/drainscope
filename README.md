@@ -2,6 +2,8 @@
 
 Per-app battery and energy usage for the Linux desktop.
 
+Brand assets and usage guide: [branding/](branding/README.md). Linux integration and continuation checklist: [docs/branding-handoff.md](docs/branding-handoff.md).
+
 > "Firefox used 14% of your battery since you unplugged."
 > Windows, macOS and Android have had this for years. Linux hasn't.
 

@@ -1,0 +1,289 @@
+{
+  "version": "1.0.0",
+  "assets": [
+    {
+      "path": "exports/app-icon/io.github.khaledsaeed18.Drainscope-symbolic.svg",
+      "bytes": 454
+    },
+    {
+      "path": "exports/app-icon/io.github.khaledsaeed18.Drainscope.Devel.svg",
+      "bytes": 802
+    },
+    {
+      "path": "exports/app-icon/io.github.khaledsaeed18.Drainscope.svg",
+      "bytes": 682
+    },
+    {
+      "path": "exports/app-icon/png/drainscope-128.png",
+      "bytes": 2323
+    },
+    {
+      "path": "exports/app-icon/png/drainscope-256.png",
+      "bytes": 5565
+    },
+    {
+      "path": "exports/app-icon/png/drainscope-32.png",
+      "bytes": 679
+    },
+    {
+      "path": "exports/app-icon/png/drainscope-48.png",
+      "bytes": 1014
+    },
+    {
+      "path": "exports/app-icon/png/drainscope-512.png",
+      "bytes": 14334
+    },
+    {
+      "path": "exports/app-icon/png/drainscope-64.png",
+      "bytes": 1075
+    },
+    {
+      "path": "exports/app-icon/png/drainscope-symbolic-16.png",
+      "bytes": 222
+    },
+    {
+      "path": "exports/app-icon/png/drainscope-symbolic-32.png",
+      "bytes": 367
+    },
+    {
+      "path": "exports/app-icon/png/drainscope-symbolic-64.png",
+      "bytes": 715
+    },
+    {
+      "path": "exports/logo/drainscope-horizontal-dark.png",
+      "bytes": 19134
+    },
+    {
+      "path": "exports/logo/drainscope-horizontal-dark.svg",
+      "bytes": 4755
+    },
+    {
+      "path": "exports/logo/drainscope-horizontal-mono.png",
+      "bytes": 21461
+    },
+    {
+      "path": "exports/logo/drainscope-horizontal-mono.svg",
+      "bytes": 4755
+    },
+    {
+      "path": "exports/logo/drainscope-horizontal-primary.png",
+      "bytes": 22324
+    },
+    {
+      "path": "exports/logo/drainscope-horizontal-primary.svg",
+      "bytes": 4758
+    },
+    {
+      "path": "exports/logo/drainscope-horizontal-white.png",
+      "bytes": 17300
+    },
+    {
+      "path": "exports/logo/drainscope-horizontal-white.svg",
+      "bytes": 4756
+    },
+    {
+      "path": "exports/logo/drainscope-mark-dark.png",
+      "bytes": 12078
+    },
+    {
+      "path": "exports/logo/drainscope-mark-dark.svg",
+      "bytes": 503
+    },
+    {
+      "path": "exports/logo/drainscope-mark-mono.png",
+      "bytes": 10699
+    },
+    {
+      "path": "exports/logo/drainscope-mark-mono.svg",
+      "bytes": 503
+    },
+    {
+      "path": "exports/logo/drainscope-mark-primary.png",
+      "bytes": 12261
+    },
+    {
+      "path": "exports/logo/drainscope-mark-primary.svg",
+      "bytes": 506
+    },
+    {
+      "path": "exports/logo/drainscope-mark-white.png",
+      "bytes": 8224
+    },
+    {
+      "path": "exports/logo/drainscope-mark-white.svg",
+      "bytes": 504
+    },
+    {
+      "path": "exports/logo/drainscope-stacked-dark.png",
+      "bytes": 28284
+    },
+    {
+      "path": "exports/logo/drainscope-stacked-dark.svg",
+      "bytes": 4808
+    },
+    {
+      "path": "exports/logo/drainscope-stacked-mono.png",
+      "bytes": 31884
+    },
+    {
+      "path": "exports/logo/drainscope-stacked-mono.svg",
+      "bytes": 4808
+    },
+    {
+      "path": "exports/logo/drainscope-stacked-primary.png",
+      "bytes": 32466
+    },
+    {
+      "path": "exports/logo/drainscope-stacked-primary.svg",
+      "bytes": 4811
+    },
+    {
+      "path": "exports/logo/drainscope-stacked-white.png",
+      "bytes": 25331
+    },
+    {
+      "path": "exports/logo/drainscope-stacked-white.svg",
+      "bytes": 4809
+    },
+    {
+      "path": "exports/logo/drainscope-wordmark-dark.png",
+      "bytes": 18187
+    },
+    {
+      "path": "exports/logo/drainscope-wordmark-dark.svg",
+      "bytes": 4392
+    },
+    {
+      "path": "exports/logo/drainscope-wordmark-mono.png",
+      "bytes": 22739
+    },
+    {
+      "path": "exports/logo/drainscope-wordmark-mono.svg",
+      "bytes": 4392
+    },
+    {
+      "path": "exports/logo/drainscope-wordmark-primary.png",
+      "bytes": 22739
+    },
+    {
+      "path": "exports/logo/drainscope-wordmark-primary.svg",
+      "bytes": 4395
+    },
+    {
+      "path": "exports/logo/drainscope-wordmark-white.png",
+      "bytes": 18187
+    },
+    {
+      "path": "exports/logo/drainscope-wordmark-white.svg",
+      "bytes": 4393
+    },
+    {
+      "path": "exports/preview/brand-overview.png",
+      "bytes": 110386
+    },
+    {
+      "path": "exports/preview/brand-overview.svg",
+      "bytes": 116755
+    },
+    {
+      "path": "exports/preview/docs-study-dark.png",
+      "bytes": 61666
+    },
+    {
+      "path": "exports/preview/docs-study-light.png",
+      "bytes": 61702
+    },
+    {
+      "path": "exports/preview/drainscope-symbolic-white.svg",
+      "bytes": 492
+    },
+    {
+      "path": "exports/preview/website-study-dark.png",
+      "bytes": 43359
+    },
+    {
+      "path": "exports/preview/website-study-light.png",
+      "bytes": 44116
+    },
+    {
+      "path": "exports/social/github-social-dark.png",
+      "bytes": 62557
+    },
+    {
+      "path": "exports/social/github-social-dark.svg",
+      "bytes": 51890
+    },
+    {
+      "path": "exports/social/github-social-light.png",
+      "bytes": 62493
+    },
+    {
+      "path": "exports/social/github-social-light.svg",
+      "bytes": 51885
+    },
+    {
+      "path": "exports/social/readme-header.png",
+      "bytes": 39254
+    },
+    {
+      "path": "exports/social/readme-header.svg",
+      "bytes": 34176
+    },
+    {
+      "path": "exports/social/website-social-dark.png",
+      "bytes": 58769
+    },
+    {
+      "path": "exports/social/website-social-dark.svg",
+      "bytes": 51891
+    },
+    {
+      "path": "exports/social/website-social-light.png",
+      "bytes": 58721
+    },
+    {
+      "path": "exports/social/website-social-light.svg",
+      "bytes": 51886
+    },
+    {
+      "path": "exports/web/apple-touch-icon.png",
+      "bytes": 3462
+    },
+    {
+      "path": "exports/web/apple-touch-icon.svg",
+      "bytes": 543
+    },
+    {
+      "path": "exports/web/favicon-16.png",
+      "bytes": 352
+    },
+    {
+      "path": "exports/web/favicon-32.png",
+      "bytes": 573
+    },
+    {
+      "path": "exports/web/favicon-48.png",
+      "bytes": 913
+    },
+    {
+      "path": "exports/web/favicon.ico",
+      "bytes": 1892
+    },
+    {
+      "path": "exports/web/favicon.svg",
+      "bytes": 532
+    },
+    {
+      "path": "exports/web/icon-192.png",
+      "bytes": 4012
+    },
+    {
+      "path": "exports/web/icon-512.png",
+      "bytes": 14847
+    },
+    {
+      "path": "exports/web/measurement-diagram.svg",
+      "bytes": 92201
+    }
+  ]
+}

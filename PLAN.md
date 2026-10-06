@@ -5,6 +5,8 @@
 
 Status: **v0.1.1 released** (2026-10-06; GitHub and COPR). M0–M2 are done; M3–M5 are done apart from the items in [ROADMAP.md](ROADMAP.md), which tracks status and what's next. This file keeps the architecture, the privilege model and the original milestone scopes.
 
+The selected Energy shares brand identity is maintained in [branding/](branding/README.md). Its application/package integration and Linux verification are tracked in [docs/branding-handoff.md](docs/branding-handoff.md).
+
 ---
 
 ## 1. Overview

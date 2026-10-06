@@ -1,6 +1,6 @@
 # Roadmap
 
-What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-10-06.
+What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-10-07.
 
 ## Released
 
@@ -48,6 +48,10 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.1 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (unreleased).
+
+### Brand identity
+- [x] Energy shares identity v1: editable SVG masters, logo/icon exports, colors, fonts, social graphics, templates, tokens, and visual guide in [branding/](branding/README.md).
+- [ ] Apply the icon assets, complete symbolic installation/RPM packaging, and verify in GNOME before capturing product screenshots. Continuing instructions: [docs/branding-handoff.md](docs/branding-handoff.md).
 
 ## Next (in priority order)
 

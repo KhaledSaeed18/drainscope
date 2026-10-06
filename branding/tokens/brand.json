@@ -1,0 +1,98 @@
+{
+  "version": "1.0.0",
+  "name": "drainscope",
+  "brand": {
+    "ink": "#15282F",
+    "signal": "#087F8C",
+    "signalLight": "#53C6CE",
+    "signalMid": "#269EAA",
+    "mist": "#F3F7F7",
+    "white": "#FFFFFF",
+    "slate": "#60747C"
+  },
+  "themes": {
+    "light": {
+      "background": "#F3F7F7",
+      "surface": "#FFFFFF",
+      "text": "#15282F",
+      "textMuted": "#60747C",
+      "action": "#076F7C",
+      "onAction": "#FFFFFF",
+      "focus": "#087F8C",
+      "border": "#CCDADF",
+      "success": "#24734E",
+      "warning": "#8C5A10",
+      "danger": "#B13E4D"
+    },
+    "dark": {
+      "background": "#15282F",
+      "surface": "#1D343C",
+      "text": "#F3F7F7",
+      "textMuted": "#A5B7BF",
+      "action": "#53C6CE",
+      "onAction": "#15282F",
+      "focus": "#53C6CE",
+      "border": "#47636D",
+      "success": "#77C9A0",
+      "warning": "#E9BE68",
+      "danger": "#F29AA7"
+    }
+  },
+  "data": {
+    "light": {
+      "apps": "#087F8C",
+      "terminals": "#7662AC",
+      "services": "#24734E",
+      "system": "#956414",
+      "idle": "#60747C"
+    },
+    "dark": {
+      "apps": "#53C6CE",
+      "terminals": "#BAA4E8",
+      "services": "#77C9A0",
+      "system": "#E9BE68",
+      "idle": "#A5B7BF"
+    }
+  },
+  "typography": {
+    "sans": "IBM Plex Sans",
+    "mono": "IBM Plex Mono",
+    "weights": {
+      "regular": 400,
+      "semibold": 600
+    },
+    "scale": [
+      12,
+      14,
+      16,
+      20,
+      24,
+      32,
+      48,
+      64
+    ],
+    "bodyLineHeight": 1.55,
+    "maxProseWidth": "68ch"
+  },
+  "spacing": [
+    4,
+    8,
+    12,
+    16,
+    24,
+    32,
+    48,
+    64,
+    96
+  ],
+  "radius": {
+    "control": 6,
+    "panel": 12
+  },
+  "motion": {
+    "durationMs": 160,
+    "easing": "ease-out",
+    "reducedMotion": "Disable decorative motion"
+  },
+  "native": "Use libadwaita styles and user-selected accent; web tokens do not override the desktop theme."
+}

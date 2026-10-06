@@ -1,0 +1,4 @@
+fonttools==4.66.1
+Pillow==12.3.0
+reportlab==4.4.9
+svglib==2.3.0

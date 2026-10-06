@@ -1,0 +1,7 @@
+# Exported documents and media must not be treated as source text.
+*.pdf binary
+*.png binary
+*.ttf binary
+*.ico binary
+# Patch context includes intentional whitespace-only lines.
+integration/*.patch -whitespace

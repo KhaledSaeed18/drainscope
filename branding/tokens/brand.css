@@ -1,0 +1,43 @@
+/* drainscope v1: web and documentation tokens. Native GNOME uses libadwaita. */
+@font-face{font-family:"IBM Plex Sans";src:url("../fonts/IBMPlexSans-Regular.ttf") format("truetype");font-weight:400;font-display:swap;}
+@font-face{font-family:"IBM Plex Sans";src:url("../fonts/IBMPlexSans-SemiBold.ttf") format("truetype");font-weight:600;font-display:swap;}
+@font-face{font-family:"IBM Plex Mono";src:url("../fonts/IBMPlexMono-Regular.ttf") format("truetype");font-weight:400;font-display:swap;}
+:root, [data-theme="light"]{
+  --ds-background:#F3F7F7;
+  --ds-surface:#FFFFFF;
+  --ds-text:#15282F;
+  --ds-text-muted:#60747C;
+  --ds-action:#076F7C;
+  --ds-on-action:#FFFFFF;
+  --ds-focus:#087F8C;
+  --ds-border:#CCDADF;
+  --ds-success:#24734E;
+  --ds-warning:#8C5A10;
+  --ds-danger:#B13E4D;
+  --ds-data-apps:#087F8C;
+  --ds-data-terminals:#7662AC;
+  --ds-data-services:#24734E;
+  --ds-data-system:#956414;
+  --ds-data-idle:#60747C;
+}
+[data-theme="dark"]{
+  --ds-background:#15282F;
+  --ds-surface:#1D343C;
+  --ds-text:#F3F7F7;
+  --ds-text-muted:#A5B7BF;
+  --ds-action:#53C6CE;
+  --ds-on-action:#15282F;
+  --ds-focus:#53C6CE;
+  --ds-border:#47636D;
+  --ds-success:#77C9A0;
+  --ds-warning:#E9BE68;
+  --ds-danger:#F29AA7;
+  --ds-data-apps:#53C6CE;
+  --ds-data-terminals:#BAA4E8;
+  --ds-data-services:#77C9A0;
+  --ds-data-system:#E9BE68;
+  --ds-data-idle:#A5B7BF;
+}
+:root{--ds-font-sans:"IBM Plex Sans",system-ui,sans-serif;--ds-font-mono:"IBM Plex Mono",monospace;--ds-radius-control:6px;--ds-radius-panel:12px;}
+@media(prefers-color-scheme:dark){:root:not([data-theme]){--ds-background:#15282F;--ds-surface:#1D343C;--ds-text:#F3F7F7;--ds-text-muted:#A5B7BF;--ds-action:#53C6CE;--ds-on-action:#15282F;--ds-focus:#53C6CE;--ds-border:#47636D;--ds-success:#77C9A0;--ds-warning:#E9BE68;--ds-danger:#F29AA7;--ds-data-apps:#53C6CE;--ds-data-terminals:#BAA4E8;--ds-data-services:#77C9A0;--ds-data-system:#E9BE68;--ds-data-idle:#A5B7BF;}}
+@media(prefers-reduced-motion:reduce){.ds-motion{animation:none!important;transition:none!important;}}
