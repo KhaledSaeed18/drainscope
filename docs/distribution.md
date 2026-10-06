@@ -109,5 +109,5 @@ COPR covers Fedora users well in the meantime.
 ## What I need from you, in order
 
 1. ~~**COPR:** Fedora account and API token.~~ Done; renew the token every 180 days (COPR emails before it expires).
-2. **EGO:** register, take a screenshot of the tile, upload the zip with the description above, and answer the reviewers.
+2. **EGO** (deferred by the maintainer for now): register, take a screenshot of the tile, upload the zip from the latest release with the description above, and answer the reviewers.
 3. **Optional:** a GPG key for signed tags and tarballs, if you want "Verified" releases.
