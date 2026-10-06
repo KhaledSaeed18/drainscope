@@ -257,6 +257,7 @@ fn pack_extension(repo: &Path, dist: &Path) -> Result<()> {
         &[
             "pack",
             &extension.to_string_lossy(),
+            "--extra-source=icons",
             "--force",
             "--out-dir",
             &dist.to_string_lossy(),

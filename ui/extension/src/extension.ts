@@ -22,7 +22,8 @@ import { MonitorClient } from './client';
 /** How often the tile's subtitle refreshes while the menu is closed. */
 const BACKGROUND_REFRESH_SECONDS = 60;
 const TITLE = 'Battery';
-const ICON = 'battery-level-50-symbolic';
+/** drainscope's symbolic app icon, shipped in the extension; St recolors `-symbolic.svg` files. */
+const ICON_FILE = 'icons/io.github.khaledsaeed18.Drainscope-symbolic.svg';
 
 function rowIcon(row: MenuRow): Gio.Icon {
   const fromApp = row.consumer.kind === 'app' ? appIcon(row.consumer.name) : null;
@@ -34,9 +35,9 @@ const UsageToggle = GObject.registerClass(
     private readonly rows = new PopupMenu.PopupMenuSection();
     private onBattery = false;
 
-    constructor() {
-      super({ title: TITLE, subtitle: '…', gicon: Gio.ThemedIcon.new(ICON) });
-      this.menu.setHeader(ICON, TITLE, '');
+    constructor(params: { gicon: Gio.Icon }) {
+      super({ title: TITLE, subtitle: '…', gicon: params.gicon });
+      this.menu.setHeader(this.gicon, TITLE, '');
       this.menu.addMenuItem(this.rows);
       this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
       const footer = new PopupMenu.PopupMenuItem('More detail: run drainscope in a terminal', {
@@ -56,7 +57,7 @@ const UsageToggle = GObject.registerClass(
       this.onBattery = onBattery;
       this.checked = onBattery;
       this.subtitle = model.subtitle;
-      this.menu.setHeader(ICON, TITLE, model.headline);
+      this.menu.setHeader(this.gicon, TITLE, model.headline);
       this.rows.removeAll();
       for (const row of model.rows) {
         this.rows.addMenuItem(rowItem(row));
@@ -68,7 +69,7 @@ const UsageToggle = GObject.registerClass(
       this.checked = false;
       this.subtitle = 'Daemon not running';
       this.menu.setHeader(
-        ICON,
+        this.gicon,
         TITLE,
         'Start it with: systemctl --user enable --now drainscope.service',
       );
@@ -115,7 +116,9 @@ export default class DrainscopeExtension extends Extension {
       console.error('drainscope: quick settings unavailable');
       return;
     }
-    const toggle = new UsageToggle();
+    const toggle = new UsageToggle({
+      gicon: Gio.FileIcon.new(this.dir.resolve_relative_path(ICON_FILE)),
+    });
     const indicator = new SystemIndicator();
     indicator.quickSettingsItems.push(toggle);
     quickSettings.addExternalIndicator(indicator);

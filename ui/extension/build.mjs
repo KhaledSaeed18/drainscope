@@ -20,6 +20,12 @@ await build({
 });
 cpSync('metadata.json', 'dist/metadata.json');
 cpSync('stylesheet.css', 'dist/stylesheet.css');
+// The symbolic app icon, used for the quick-settings tile (packed with --extra-source=icons).
+mkdirSync('dist/icons');
+cpSync(
+  '../../data/app/icons/io.github.khaledsaeed18.Drainscope-symbolic.svg',
+  'dist/icons/io.github.khaledsaeed18.Drainscope-symbolic.svg',
+);
 
 if (process.argv.includes('--install')) {
   const target = join(homedir(), '.local/share/gnome-shell/extensions', metadata.uuid);
