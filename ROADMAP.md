@@ -4,6 +4,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Released
 
+**Unreleased (on `main`):** the daemon stops when its session bus closes.
+
 **v0.1.1** (2026-10-06): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.1) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). The daemon locks its database so a second instance can't double-count; the extension supports GNOME 51.
 
 **v0.1.0** (2026-10-05): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.0) with the source tarball (vendored crates, offline build), the SRPM, RPMs for Fedora 44 and the GNOME Shell extension zip.
@@ -43,14 +45,15 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] RPM spec with seven packages; `cargo xtask dist` builds the tarball, SRPM, RPMs and extension zip.
 - [x] AMD support from fixtures and docs (ADR 0005); `doctor` explains GPU and RAPL support.
 - [x] GitHub releases v0.1.0 and v0.1.1.
-- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed; install verified on Fedora 45.
+- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.1 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
+- [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (unreleased).
 
 ## Next (in priority order)
 
-1. **Publish the extension on extensions.gnome.org.** Upload the zip from the v0.1.1 release (GNOME 50 and 51) once validation is done; needs an EGO account and a screenshot ([docs/distribution.md](docs/distribution.md)).
+1. **Publish the extension on extensions.gnome.org** (deferred by the maintainer). Upload the zip from the latest release (GNOME 50 and 51; validated); needs an EGO account and a screenshot ([docs/distribution.md](docs/distribution.md)).
 2. **Screenshots** of the extension and the app for EGO, the README and later Flathub.
-3. **Daemon exits when its session bus goes away.** Started by D-Bus outside systemd (e.g. under `dbus-run-session`), the daemon keeps running after that bus is gone, with no clients. Under a normal login the bus lives as long as the user manager, so this only affects test and nested sessions. Watch the session connection and stop when it closes.
+3. **Release 0.1.2** with the session-bus fix: bump versions, `cargo xtask dist --rpm`, GitHub release, `copr-cli build`, then `packaging/validate-copr.sh` on Fedora 44 and 45 (packaging/README.md). No hurry: it only affects test and nested sessions.
 4. **Model v2.1: count the network driver's IRQ thread** (e.g. `irq/134-iwlwifi`, about 30% more network work), charged by bytes like the softirqs. Small; needs one battery validation run.
 5. **Model v3: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
 6. **Daemon self-cost:** about 4 wakeups/s (≈ 20 per 5 s tick). Batch the D-Bus calls and the collector thread.
