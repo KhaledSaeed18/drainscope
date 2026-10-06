@@ -18,7 +18,7 @@ bins/daemon     user service, composition root, Monitor1 server
 bins/cli        `drainscope` CLI, talks only to Monitor1
 xtask           dev tooling: record-fixture, validate, install-dev, dist
 ui/shared       TS: typed Monitor1 client, GVariant decoders, formatting (runs under Node for tests)
-ui/extension    TS → GJS: GNOME Shell 50 extension
+ui/extension    TS → GJS: GNOME Shell 50 and 51 extension
 ui/app          TS → GJS: libadwaita app (M3)
 data/           systemd units, D-Bus XML/policy/activation, polkit policies, SELinux modules
 testdata/       traces/: short curated traces (committed); local/: long or personal traces (git-ignored)
@@ -38,6 +38,8 @@ cargo xtask spike-attribute testdata/traces/<name>.jsonl.gz                     
 cargo xtask validate                           # accuracy harness, run on battery (M1)
 cargo xtask install-dev | uninstall-dev        # installs units/policy to /usr/local (sudo)
 cargo xtask dist [--rpm]                       # tarball (vendored), SRPM [+ RPMs], EGO zip → target/dist/
+copr-cli build drainscope target/dist/rpmbuild/SRPMS/drainscope-X.Y.Z-1.*.src.rpm   # publish to COPR
+toolbox run -c drainscope-f45 packaging/validate-copr.sh X.Y.Z                 # validate a release from COPR (also f44)
 
 # TypeScript (from ui/)
 pnpm install
@@ -45,7 +47,7 @@ pnpm typecheck                                 # tsc in every package
 pnpm lint                                      # eslint, type-aware, whole workspace
 pnpm test                                      # vitest in every package
 pnpm --filter @drainscope/extension build       # esbuild → dist/, unminified ESM
-pnpm --filter @drainscope/extension install-dev # also copy to ~/.local/share/gnome-shell/extensions/
+pnpm --filter @drainscope/extension install-dev # also copy to ~/.local/share/gnome-shell/extensions/ (overrides the packaged extension; delete it to go back)
 pnpm --filter @drainscope/app build             # esbuild → app/dist/drainscope-app (gjs -m)
 pnpm --filter @drainscope/app install-dev       # also install to ~/.local (bin, desktop entry, icon)
 
@@ -92,7 +94,7 @@ Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the
 - **No `any`. No `as` casts** (except `as const`). No non-null `!`. Enforced by typescript-eslint `strict-type-checked` + `stylistic-type-checked` and `consistent-type-assertions: never` (`ui/eslint.config.js`).
 - `GLib.Variant` data must go through the typed decoders in `ui/shared/src/dbus/decode.ts`, which check `get_type_string()` before unpacking and return `Result`-style values. Never use raw `deepUnpack()` results directly.
 - Keep logic in `ui/shared` (pure and Node-testable with vitest). GJS-specific glue in `extension/` and `app/` stays thin.
-- GNOME Shell extension rules: GNOME 50 ESM (`gi://` imports, `resource:///org/gnome/shell/...`). Create nothing in the constructor; everything is created in `enable()` and destroyed or disconnected in `disable()`. All D-Bus calls are async and never block the Shell main loop. Output is unminified ESM (extensions.gnome.org review requirement).
+- GNOME Shell extension rules: GNOME 50+ ESM (`gi://` imports, `resource:///org/gnome/shell/...`). `shell-version` lists only versions tested in a nested shell of that release (docs/distribution.md). Look up apps with `Shell.AppSystem` (cached, no I/O), and don't re-promisify what GNOME Shell already promisifies. Create nothing in the constructor; everything is created in `enable()` and destroyed or disconnected in `disable()`. All D-Bus calls are async and never block the Shell main loop. Output is unminified ESM (extensions.gnome.org review requirement).
 
 ## Traces and fixtures
 
@@ -112,6 +114,8 @@ Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the
 ## Environment notes (dev machine)
 
 Fedora 44, kernel 7.1, GNOME 50.3 Wayland, SELinux enforcing, systemd 259, cgroup v2. Intel i7-8550U: RAPL domains `package-0`, `core`, `uncore`, `dram`, `psys`, all `0400 root`. **`psys` is implausible here** (below `package`; ADR 0001), so never rely on it. True idle with the screen on: package ≈ 1.5 W, battery ≈ 5.1 W. Battery `power_now` lags load changes by 6–8 s. i915 exposes `drm-engine-*` in fdinfo. Two batteries (BAT0, BAT1). `mem_sleep` defaults to `deep`. 7 GB RAM: keep builds lean (`CARGO_BUILD_JOBS` if needed).
+
+The dev machine runs the **COPR packages** (`/usr/bin`, `/usr/lib/systemd/user`, the extension in `/usr/share`), not `install-dev`. `install-dev` puts units in `/etc`, which override the packaged ones; run `uninstall-dev` before going back to the packages, and `systemctl --user restart drainscope.service` so the new binary actually runs. Toolboxes `drainscope-f44` (GNOME 50.5) and `drainscope-f45` (GNOME 51.0) exist for package validation and nested-shell tests. A nested shell shares `/run/user/$UID` with the real session: let it run over 60 s (the crash-guard file `gnome-shell-disable-extensions` is removed after that), never run two at once, and give it scratch `XDG_*` directories so its daemon can't touch the real database.
 
 ## Working agreement
 
