@@ -451,8 +451,15 @@ async fn main() -> anyhow::Result<()> {
 
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
+    // Started by D-Bus outside systemd (e.g. under dbus-run-session), nothing else stops us
+    // when that bus goes away; there are no clients left to serve.
+    let session_bus = daemon.session.clone();
     loop {
         tokio::select! {
+            () = session_bus.closed() => {
+                tracing::info!("session bus closed");
+                break;
+            }
             () = tokio::time::sleep(TICK) => {
                 if let Err(err) = daemon.tick().await {
                     tracing::warn!(%err, "tick failed");
