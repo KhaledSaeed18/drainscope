@@ -81,7 +81,7 @@ Layering follows **system integration → core → interface**, with storage iso
 | `drainscope-daemon` (bin) | composition root | Wires sys → model → store, runs the tick loop, serves Monitor1, handles logind sleep inhibitor, self-accounting. | all lib crates | contain attribution logic (that lives in model) |
 | `drainscope` (bin, CLI) | interface | `top`, `report`, `sleep`, `status`, `doctor`. Talks **only** to Monitor1 (never opens the DB directly). | dbus, model, clap | import store or sys (exception: `doctor` uses sys read-only probes) |
 | `ui/shared` (TS) | interface | Typed Monitor1 client, **validated GVariant decoders**, formatting (J → %, Wh, durations), view models. Pure logic runs under Node for tests. | @girs types | use `any`, unchecked casts |
-| `ui/extension` (TS) | interface | GNOME Shell 50 extension: quick-settings section "Battery usage". | ui/shared | do heavy work or blocking calls on the Shell main loop |
+| `ui/extension` (TS) | interface | GNOME Shell 50 and 51 extension: quick-settings section "Battery usage". | ui/shared | do heavy work or blocking calls on the Shell main loop |
 | `ui/app` (TS, M3) | interface | libadwaita app: timelines, per-app detail, sleep sessions, health. | ui/shared | |
 | `xtask` | dev tooling | `record-fixture`, `validate`, `dist`, `srpm`. | anything | ship in packages |
 
@@ -169,7 +169,7 @@ drainscope/
 
 | cgroup path pattern | ConsumerKey | Display |
 |---|---|---|
-| `…/app.slice/app-gnome-<appid>-<pid>.scope` | `app:<appid>` | from `.desktop` (resolved in UI via `Gio.DesktopAppInfo`) |
+| `…/app.slice/app-gnome-<appid>-<pid>.scope` | `app:<appid>` | from `.desktop` (resolved in the UI: `Shell.AppSystem` in the extension, `Gio.DesktopAppInfo` in the app) |
 | `…/app.slice/app-flatpak-<appid>-<n>.scope` | `app:<appid>` | same |
 | `…/app.slice/app-gnome-<appid>@<id>.service` (autostart) | `app:<appid>` | same |
 | `…/app.slice/dbus-:<addr>-<bus name>@<n>.service` (D-Bus-activated apps, e.g. Ptyxis) | `app:<bus name>` | same as apps |
@@ -232,6 +232,7 @@ psys_check     (at_least_package, below_package)                               -
 - Queries read the finest resolution still retained for the start of their range.
 - Battery health (`energy_full` vs design, cycle count) is added by a later migration in M3.
 - The database lives at `$XDG_STATE_HOME/drainscope/drainscope.db`, created `0600` before SQLite opens it.
+- One daemon per database: before opening it, the daemon takes a non-blocking `flock` on `drainscope.db.lock`. If another daemon holds it (one started on a second session bus, say), it exits with status 3 instead of writing overlapping windows that would double-count energy.
 
 ### D-Bus API sketch (XML in `data/dbus/` is authoritative)
 
@@ -260,7 +261,7 @@ psys_check     (at_least_package, below_package)                               -
 Sampler hardening (enforced in CI by `systemd-analyze security --offline=yes`, exposure score target ≤ 2.0):
 `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp`, `PrivateDevices`, `PrivateNetwork=yes`, `IPAddressDeny=any`, `NoNewPrivileges=yes`, `RestrictAddressFamilies=AF_UNIX`, `SystemCallFilter=@system-service`, `SystemCallArchitectures=native`, `MemoryDenyWriteExecute`, `LockPersonality`, `RestrictNamespaces`, `ProtectKernelTunables` (sysfs stays readable), `ProtectKernelModules`, `ProtectProc=invisible`, `UMask=0077`, `ReadOnlyPaths=/sys/class/powercap /sys/devices/virtual/powercap`.
 
-The user daemon's unit (`data/systemd/user/drainscope.service`) uses only hardening that works in a user manager without user namespaces: `NoNewPrivileges`, seccomp (`SystemCallFilter=@system-service`), `RestrictAddressFamilies=AF_UNIX`, `MemoryDenyWriteExecute`, `LockPersonality`, `RestrictRealtime`, `UMask=0077`, plus low `Nice`/`CPUWeight`. Its `systemd-analyze security` score (6.5) reflects the missing mount-namespace options, which would imply `PrivateUsers=` and hide the user's other processes' `/proc/<pid>/fd`, breaking GPU attribution. The daemon holds no privileges either way.
+The user daemon's unit (`data/systemd/user/drainscope.service`) uses only hardening that works in a user manager without user namespaces: `NoNewPrivileges`, seccomp (`SystemCallFilter=@system-service`), `RestrictAddressFamilies=AF_UNIX`, `MemoryDenyWriteExecute`, `LockPersonality`, `RestrictRealtime`, `UMask=0077`, plus low `Nice`/`CPUWeight`. Its `systemd-analyze security` score (6.5) reflects the missing mount-namespace options, which would imply `PrivateUsers=` and hide the user's other processes' `/proc/<pid>/fd`, breaking GPU attribution. The daemon holds no privileges either way. `RestartPreventExitStatus=3` stops systemd from restarting a daemon that found the database lock taken. The daemon also stops (status 0, state saved) when its session bus closes, so one D-Bus-activated outside systemd, e.g. under `dbus-run-session`, doesn't outlive its session.
 
 Activation: D-Bus-activated (`Type=dbus`, `BusName=`), exits after 60 s without callers. It costs nothing when unused and never needs `systemctl enable`.
 
@@ -331,7 +332,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | **M2 — GNOME Shell extension** (done) | Quick-settings section "Battery usage since unplug" (top 5 + "Open drainscope"); live refresh via `Tick`; app names and icons via `Shell.AppSystem`; GNOME 50 and 51 ESM; strict TS with validated GVariant decoders; EGO-compliant (no work outside `enable`, full cleanup in `disable`). |
 | **M3 — Desktop app + sleep and health** (done, except foreground vs background) | libadwaita app: since-unplug / 24 h / 7 d views, stacked timeline, per-app detail (CPU vs GPU, foreground vs background), sleep sessions with wake reason, battery health chart (`energy_full` vs design, cycle count). |
 | **M4 — eBPF precision** (done for wakeups, network bytes and model v2; ADRs 0006, 0007; exit capture remains) | Per-app wakeups (timer/sched tracepoints) to find idle-drain culprits; capture short-lived processes at exit; per-cgroup network bytes (cgroup_skb) for a Wi-Fi share of "devices"; model v2 weighting CPU time by per-CPU frequency. eBPF runs in a sibling of the sampler (`drainscope-probe`) and exports only aggregated per-cgroup counters. As built, model v2 charges network-softirq time to apps by bytes; frequency weighting was not needed on the measured hardware. |
-| **M5 — Hardening and distribution** (SELinux, packaging and the GitHub release done; COPR done; EGO and Flatpak pending, see [docs/distribution.md](docs/distribution.md)) | SELinux policy modules for the sampler and the probe; COPR stable channel; EGO publication; Flatpak for the app; AMD support (no `psys`, different domains) tested on a donor machine or in CI with fixtures; docs site and a write-up of the model and validation. |
+| **M5 — Hardening and distribution** (SELinux, packaging, GitHub releases and COPR done; EGO and Flatpak pending, see [docs/distribution.md](docs/distribution.md)) | SELinux policy modules for the sampler and the probe; COPR stable channel; EGO publication; Flatpak for the app; AMD support (no `psys`, different domains) tested on a donor machine or in CI with fixtures; docs site and a write-up of the model and validation. |
 | **Later ideas** | Backlight-weighted display share; per-app notifications ("Slack has used 8% in the background"); export to CSV/JSON; Prometheus textfile output for homelab users; KDE Plasma widget (the D-Bus API makes it a pure UI addition). |
 
 ---
@@ -367,6 +368,7 @@ Notes:
 - The spec (`packaging/drainscope.spec`) builds from a source tarball with vendored crates (`cargo vendor`), so COPR builds offline. `cargo xtask dist` produces the tarball, SRPM and RPMs (packaging/README.md). Fedora's official repositories would need every crate packaged separately (docs/distribution.md).
 - The user service is enabled on first run (`systemctl --user enable --now drainscope.service`), documented in the README; `%systemd_user_post` handles presets.
 - The sampler is never enabled: D-Bus activation starts it on demand.
+- Each release is validated from COPR on every supported Fedora with `packaging/validate-copr.sh` in a toolbox: versions, signatures, file integrity, the database lock and the extension in a nested GNOME Shell of that release.
 - Portable to any systemd + cgroup v2 distro; Fedora is the first-class target.
 
 ---
