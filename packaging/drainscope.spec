@@ -144,6 +144,7 @@ install -Dpm0755 ui/app/dist/drainscope-app %{buildroot}%{_bindir}/drainscope-ap
 install -Dpm0644 -t %{buildroot}%{_datadir}/applications data/app/%{app_id}.desktop
 install -Dpm0644 -t %{buildroot}%{_metainfodir} data/app/%{app_id}.metainfo.xml
 install -Dpm0644 -t %{buildroot}%{_datadir}/icons/hicolor/scalable/apps data/app/icons/%{app_id}.svg
+install -Dpm0644 -t %{buildroot}%{_datadir}/icons/hicolor/symbolic/apps data/app/icons/%{app_id}-symbolic.svg
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{app_id}.desktop
@@ -233,6 +234,7 @@ fi
 %{_datadir}/applications/%{app_id}.desktop
 %{_metainfodir}/%{app_id}.metainfo.xml
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
+%{_datadir}/icons/hicolor/symbolic/apps/%{app_id}-symbolic.svg
 
 %changelog
 * Tue Oct 06 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.1-1

@@ -1,5 +1,5 @@
 // Bundles the app into dist/drainscope-app, an executable GJS ES module. With --install, also
-// installs it for the current user with its desktop entry and icon (under ~/.local).
+// installs it for the current user with its desktop entry and icons (under ~/.local).
 import { build } from 'esbuild';
 import { chmodSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -33,8 +33,10 @@ if (process.argv.includes('--install')) {
   // An absolute Exec, since ~/.local/bin may not be on the session's PATH.
   const desktop = readFileSync(join(DATA, `${ID}.desktop`), 'utf8').replace(/^Exec=.*$/m, `Exec=${bin}`);
   writeFileSync(join(applications, `${ID}.desktop`), desktop);
-  const icons = join(local, 'share/icons/hicolor/scalable/apps');
-  mkdirSync(icons, { recursive: true });
-  cpSync(join(DATA, `icons/${ID}.svg`), join(icons, `${ID}.svg`));
+  for (const [dir, name] of [['scalable', `${ID}.svg`], ['symbolic', `${ID}-symbolic.svg`]]) {
+    const icons = join(local, `share/icons/hicolor/${dir}/apps`);
+    mkdirSync(icons, { recursive: true });
+    cpSync(join(DATA, `icons/${name}`), join(icons, name));
+  }
   console.log(`installed ${bin}`);
 }
