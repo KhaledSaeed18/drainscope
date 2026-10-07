@@ -246,14 +246,14 @@ dependencies = [
 
 [[package]]
 name = "drainscope-access"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "zbus",
 ]
 
 [[package]]
 name = "drainscope-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "drainscope-daemon"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "drainscope-dbus",
@@ -289,14 +289,14 @@ dependencies = [
 
 [[package]]
 name = "drainscope-dbus"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "zbus",
 ]
 
 [[package]]
 name = "drainscope-model"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "proptest",
  "thiserror",
@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "drainscope-probe"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "aya",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "drainscope-sampler"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "drainscope-access",
@@ -341,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "drainscope-store"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "drainscope-model",
  "proptest",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "drainscope-sys"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "drainscope-model",
  "drainscope-testkit",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "drainscope-testkit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "flate2",
  "serde",
@@ -1386,7 +1386,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "xtask"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",

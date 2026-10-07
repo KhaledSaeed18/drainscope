@@ -40,6 +40,11 @@
     <color type="primary" scheme_preference="dark">#15282f</color>
   </branding>
   <releases>
+    <release version="0.1.2" date="2026-10-07">
+      <description>
+        <p>A new app icon. The daemon now stops when its session bus closes.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-10-06">
       <description>
         <p>The daemon now refuses to start when another daemon is already using the database, which could double-count energy. The GNOME Shell extension supports GNOME 51.</p>

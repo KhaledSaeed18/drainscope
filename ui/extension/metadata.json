@@ -4,5 +4,5 @@
   "description": "Which apps used your battery since you unplugged. Needs the drainscope daemon.",
   "shell-version": ["50", "51"],
   "url": "https://github.com/KhaledSaeed18/drainscope",
-  "version-name": "0.1.1"
+  "version-name": "0.1.2"
 }

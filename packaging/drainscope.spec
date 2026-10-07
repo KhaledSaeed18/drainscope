@@ -4,7 +4,7 @@
 %global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
-Version:        0.1.1
+Version:        0.1.2
 Release:        1%{?dist}
 Summary:        Per-app battery and energy usage for the Linux desktop
 
@@ -237,6 +237,11 @@ fi
 %{_datadir}/icons/hicolor/symbolic/apps/%{app_id}-symbolic.svg
 
 %changelog
+* Wed Oct 07 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.2-1
+- Daemon: stop when the session bus closes
+- New app icon; install a symbolic app icon
+- GNOME Shell extension: use the drainscope symbolic icon for the quick-settings tile
+
 * Tue Oct 06 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.1-1
 - Daemon: hold an exclusive lock on the database so a second daemon can't double-count
 - GNOME Shell extension: support GNOME 51; extensions.gnome.org review fixes
