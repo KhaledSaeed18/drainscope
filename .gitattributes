@@ -1,0 +1,2 @@
+# The brand kit (fonts, rasters, PDF) is not needed to build or package drainscope.
+/branding export-ignore
