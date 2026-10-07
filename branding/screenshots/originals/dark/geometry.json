@@ -1,0 +1,78 @@
+{
+  "app-unplugged": {
+    "scale": 2,
+    "window": [
+      420,
+      56,
+      600,
+      820
+    ],
+    "quickSettings": null,
+    "tileMenu": null
+  },
+  "app-detail": {
+    "scale": 2,
+    "window": [
+      420,
+      56,
+      600,
+      580
+    ],
+    "quickSettings": null,
+    "tileMenu": null
+  },
+  "app-activity": {
+    "scale": 2,
+    "window": [
+      420,
+      56,
+      600,
+      820
+    ],
+    "quickSettings": null,
+    "tileMenu": null
+  },
+  "app-sleep-health": {
+    "scale": 2,
+    "window": [
+      420,
+      56,
+      600,
+      820
+    ],
+    "quickSettings": null,
+    "tileMenu": null
+  },
+  "app-week": {
+    "scale": 2,
+    "window": [
+      420,
+      56,
+      600,
+      820
+    ],
+    "quickSettings": null,
+    "tileMenu": null
+  },
+  "desktop": {
+    "scale": 2,
+    "window": [
+      150,
+      70,
+      600,
+      790
+    ],
+    "quickSettings": [
+      1032,
+      38,
+      402,
+      628
+    ],
+    "tileMenu": [
+      1051,
+      327,
+      364,
+      320
+    ]
+  }
+}
