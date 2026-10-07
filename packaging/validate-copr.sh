@@ -46,7 +46,14 @@ dbus-run-session -- bash -c '
   sleep 65
   gnome-extensions info '$UUID' | grep -E "Path|Version|State"
   busctl --user call io.github.khaledsaeed18.Drainscope.Monitor /io/github/khaledsaeed18/Drainscope/Monitor io.github.khaledsaeed18.Drainscope.Monitor1 GetSummary 2>&1 | cut -c1-120
-  kill $pid; wait $pid 2>/dev/null; pkill -u "$(id -u)" -f "^/usr/bin/drainscope-daemon$" || true
+  # Stop only the daemon on this session bus: toolbox shares the host PID namespace, so matching
+  # by name would also stop the daemon of the real session.
+  dpid=$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus GetConnectionUnixProcessID s io.github.khaledsaeed18.Drainscope.Monitor 2>/dev/null | cut -d" " -f2)
+  kill $pid; wait $pid 2>/dev/null
+  if [ -n "$dpid" ]; then
+    kill "$dpid" 2>/dev/null
+    for _ in $(seq 50); do kill -0 "$dpid" 2>/dev/null || break; sleep 0.2; done
+  fi
 ' 2>/dev/null
 echo "JS errors/warnings: $(grep -cE 'JS ERROR|JS WARNING' $S/shell.log)"
 grep -E 'JS ERROR|JS WARNING' $S/shell.log | head -5
