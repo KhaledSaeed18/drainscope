@@ -101,7 +101,7 @@ def social(w,h,dark=False):
     body += lettering('Battery and energy usage by app,',64,414,28,secondary)+lettering('for the Linux desktop.',64,453,28,secondary)
     body += f'<g transform="translate(870 214) scale(2.35)">{mark(CYAN if dark else TEAL,(CYAN,"#93DCE1",WHITE) if dark else None)}</g>'
     body += f'<path d="M64 540H1216" stroke="{("#47636D" if dark else "#CCDADF")}" stroke-width="1"/>'
-    body += lettering('Open source. Local history. Native GNOME integration.',64,579,21,secondary)
+    body += lettering('Local history. Transparent attribution. Native GNOME integration.',64,579,21,secondary)
     return body+'</g>'
 
 save('social/github-social-light.svg',social(1280,640),1280,640,'drainscope GitHub social preview')
@@ -120,7 +120,7 @@ board += lettering('drainscope',64,77,36,INK,'semibold')+lettering('Energy share
 board += '<path d="M64 108H1536" stroke="#CCDADF"/>'
 board += f'<g transform="translate(82 178) scale(3.25)">{mark()}</g>'
 board += lettering('See where your',650,244,70,INK,'semibold')+lettering('battery goes.',650,326,70,INK,'semibold')
-board += lettering('Clear shares. Local history. A native Linux experience.',650,389,26,SLATE)
+board += lettering('Local history. Transparent attribution. Native GNOME integration.',650,389,26,SLATE)
 board += f'<g transform="translate(82 532) scale(1.1)">{horizontal()}</g>'
 board += f'<rect x="720" y="470" width="816" height="210" rx="16" fill="{INK}"/><g transform="translate(788 525) scale(1.13)">{horizontal(WHITE,CYAN,(CYAN,"#93DCE1",WHITE))}</g>'
 board += lettering('Desktop icon',82,759,21,SLATE)+lettering('Symbolic icon',338,759,21,SLATE)

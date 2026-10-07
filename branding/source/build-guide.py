@@ -139,8 +139,8 @@ for value in ['Outlined SVG logo variants and transparent PNGs.','GNOME app, sym
     y=paragraph(value,48,y,365,15)-12
 y=paragraph('Reproduce and integrate',470,416,365,23,INK,'PlexSemi')-14
 y=paragraph('source/build.py generates vectors. source/render.cjs generates rasters and the manifest. source/check.py verifies the specified geometry and color pairs.',470,y,365)-16
-y=paragraph('Apply the prepared icon patch in your Linux checkout after checking it against the current branch. Keep the stable app ID. Install the symbolic through the development and RPM paths before shipping it.',470,y,365,14)-16
-y=paragraph('Next: Linux icon review and screenshots, then the website/docs build and destination-specific listing assets.',470,y,365,14,SLATE)-16
+y=paragraph('The app and symbolic icons ship from data/app/icons under the stable app ID; CI keeps them identical to exports/app-icon. Regenerate here, then copy both icons there.',470,y,365,14)-16
+y=paragraph('Next: real product screenshots, then the website/docs build and destination-specific listing assets.',470,y,365,14,SLATE)-16
 paragraph('Font licenses are included. A separate public license for original brand artwork has not been selected. Full references and exact rules are in guidelines.md.',470,y,365,12,SLATE)
 end()
 c.save()
