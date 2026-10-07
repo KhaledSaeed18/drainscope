@@ -46,7 +46,7 @@ The app ships copies of the two app icons in `../data/app/icons/`. After changin
 
 ## Review status
 
-Vector/raster rendering, font-free logos, nominal export sizes, transparency, token contrast, and browser layouts were checked on macOS. On Linux the app icon and symbolic icon are integrated: installed by the development installer and the RPM, used by the Shell extension's quick-settings tile, and checked in GTK and in nested GNOME 50 and 51 shells ([../docs/branding-handoff.md](../docs/branding-handoff.md)). Real product screenshots, the repository social-preview setting, and site publication are still pending.
+Vector/raster rendering, font-free logos, nominal export sizes, transparency, token contrast, and browser layouts were checked on macOS. On Linux the app icon and symbolic icon are integrated: installed by the development installer and the RPM, used by the Shell extension's quick-settings tile, and checked in GTK and in nested GNOME 50 and 51 shells ([../docs/branding-handoff.md](../docs/branding-handoff.md)). The GitHub social preview is set. Real product screenshots and site publication are still pending.
 
 ## Provenance and licensing
 
