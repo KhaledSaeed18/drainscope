@@ -1,8 +1,4 @@
-# drainscope
-
-Per-app battery and energy usage for the Linux desktop.
-
-Brand assets and usage guide: [branding/](branding/README.md). Linux integration and continuation checklist: [docs/branding-handoff.md](docs/branding-handoff.md).
+![drainscope. See where your battery goes. Battery and energy usage by app, for the Linux desktop.](branding/exports/social/readme-header.svg)
 
 > "Firefox used 14% of your battery since you unplugged."
 > Windows, macOS and Android have had this for years. Linux hasn't.
@@ -124,7 +120,7 @@ cargo xtask validate                            # accuracy harness; run unplugge
 cd ui && pnpm install && pnpm typecheck && pnpm lint && pnpm test
 ```
 
-Conventions are in [CLAUDE.md](CLAUDE.md); decisions in [docs/adr/](docs/adr/).
+Conventions are in [CLAUDE.md](CLAUDE.md); decisions in [docs/adr/](docs/adr/). Logos, icons, colors and usage rules: [branding/](branding/README.md).
 
 ## License
 
