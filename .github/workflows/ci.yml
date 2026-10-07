@@ -76,3 +76,13 @@ jobs:
       - run: pnpm test
       - run: pnpm --filter @drainscope/extension build
       - run: pnpm --filter @drainscope/app build
+
+  icons:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Shipped app icons match the brand kit exports (branding/exports/app-icon)
+        run: |
+          for icon in io.github.khaledsaeed18.Drainscope.svg io.github.khaledsaeed18.Drainscope-symbolic.svg; do
+            cmp branding/exports/app-icon/"$icon" data/app/icons/"$icon"
+          done
