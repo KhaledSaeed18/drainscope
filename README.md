@@ -9,7 +9,12 @@ drainscope measures energy from hardware counters (RAPL via powercap) and the ba
 
 ## What it looks like
 
-Illustrative output (not a measurement):
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="branding/screenshots/exports/hero-dark.png">
+  <img src="branding/screenshots/exports/hero-light.png" alt="The drainscope app showing a timeline and per-app energy use since unplugging, next to GNOME's Quick Settings with the drainscope Battery menu open.">
+</picture>
+
+The desktop app and the GNOME Shell extension (illustrative data; more views in [branding/screenshots](branding/screenshots/README.md)). On the command line, illustrative output (not a measurement):
 
 ```console
 $ drainscope
