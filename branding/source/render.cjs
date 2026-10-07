@@ -1,4 +1,4 @@
-// Raster exports from SVG originals. npm install in source/ first.
+// Raster exports from SVG originals. pnpm install in source/ first.
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const sharp = require('sharp');

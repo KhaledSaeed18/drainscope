@@ -1,6 +1,7 @@
 {
   "name": "drainscope-brand-exports",
   "private": true,
+  "packageManager": "pnpm@11.2.2",
   "version": "1.0.0",
   "description": "Optional asset authoring tools; not application runtime dependencies",
   "scripts": { "render": "node render.cjs" },

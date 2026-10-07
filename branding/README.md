@@ -34,8 +34,8 @@ To regenerate raster exports:
 
 ```sh
 cd source
-npm install
-npm run render
+pnpm install
+pnpm render
 ```
 
 The authoring tools are optional and are not drainscope runtime dependencies. Copy production SVGs directly when no regeneration is needed. The archive excludes virtual environments and node_modules.
