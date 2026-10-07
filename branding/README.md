@@ -42,9 +42,11 @@ The authoring tools are optional and are not drainscope runtime dependencies. Co
 
 The existing website/docs preview PNGs are included in the kit. After rebuilding vectors/rasters, run `python source/check.py` to validate assets and color tokens, and `python source/build-guide.py` to rebuild the PDF from those assets and preview images. Re-capture the layout previews in a browser if you change `index.html`.
 
+The app ships copies of the two app icons in `../data/app/icons/`. After changing `exports/app-icon/io.github.khaledsaeed18.Drainscope.svg` or its `-symbolic.svg`, copy both there; the CI `icons` job fails while they differ. Rebuilding on Fedora reproduces the committed SVGs, PNGs, ICO and manifest byte for byte, so a regeneration diff shows only what you changed.
+
 ## Review status
 
-Vector/raster rendering, font-free logos, nominal export sizes, transparency, token contrast, and browser layouts were checked locally. GNOME desktop context review and real product screenshots require Linux. This import supplies the kit and handoff; installed icons, installer/RPM behavior, repository social-preview settings, and site publication are still pending.
+Vector/raster rendering, font-free logos, nominal export sizes, transparency, token contrast, and browser layouts were checked on macOS. On Linux the app icon and symbolic icon are integrated: installed by the development installer and the RPM, used by the Shell extension's quick-settings tile, and checked in GTK and in nested GNOME 50 and 51 shells ([../docs/branding-handoff.md](../docs/branding-handoff.md)). Real product screenshots, the repository social-preview setting, and site publication are still pending.
 
 ## Provenance and licensing
 
