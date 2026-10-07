@@ -85,6 +85,21 @@ Return:
 
 Once this integration is reviewed, the next phase can use the same kit and real screenshots to build the public landing page, documentation site, and destination-specific distribution graphics. The brand strategy and assets should carry forward rather than be re-created.
 
+### Linux integration (7 October 2026)
+
+Done on main (Fedora 44, GNOME 50.3):
+
+- `app-icons.patch` applied: new full-color icon and the symbolic icon in `data/app/icons/`.
+- The symbolic icon is installed to hicolor `symbolic/apps` by `ui/app/build.mjs --install` and `packaging/drainscope.spec` (install and `%files`).
+- The Shell extension's quick-settings tile and menu header use the symbolic icon instead of `battery-level-50-symbolic`. `ui/extension/build.mjs` copies it from `data/app/icons/` into `dist/icons/`; `xtask dist` packs it with `--extra-source=icons`.
+- CI job `icons` fails if `data/app/icons/` and `branding/exports/app-icon/` differ.
+- README opens with `readme-header.svg`; AppStream metadata has brand colors (`#53c6ce` light, `#15282f` dark).
+- `/branding export-ignore` keeps the kit out of the release tarball and SRPM.
+
+Checks: `pnpm typecheck`, `pnpm lint`, `pnpm test`; `cargo fmt --check`, clippy and tests for `xtask`; `appstreamcli validate --no-net`; `cargo xtask dist --rpm` (both icons in `drainscope-app`, `icons/` in the extension RPM and EGO zip, no `branding/` in the tarball). GTK 4 resolved both icons from a scratch `install-dev` home and recolored the symbolic for light and dark. Nested GNOME 50.5 (f44 toolbox) and 51.0 (f45 toolbox) shells on scratch XDG directories: extension `ACTIVE`, tile and menu header show the symbolic icon recolored in light and dark styles, no JS errors.
+
+Remaining: view the icons in the real session after the next release (launcher sizes and 128/64/32 px), upload the GitHub social preview, and capture product screenshots (ROADMAP Next 2). No asset adjustments were needed.
+
 ## Prompt for the Linux agent
 
 > Continue drainscope’s Energy shares branding integration. Read docs/branding-handoff.md, the current repository instructions, and branding/guidelines.md. Preserve my ongoing work and follow the documented COPR/toolbox testing workflow. Integrate the supplied app icons, complete symbolic installation and RPM packaging, apply README branding, run applicable checks, and capture real GNOME app/extension screenshots. Return a reviewable result with changed files, checks, screenshots, and remaining issues. The kit is already in the repository; carry forward the selected identity.

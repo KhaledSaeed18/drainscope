@@ -51,13 +51,14 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ### Brand identity
 - [x] Energy shares identity v1: editable SVG masters, logo/icon exports, colors, fonts, social graphics, templates, tokens, and visual guide in [branding/](branding/README.md).
-- [ ] Apply the icon assets, complete symbolic installation/RPM packaging, and verify in GNOME before capturing product screenshots. Continuing instructions: [docs/branding-handoff.md](docs/branding-handoff.md).
+- [x] New app icon and a symbolic icon (`data/app/icons/`), installed by `install-dev` and the RPM to hicolor `scalable/apps` and `symbolic/apps`. The extension's quick-settings tile uses the symbolic icon, shipped in the extension and the EGO zip. CI checks the shipped icons match `branding/exports/`. README header, AppStream brand colors; the brand kit is left out of release tarballs. Verified: GTK resolves and recolors the installed icons, RPM contents, nested GNOME 50.5 and 51.0 shells with the extension `ACTIVE` and no JS errors (unreleased).
+- [ ] After the next release: look at the icons in the real session (launcher, 128/64/32 px) and upload the GitHub social preview (`branding/exports/social/github-social-*.png`, repository settings). Details: [docs/branding-handoff.md](docs/branding-handoff.md).
 
 ## Next (in priority order)
 
 1. **Publish the extension on extensions.gnome.org** (deferred by the maintainer). Upload the zip from the latest release (GNOME 50 and 51; validated); needs an EGO account and a screenshot ([docs/distribution.md](docs/distribution.md)).
 2. **Screenshots** of the extension and the app for EGO, the README and later Flathub.
-3. **Release 0.1.2** with the session-bus fix: bump versions, `cargo xtask dist --rpm`, GitHub release, `copr-cli build`, then `packaging/validate-copr.sh` on Fedora 44 and 45 (packaging/README.md). No hurry: it only affects test and nested sessions.
+3. **Release 0.1.2** with the session-bus fix and the new icons: bump versions, `cargo xtask dist --rpm`, GitHub release, `copr-cli build`, then `packaging/validate-copr.sh` on Fedora 44 and 45 (packaging/README.md). No hurry: it only affects test and nested sessions.
 4. **Model v2.1: count the network driver's IRQ thread** (e.g. `irq/134-iwlwifi`, about 30% more network work), charged by bytes like the softirqs. Small; needs one battery validation run.
 5. **Model v3: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
 6. **Daemon self-cost:** about 4 wakeups/s (≈ 20 per 5 s tick). Batch the D-Bus calls and the collector thread.
