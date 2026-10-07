@@ -98,9 +98,9 @@ Done on main (Fedora 44, GNOME 50.3):
 
 Checks: `pnpm typecheck`, `pnpm lint`, `pnpm test`; `cargo fmt --check`, clippy and tests for `xtask`; `appstreamcli validate --no-net`; `cargo xtask dist --rpm` (both icons in `drainscope-app`, `icons/` in the extension RPM and EGO zip, no `branding/` in the tarball). GTK 4 resolved both icons from a scratch `install-dev` home and recolored the symbolic for light and dark. Nested GNOME 50.5 (f44 toolbox) and 51.0 (f45 toolbox) shells on scratch XDG directories: extension `ACTIVE`, tile and menu header show the symbolic icon recolored in light and dark styles, no JS errors.
 
-The GitHub social preview was set in the repository settings the same day.
+The GitHub social preview was set in the repository settings the same day. The icons shipped in v0.1.2 (GitHub and COPR), validated from COPR with `packaging/validate-copr.sh` on Fedora 44 and 45.
 
-Remaining: view the icons in the real session after the next release (launcher sizes and 128/64/32 px) and capture product screenshots (ROADMAP Next 2). No asset adjustments were needed.
+Remaining: view the icons in the real session after upgrading to v0.1.2 (launcher sizes and 128/64/32 px) and capture product screenshots (ROADMAP Next 2). No asset adjustments were needed.
 
 ## Prompt for the Linux agent
 
