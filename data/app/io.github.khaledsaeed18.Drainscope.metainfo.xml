@@ -19,6 +19,24 @@
       Nothing runs as root and nothing leaves your machine.
     </p>
   </description>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/KhaledSaeed18/drainscope/main/branding/screenshots/exports/cutouts/unplugged-light.png</image>
+      <caption>Energy use per app since unplugging, on a timeline</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/KhaledSaeed18/drainscope/main/branding/screenshots/exports/cutouts/detail-light.png</image>
+      <caption>How one app’s energy splits between processor, graphics and display</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/KhaledSaeed18/drainscope/main/branding/screenshots/exports/cutouts/activity-light.png</image>
+      <caption>Wakeups and network traffic per app</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/KhaledSaeed18/drainscope/main/branding/screenshots/exports/cutouts/sleep-health-light.png</image>
+      <caption>Suspends, what they cost, and battery health</caption>
+    </screenshot>
+  </screenshots>
   <launchable type="desktop-id">io.github.khaledsaeed18.Drainscope.desktop</launchable>
   <url type="homepage">https://github.com/KhaledSaeed18/drainscope</url>
   <url type="bugtracker">https://github.com/KhaledSaeed18/drainscope/issues</url>
