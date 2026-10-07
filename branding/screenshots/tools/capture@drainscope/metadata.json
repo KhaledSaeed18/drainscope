@@ -1,0 +1,6 @@
+{
+  "uuid": "capture@drainscope",
+  "name": "drainscope screenshot capture",
+  "description": "Screenshot sessions only (session.sh): follows a fixed shot plan and saves stage screenshots with window and menu geometry.",
+  "shell-version": ["50", "51"]
+}
