@@ -100,7 +100,7 @@ Checks: `pnpm typecheck`, `pnpm lint`, `pnpm test`; `cargo fmt --check`, clippy 
 
 The GitHub social preview was set in the repository settings the same day. The icons shipped in v0.1.2 (GitHub and COPR), validated from COPR with `packaging/validate-copr.sh` on Fedora 44 and 45.
 
-The maintainer checked the icons in the real session after upgrading to v0.1.2 (7 October 2026). Remaining: capture product screenshots (ROADMAP Next 2). No asset adjustments were needed.
+The maintainer checked the icons in the real session after upgrading to v0.1.2 (7 October 2026). Product screenshots followed the same day, in light and dark with illustrative data: [`branding/screenshots/`](../branding/screenshots/README.md). No asset adjustments were needed. The next phase is the website and documentation site.
 
 ## Prompt for the Linux agent
 

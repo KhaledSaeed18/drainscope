@@ -66,7 +66,7 @@ For each new release, only the `copr-cli build` line is needed. When a new Fedor
 
 ### Before uploading
 - **Zip:** the one attached to the [v0.1.2 release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.2) (also `target/dist/` after `cargo xtask dist`). It supports GNOME 50 and 51. Don't upload the v0.1.0 zip: it predates the review fixes.
-- **Screenshot:** take one of the Battery tile open in Quick Settings. EGO shows it on the listing.
+- **Screenshot:** `branding/screenshots/exports/features/quick-settings-light.png` (or the plain `cutouts/quick-settings-light.png`): the Battery menu open in Quick Settings, illustrative data. EGO shows it on the listing.
 - **Description:** must say the extension needs the drainscope daemon, installed from COPR or from source; without it, the tile just reads "Daemon not running". Link the README's install section.
 
 ### Testing a new GNOME release

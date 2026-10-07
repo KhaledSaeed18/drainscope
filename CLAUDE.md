@@ -51,6 +51,9 @@ pnpm --filter @drainscope/extension install-dev # also copy to ~/.local/share/gn
 pnpm --filter @drainscope/app build             # esbuild → app/dist/drainscope-app (gjs -m)
 pnpm --filter @drainscope/app install-dev       # also install to ~/.local (bin, desktop entry, icon)
 
+# Screenshots (illustrative data, headless GNOME Shell in a toolbox; see branding/screenshots/README.md)
+branding/screenshots/tools/capture.sh drainscope-f44 .venv/bin/python
+
 # Checks
 systemd-analyze security --offline=yes data/systemd/drainscope-sampler.service   # must stay ≤ 2.0
 ```
