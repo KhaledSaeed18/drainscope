@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "date": "2026-10-06",
+  "date": "2026-10-07",
   "svgCount": 29,
   "pngCount": 41,
   "checks": [
@@ -288,6 +288,6 @@
   "notes": [
     "Token-pair contrast is not a full accessibility audit of future implementations.",
     "PNG logos have transparent corners; social cards have intentional backgrounds.",
-    "Actual GNOME desktop context and real product screenshots await Linux review."
+    "GNOME icon review is recorded in docs/branding-handoff.md; real product screenshots are still pending."
   ]
 }

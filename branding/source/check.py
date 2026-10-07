@@ -1,6 +1,7 @@
 """Validate exported geometry, font-free logos, raster sizes and token pairs."""
 from pathlib import Path
 from xml.etree import ElementTree as ET
+from datetime import date
 import hashlib
 import json
 from PIL import Image
@@ -42,9 +43,10 @@ expected={'github-social-light.png':(1280,640),'github-social-dark.png':(1280,64
 for file,size in expected.items():assert Image.open(root/'exports/social'/file).size==size,file
 assert Image.open(root/'exports/web/apple-touch-icon.png').size==(180,180)
 assert Image.open(root/'exports/web/favicon.ico').size==(48,48)
-sources={'IBMPlexSans-Regular.ttf':'https://raw.githubusercontent.com/IBM/plex/master/packages/plex-sans/fonts/complete/ttf/IBMPlexSans-Regular.ttf','IBMPlexSans-SemiBold.ttf':'https://raw.githubusercontent.com/IBM/plex/master/packages/plex-sans/fonts/complete/ttf/IBMPlexSans-SemiBold.ttf','IBMPlexMono-Regular.ttf':'https://raw.githubusercontent.com/IBM/plex/master/packages/plex-mono/fonts/complete/ttf/IBMPlexMono-Regular.ttf'}
-provenance={'date':'2026-10-06','projectCommit':'ae75654927ce39c33b54a2c07a368b28499c8fcb','artwork':'Original editable SVG construction from the selected Energy shares direction.','fonts':[{'file':'fonts/'+name,'source':url,'sha256':hashlib.sha256((root/'fonts'/name).read_bytes()).hexdigest()} for name,url in sources.items()]}
-(root/'provenance.json').write_text(json.dumps(provenance,indent=2)+'\n')
-report={'version':'1.0.0','date':'2026-10-06','svgCount':svg_count,'pngCount':png_count,'checks':checks,'notes':['Token-pair contrast is not a full accessibility audit of future implementations.','PNG logos have transparent corners; social cards have intentional backgrounds.','Actual GNOME desktop context and real product screenshots await Linux review.']}
+# provenance.json records where the bundled fonts came from; the files must still match it.
+provenance=json.loads((root/'provenance.json').read_text())
+for font in provenance['fonts']:
+    digest=hashlib.sha256((root/font['file']).read_bytes()).hexdigest();assert digest==font['sha256'],font['file']
+report={'version':'1.0.0','date':date.today().isoformat(),'svgCount':svg_count,'pngCount':png_count,'checks':checks,'notes':['Token-pair contrast is not a full accessibility audit of future implementations.','PNG logos have transparent corners; social cards have intentional backgrounds.','GNOME icon review is recorded in docs/branding-handoff.md; real product screenshots are still pending.']}
 (root/'validation.json').write_text(json.dumps(report,indent=2)+'\n')
-print(f'Validated {svg_count} SVGs, {png_count} PNGs, outlined logos, ICO, dimensions, transparency, and {len(checks)} contrast pairs.')
+print(f'Validated {svg_count} SVGs, {png_count} PNGs, outlined logos, ICO, dimensions, transparency, font checksums, and {len(checks)} contrast pairs.')
