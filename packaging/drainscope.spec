@@ -4,7 +4,7 @@
 %global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
-Version:        0.1.2
+Version:        0.1.3
 Release:        1%{?dist}
 Summary:        Per-app battery and energy usage for the Linux desktop
 
@@ -237,6 +237,14 @@ fi
 %{_datadir}/icons/hicolor/symbolic/apps/%{app_id}-symbolic.svg
 
 %changelog
+* Sat Oct 10 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.3-1
+- Attribution model v3: network interrupt threads are charged to the apps causing the traffic
+- Daemon: tick every 15 s while no view is open (5 s while one is); lower CPU and wakeups
+- Probe: ReadAll returns wakeups, traffic and network time in one call
+- GNOME Shell extension: follow the daemon's ticks only while the menu is open
+- CLI: --format json|csv export; doctor lists the network interrupt threads
+- Short-lived processes are labelled as such instead of "Exited processes"
+
 * Wed Oct 07 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.2-1
 - Daemon: stop when the session bus closes
 - New app icon; install a symbolic app icon
