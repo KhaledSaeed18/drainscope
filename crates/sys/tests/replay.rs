@@ -230,4 +230,16 @@ mod live {
             "the user's own GPU clients are visible"
         );
     }
+
+    #[test]
+    #[ignore = "reads the live system"]
+    fn finds_the_wifi_interrupt_thread() {
+        let root = SysRoot::host();
+        let threads =
+            drainscope_sys::irq_threads(&root, &drainscope_sys::network_irqs(&root).unwrap())
+                .unwrap();
+        assert!(!threads.is_empty(), "irq/<n>-iwlwifi on the dev machine");
+        let runtimes = drainscope_sys::read_runtimes(&root, &threads).unwrap();
+        assert!(runtimes.values().all(|&ns| ns > 0), "{runtimes:?}");
+    }
 }

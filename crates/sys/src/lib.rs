@@ -5,6 +5,7 @@
 pub mod cgroup;
 pub mod drm;
 pub mod error;
+pub mod irq;
 pub mod power_supply;
 pub mod powercap;
 pub mod process;
@@ -14,6 +15,7 @@ pub mod sleep;
 pub use cgroup::{cgroup_ids, read_cpu_usage, terminal_labels};
 pub use drm::{DrmScanner, EngineTime, gpu_drivers};
 pub use error::SysError;
+pub use irq::{irq_threads, network_irqs, read_runtimes};
 pub use power_supply::read_batteries;
 pub use powercap::{PowercapZone, read_zones};
 pub use root::SysRoot;
