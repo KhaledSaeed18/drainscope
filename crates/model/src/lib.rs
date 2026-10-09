@@ -6,6 +6,7 @@ pub mod calibration;
 pub mod cgroup;
 pub mod consumer;
 pub mod delta;
+pub mod focus;
 pub mod health;
 pub mod rates;
 pub mod snapshot;
@@ -20,6 +21,7 @@ pub use calibration::{FloorEstimator, IdleFloor, Part, PowerHistogram, PsysCheck
 pub use cgroup::{CgroupIdentity, CgroupPath, classify};
 pub use consumer::{ConsumerKey, ParseConsumerKeyError};
 pub use delta::{CpuDelta, DiffError, IntervalDelta, diff};
+pub use focus::{FocusLog, FocusSpans, FocusSplit, FocusState};
 pub use health::{BatteryHealth, health};
 pub use rates::{RATE_WINDOW, RateTracker, deltas_by_consumer};
 pub use snapshot::{RaplDomain, Snapshot};
