@@ -1,6 +1,7 @@
 //! The `Probe1` D-Bus interface.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -86,6 +87,8 @@ pub struct Probe {
     generation: u64,
     state: Mutex<State>,
     last_call: LastCall,
+    /// Whether `ReadAll`'s last network reading failed: logged on changes, not every call.
+    network_failing: AtomicBool,
 }
 
 impl Probe {
@@ -109,6 +112,7 @@ impl Probe {
                 names: BTreeMap::new(),
             }),
             last_call: LastCall::now(),
+            network_failing: AtomicBool::new(false),
         }
     }
 
@@ -318,9 +322,16 @@ impl Probe {
         let wakeups = self.by_path(&counts, uid, |sum, count| *sum += count, 0);
         // One network reading gives both the bytes and the softirq time.
         let network = match self.network.as_ref().map(|network| network.read()) {
-            Some(Ok(traffic)) => Some(traffic),
+            Some(Ok(traffic)) => {
+                if self.network_failing.swap(false, Ordering::Relaxed) {
+                    tracing::info!("network counters readable again");
+                }
+                Some(traffic)
+            }
             Some(Err(err)) => {
-                tracing::warn!(%err, "reading the network counters failed");
+                if !self.network_failing.swap(true, Ordering::Relaxed) {
+                    tracing::warn!(%err, "reading the network counters failed");
+                }
                 None
             }
             None => None,
