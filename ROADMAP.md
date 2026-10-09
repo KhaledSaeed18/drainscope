@@ -71,6 +71,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - Intel xe driver (`drm-cycles-*`) and an AMD integrated-GPU part (ADR 0005); needs that hardware for validation.
 - Flatpak for the app on Flathub (the daemon stays an RPM).
 - Fedora official packaging (needs every Rust dependency packaged; see docs/distribution.md).
+- Website and documentation site (low priority, after the app and model work): built from the brand kit's tokens and layout studies and the product screenshots ([docs/branding-handoff.md](docs/branding-handoff.md)); includes PLAN M5's write-up of the model and validation.
 - Ideas: backlight-weighted display share, per-app notifications, CSV/JSON export, Prometheus output, a KDE Plasma widget.
 
 ## Known limitations
