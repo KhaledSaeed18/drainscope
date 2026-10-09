@@ -19,6 +19,8 @@ pub struct Collector {
     drm: DrmScanner,
     /// The network devices' threaded interrupt handlers, and when they were looked up.
     irq_threads: Option<(Duration, Vec<u32>)>,
+    /// Whether the last attempt to read them failed (logged once, not every tick).
+    irq_failing: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +46,7 @@ impl Collector {
             root,
             drm,
             irq_threads: None,
+            irq_failing: false,
         }
     }
 
@@ -59,7 +62,7 @@ impl Collector {
         let terminal_labels = terminal_labels(&self.root, cgroup_cpu_usec.keys())?;
         let drm_clients = self.drm.scan(&self.root, taken_at)?;
         let batteries = read_batteries(&self.root)?;
-        let network_irq_ns = self.network_irq_ns(taken_at)?;
+        let network_irq_ns = self.network_irq_ns_or_none(taken_at);
         Ok(Collected {
             snapshot: Snapshot {
                 taken_at,
@@ -71,6 +74,27 @@ impl Collector {
             terminal_labels,
             network_irq_ns,
         })
+    }
+
+    /// The network IRQ threads' runtimes; none when they can't be read. They only refine
+    /// model v3's network charge, so a failure here mustn't fail the whole collection.
+    fn network_irq_ns_or_none(&mut self, taken_at: Duration) -> BTreeMap<u32, u64> {
+        match self.network_irq_ns(taken_at) {
+            Ok(runtimes) => {
+                if std::mem::take(&mut self.irq_failing) {
+                    tracing::info!("network interrupt threads readable again");
+                }
+                runtimes
+            }
+            Err(err) => {
+                if !std::mem::replace(&mut self.irq_failing, true) {
+                    tracing::warn!(%err, "reading the network interrupt threads failed");
+                }
+                // Look them up again next time.
+                self.irq_threads = None;
+                BTreeMap::new()
+            }
+        }
     }
 
     /// The network IRQ threads' runtimes, rescanning for the threads when the list is stale
@@ -166,6 +190,29 @@ mod tests {
                 .unwrap(),
             BTreeMap::from([(665, 50)])
         );
+    }
+
+    #[test]
+    fn unreadable_interrupt_threads_dont_fail_the_collection() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        std::fs::create_dir_all(base.join("sys/class/net/wlp2s0/device/msi_irqs/135")).unwrap();
+        std::fs::create_dir_all(base.join("proc/664")).unwrap();
+        std::fs::write(base.join("proc/664/comm"), "irq/135-iwlwifi\n").unwrap();
+        std::fs::write(base.join("proc/664/schedstat"), "garbage\n").unwrap();
+        let mut collector = Collector::new(SysRoot::at(base));
+        assert_eq!(
+            collector.network_irq_ns_or_none(Duration::from_secs(1)),
+            BTreeMap::new()
+        );
+        assert!(collector.irq_failing);
+        // Fixed: read again at once, not after the rescan interval.
+        std::fs::write(base.join("proc/664/schedstat"), "42 1 1\n").unwrap();
+        assert_eq!(
+            collector.network_irq_ns_or_none(Duration::from_secs(2)),
+            BTreeMap::from([(664, 42)])
+        );
+        assert!(!collector.irq_failing);
     }
 
     #[test]

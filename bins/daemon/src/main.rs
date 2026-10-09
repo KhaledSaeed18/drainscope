@@ -84,7 +84,11 @@ impl Daemon {
     async fn tick(&mut self) -> anyhow::Result<()> {
         let taken_at = monotonic_now();
         let wall_ms = wall_now_ms();
-        let mut collector = self.collector.take().context("collector busy")?;
+        // Only gone if a collection panicked; start over rather than fail every tick after.
+        let mut collector = self.collector.take().unwrap_or_else(|| {
+            tracing::warn!("the collector was lost; starting a new one");
+            Collector::new(SysRoot::host())
+        });
         // Everything a tick reads, in flight together: replies that arrive close together cost
         // one wakeup instead of one each.
         let (rapl, readings, collection) = tokio::join!(
