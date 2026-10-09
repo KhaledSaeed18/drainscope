@@ -182,6 +182,9 @@ struct Sample {
     /// Cumulative idle exits and (received, sent) bytes per transient scope, from the probe
     /// (`--activity` only), with the probe's generation.
     probe: Option<ProbeSample>,
+    /// Per CPU idle state (by name), cumulative entries and microseconds, summed over CPUs.
+    /// Raw data for model v4 (how a load moves idle time between sleep states).
+    idle_states: BTreeMap<String, (u64, u64)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -189,6 +192,8 @@ struct ProbeSample {
     generation: u64,
     wakeups: BTreeMap<String, u64>,
     bytes: BTreeMap<String, (u64, u64)>,
+    /// Idle exits of every cgroup the probe reports, summed: the machine's wake activity.
+    total_wakeups: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -284,6 +289,7 @@ impl Buses {
             match self.runtime.block_on(self.probe.read_wakeups()) {
                 Ok((_, generation, rows)) => {
                     sample.generation = generation;
+                    sample.total_wakeups = rows.iter().map(|(_, count)| count).sum();
                     sample.wakeups = rows
                         .into_iter()
                         .filter_map(|(path, count)| Some((scope_of(&path)?, count)))
@@ -401,7 +407,40 @@ fn sample(buses: &Buses, start: Instant, units: &[String], activity: bool) -> Re
         root_usec: usage_usec(Path::new("/sys/fs/cgroup")).context("root cpu.stat")?,
         scope_usec,
         probe,
+        idle_states: read_idle_states(),
     })
+}
+
+/// Idle-state entries and time (µs) per state name, summed over CPUs; empty without cpuidle.
+fn read_idle_states() -> BTreeMap<String, (u64, u64)> {
+    let mut states = BTreeMap::new();
+    let Ok(cpus) = fs::read_dir("/sys/devices/system/cpu") else {
+        return states;
+    };
+    let read = |path: &Path| {
+        fs::read_to_string(path)
+            .ok()
+            .map(|text| text.trim().to_owned())
+    };
+    for cpu in cpus.flatten() {
+        let Ok(idle) = fs::read_dir(cpu.path().join("cpuidle")) else {
+            continue;
+        };
+        for state in idle.flatten() {
+            let dir = state.path();
+            let (Some(name), Some(usage), Some(time)) = (
+                read(&dir.join("name")),
+                read(&dir.join("usage")).and_then(|v| v.parse::<u64>().ok()),
+                read(&dir.join("time")).and_then(|v| v.parse::<u64>().ok()),
+            ) else {
+                continue;
+            };
+            let entry: &mut (u64, u64) = states.entry(name).or_default();
+            entry.0 += usage;
+            entry.1 += time;
+        }
+    }
+    states
 }
 
 /// What every sample of a run reads.
@@ -604,7 +643,7 @@ fn write_raw(
     )?;
     let mut csv = String::from(
         "t,generation,battery_w,backlight,root_usec,rapl_uj,scope_usec,probe_generation,\
-         scope_wakeups,scope_bytes\n",
+         scope_wakeups,scope_bytes,total_wakeups,idle_states\n",
     );
     for s in samples {
         let rapl: Vec<String> = s.rapl_uj.iter().map(|(d, v)| format!("{d}={v}")).collect();
@@ -624,9 +663,14 @@ fn write_raw(
             .iter()
             .map(|(u, (rx, tx))| format!("{u}={rx}/{tx}"))
             .collect();
+        let idle: Vec<String> = s
+            .idle_states
+            .iter()
+            .map(|(name, (usage, time))| format!("{name}={usage}/{time}"))
+            .collect();
         let _ = writeln!(
             csv,
-            "{:.3},{},{},{},{},{},{},{},{},{}",
+            "{:.3},{},{},{},{},{},{},{},{},{},{},{}",
             s.t,
             s.generation,
             s.battery_w.map_or(String::new(), |w| format!("{w:.3}")),
@@ -638,7 +682,11 @@ fn write_raw(
                 .as_ref()
                 .map_or(String::new(), |p| p.generation.to_string()),
             wakeups.join(";"),
-            bytes.join(";")
+            bytes.join(";"),
+            s.probe
+                .as_ref()
+                .map_or(String::new(), |p| p.total_wakeups.to_string()),
+            idle.join(";")
         );
     }
     fs::write(dir.join(&name), csv)?;
@@ -1077,6 +1125,14 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "reads the live system"]
+    fn reads_this_machines_idle_states() {
+        let states = read_idle_states();
+        assert!(states.contains_key("C10"), "{states:?}");
+        assert!(states.values().any(|&(usage, time)| usage > 0 && time > 0));
+    }
+
+    #[test]
     fn fits_a_line() {
         let (a, b, r2) = fit(&[(1.0, 3.0), (2.0, 5.0), (4.0, 9.0)]).unwrap();
         assert!((a - 2.0).abs() < 1e-9 && (b - 1.0).abs() < 1e-9 && (r2 - 1.0).abs() < 1e-9);
@@ -1093,6 +1149,7 @@ mod tests {
             root_usec: scope_usec * 2,
             scope_usec: BTreeMap::from([("u".to_owned(), scope_usec)]),
             probe: None,
+            idle_states: BTreeMap::new(),
         }
     }
 
@@ -1104,6 +1161,7 @@ mod tests {
                 generation,
                 wakeups: wakeups.map(|w| ("u".to_owned(), w)).into_iter().collect(),
                 bytes: BTreeMap::new(),
+                total_wakeups: 0,
             });
             s
         };
