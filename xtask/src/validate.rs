@@ -95,6 +95,8 @@ const ACTIVITY_LOADS: [Workload; 6] = [
 /// Serves downloads without authentication (Cloudflare's speed test), up to just under 100 MB
 /// per request; phases repeat requests of this size.
 const DOWNLOAD_URL: &str = "https://speed.cloudflare.com/__down?bytes=50000000";
+/// Below this the download phases can't reach their caps (`--activity` preflight).
+const MIN_DOWNLOAD_MB_S: f64 = 0.5;
 /// Name of the rest phases between loads, which serve as local baselines.
 const REST_PHASE: &str = "rest";
 
@@ -448,6 +450,26 @@ fn preflight(options: &Options) -> Result<()> {
     run_output("stress-ng", &["--version"]).context("stress-ng is required")?;
     if options.activity {
         run_output("curl", &["--version"]).context("curl is required")?;
+        // Download phases need the link to reach their caps (up to 0.75 MB/s); slower, the
+        // network stack's work drowns in noise and the run says nothing about it.
+        // Stopped by --max-time on purpose, so curl's exit status is an error either way; it
+        // still prints the average speed.
+        let output = Command::new("curl")
+            .args(["--silent", "--output", "/dev/null", "--max-time", "6"])
+            .args(["--write-out", "%{speed_download}", DOWNLOAD_URL])
+            .output()
+            .context("running curl")?;
+        let speed = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<f64>()
+            .unwrap_or(0.0)
+            / 1e6;
+        ensure!(
+            speed >= MIN_DOWNLOAD_MB_S,
+            "the connection downloads at {speed:.2} MB/s; the download phases need at least \
+             {MIN_DOWNLOAD_MB_S} MB/s to be measurable. Run it on a faster network."
+        );
+        eprintln!("download speed {speed:.2} MB/s");
     }
     Ok(())
 }
