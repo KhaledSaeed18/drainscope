@@ -51,6 +51,23 @@
       <arg name="tx_ns" type="t" direction="out"/>
       <arg name="rx_ns" type="t" direction="out"/>
     </method>
+    <!--
+      ReadAll: ReadWakeups, ReadNetwork and ReadNetworkTime in one call, from one reading of the
+      counters, so a client that polls all three needs one round trip instead of three.
+        network_available  False when the network programs couldn't be attached or read; traffic
+                           is then empty and tx_ns, rx_ns are 0. Wakeups still come through.
+      Other arguments as in the three methods. Added after 0.1.2: clients should fall back to the
+      three methods when an older probe answers UnknownMethod.
+    -->
+    <method name="ReadAll">
+      <arg name="monotonic_ns" type="t" direction="out"/>
+      <arg name="generation" type="t" direction="out"/>
+      <arg name="wakeups" type="a(st)" direction="out"/>
+      <arg name="network_available" type="b" direction="out"/>
+      <arg name="traffic" type="a(stt)" direction="out"/>
+      <arg name="tx_ns" type="t" direction="out"/>
+      <arg name="rx_ns" type="t" direction="out"/>
+    </method>
     <!-- MinIntervalMs: the shortest allowed interval between calls to each method from one user. -->
     <property name="MinIntervalMs" type="u" access="read"/>
   </interface>

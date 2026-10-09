@@ -9,7 +9,7 @@ use drainscope_dbus::probe::ProbeError;
 use drainscope_sys::{SysRoot, cgroup_ids};
 use zbus::message::Header;
 
-use crate::counters::{NetworkSource, WakeupSource};
+use crate::counters::{NetworkSource, Traffic, WakeupSource};
 use crate::visibility::visible;
 
 /// Cgroup paths by ID: cgroupfs in production, fixtures in tests.
@@ -166,6 +166,29 @@ impl Probe {
         by_path
     }
 
+    /// Bytes received and sent per cgroup path the caller may see.
+    fn traffic_by_path(&self, traffic: &Traffic, uid: Option<u32>) -> Vec<(String, u64, u64)> {
+        let mut both: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        for (id, bytes) in &traffic.received {
+            both.entry(*id).or_default().0 += bytes;
+        }
+        for (id, bytes) in &traffic.sent {
+            both.entry(*id).or_default().1 += bytes;
+        }
+        self.by_path(
+            &both,
+            uid,
+            |sum, (received, sent)| {
+                sum.0 += received;
+                sum.1 += sent;
+            },
+            (0, 0),
+        )
+        .into_iter()
+        .map(|(path, (received, sent))| (path, received, sent))
+        .collect()
+    }
+
     async fn authorize(
         &self,
         connection: &zbus::Connection,
@@ -236,29 +259,10 @@ impl Probe {
         let traffic = network
             .read()
             .map_err(|err| ProbeError::Failed(err.to_string()))?;
-        let mut both: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
-        for (id, bytes) in &traffic.received {
-            both.entry(*id).or_default().0 += bytes;
-        }
-        for (id, bytes) in &traffic.sent {
-            both.entry(*id).or_default().1 += bytes;
-        }
-        let by_path = self.by_path(
-            &both,
-            uid,
-            |sum, (received, sent)| {
-                sum.0 += received;
-                sum.1 += sent;
-            },
-            (0, 0),
-        );
         Ok((
             monotonic_ns(),
             self.generation,
-            by_path
-                .into_iter()
-                .map(|(path, (received, sent))| (path, received, sent))
-                .collect(),
+            self.traffic_by_path(&traffic, uid),
         ))
     }
 
@@ -278,6 +282,62 @@ impl Probe {
             .map_err(|err| ProbeError::Failed(err.to_string()))?
             .softirq_ns;
         Ok((monotonic_ns(), self.generation, tx_ns, rx_ns))
+    }
+
+    // Seven out arguments, spelled out as the contract requires (see read_wakeups).
+    #[zbus(out_args(
+        "monotonic_ns",
+        "generation",
+        "wakeups",
+        "network_available",
+        "traffic",
+        "tx_ns",
+        "rx_ns"
+    ))]
+    async fn read_all(
+        &self,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
+    ) -> Result<
+        (
+            u64,
+            u64,
+            Vec<(String, u64)>,
+            bool,
+            Vec<(String, u64, u64)>,
+            u64,
+            u64,
+        ),
+        ProbeError,
+    > {
+        let uid = self.admit(&header, connection, "ReadAll").await?;
+        let counts = self
+            .source
+            .read()
+            .map_err(|err| ProbeError::Failed(err.to_string()))?;
+        let wakeups = self.by_path(&counts, uid, |sum, count| *sum += count, 0);
+        // One network reading gives both the bytes and the softirq time.
+        let network = match self.network.as_ref().map(|network| network.read()) {
+            Some(Ok(traffic)) => Some(traffic),
+            Some(Err(err)) => {
+                tracing::warn!(%err, "reading the network counters failed");
+                None
+            }
+            None => None,
+        };
+        let (traffic, (tx_ns, rx_ns)) = match &network {
+            Some(traffic) => (self.traffic_by_path(traffic, uid), traffic.softirq_ns),
+            None => (Vec::new(), (0, 0)),
+        };
+        Ok((
+            monotonic_ns(),
+            self.generation,
+            wakeups.into_iter().collect(),
+            network.is_some(),
+            traffic,
+            tx_ns,
+            rx_ns,
+        ))
     }
 
     #[zbus(property)]

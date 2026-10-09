@@ -79,9 +79,19 @@ fn unlimited() -> Config {
 }
 
 async fn serve(authorized: bool, config: Config, counts: &Counts, names: &Names) -> Peer {
+    serve_with(Some(Box::new(Network)), authorized, config, counts, names).await
+}
+
+async fn serve_with(
+    network: Option<Box<dyn NetworkSource>>,
+    authorized: bool,
+    config: Config,
+    counts: &Counts,
+    names: &Names,
+) -> Peer {
     let probe = Probe::new(
         Box::new(counts.clone()),
-        Some(Box::new(Network)),
+        network,
         Box::new(names.clone()),
         Box::new(Fixed(authorized)),
         config,
@@ -151,6 +161,34 @@ async fn reports_network_softirq_time() {
 }
 
 #[tokio::test]
+async fn reads_everything_in_one_call() {
+    let (counts, names) = fixtures();
+    let peer = serve(true, unlimited(), &counts, &names).await;
+    let proxy = peer.proxy().await;
+    let (_, generation, wakeups, network, traffic, tx, rx) = proxy.read_all().await.unwrap();
+    // The same answers as the three separate methods.
+    let (_, separate_generation, separate_wakeups) = proxy.read_wakeups().await.unwrap();
+    assert_eq!(
+        (generation, wakeups),
+        (separate_generation, separate_wakeups)
+    );
+    assert!(network);
+    assert_eq!(traffic, [(FIREFOX.to_owned(), 1000, 50)]);
+    assert_eq!((tx, rx), (30_000, 70_000));
+}
+
+#[tokio::test]
+async fn read_all_still_reports_wakeups_without_network_counting() {
+    let (counts, names) = fixtures();
+    let peer = serve_with(None, true, unlimited(), &counts, &names).await;
+    let (_, _, wakeups, network, traffic, tx, rx) = peer.proxy().await.read_all().await.unwrap();
+    assert_eq!(wakeups, [(NETWORK.to_owned(), 5), (FIREFOX.to_owned(), 7)]);
+    assert!(!network);
+    assert_eq!(traffic, Vec::new());
+    assert_eq!((tx, rx), (0, 0));
+}
+
+#[tokio::test]
 async fn methods_are_limited_separately() {
     let (counts, names) = fixtures();
     let config = Config {
@@ -161,8 +199,13 @@ async fn methods_are_limited_separately() {
     let proxy = peer.proxy().await;
     proxy.read_wakeups().await.unwrap();
     proxy.read_network().await.unwrap();
+    proxy.read_all().await.unwrap();
     assert!(matches!(
         proxy.read_network().await.unwrap_err(),
+        ProbeError::RateLimited(_)
+    ));
+    assert!(matches!(
+        proxy.read_all().await.unwrap_err(),
         ProbeError::RateLimited(_)
     ));
 }

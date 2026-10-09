@@ -42,3 +42,7 @@ Option 2, with these limits:
 - There are two privileged services, each with one narrow job. The sampler keeps its profile.
 - Packaging gains a `drainscope-probe` subpackage, and the user daemon degrades gracefully without it, as it already does without the sampler.
 - Approval needed: the new capabilities (`CAP_BPF`, `CAP_PERFMON`, and `CAP_NET_ADMIN` for network bytes), the new system user, and the new D-Bus interface.
+
+## Addendum (2026-10-09): `ReadAll`
+
+Approved by the maintainer: Probe1 gains `ReadAll`, additive within version 1. It returns what `ReadWakeups`, `ReadNetwork` and `ReadNetworkTime` return, from one reading of the counters, with a `network_available` flag instead of failing when network counting is missing. The daemon used three calls per tick, each waking the probe and the bus broker; now it uses one. It falls back to the three methods when an older probe answers `UnknownMethod` (e.g. still running across an upgrade) and tries again after the probe restarts. Same polkit action, same visibility rules, its own rate limit.

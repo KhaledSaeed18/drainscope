@@ -60,6 +60,17 @@ pub mod probe {
     pub type Wakeups = (u64, u64, Vec<(String, u64)>);
     /// One `ReadNetwork` reply: (monotonic ns, generation, (cgroup path, bytes in, bytes out)).
     pub type Traffic = (u64, u64, Vec<(String, u64, u64)>);
+    /// One `ReadAll` reply: (monotonic ns, generation, wakeups, network available, traffic,
+    /// `NET_TX` ns, `NET_RX` ns).
+    pub type All = (
+        u64,
+        u64,
+        Vec<(String, u64)>,
+        bool,
+        Vec<(String, u64, u64)>,
+        u64,
+        u64,
+    );
 
     #[zbus::proxy(
         interface = "io.github.khaledsaeed18.Drainscope.Probe1",
@@ -73,6 +84,9 @@ pub mod probe {
 
         /// (monotonic ns, generation, `NET_TX` ns, `NET_RX` ns), cumulative.
         fn read_network_time(&self) -> Result<(u64, u64, u64, u64), ProbeError>;
+
+        /// The three readings above in one reply (added after 0.1.2).
+        fn read_all(&self) -> Result<All, ProbeError>;
 
         #[zbus(property)]
         fn min_interval_ms(&self) -> zbus::Result<u32>;
