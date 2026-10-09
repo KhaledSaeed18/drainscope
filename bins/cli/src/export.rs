@@ -33,6 +33,14 @@ pub struct UsageRow {
     pub watts: f64,
     /// Fraction of the period's total, 0–1.
     pub share: f64,
+    /// Apps only, from the GNOME Shell extension's focus reports (ADR 0011); `null` otherwise.
+    /// Joules while one of the app's windows had focus.
+    pub foreground_joules: Option<f64>,
+    /// The rest of `joules`, outside `foreground_joules` and `unknown_joules`.
+    pub background_joules: Option<f64>,
+    /// While focus wasn't reported (no extension, or before drainscope tracked it).
+    pub unknown_joules: Option<f64>,
+    pub focused_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -188,6 +196,10 @@ pub fn usage_csv(usage: &Usage) -> String {
                 num(r.other_joules),
                 num(r.watts),
                 num(r.share),
+                r.foreground_joules.and_then(num),
+                r.background_joules.and_then(num),
+                r.unknown_joules.and_then(num),
+                r.focused_seconds.map(|s| s.to_string()),
             ]
         })
         .collect();
@@ -203,6 +215,10 @@ pub fn usage_csv(usage: &Usage) -> String {
             "other_joules",
             "watts",
             "share",
+            "foreground_joules",
+            "background_joules",
+            "unknown_joules",
+            "focused_seconds",
         ],
         &rows,
     )
@@ -339,6 +355,10 @@ mod tests {
             other_joules: 100.0,
             watts: 1.25,
             share: 0.4,
+            foreground_joules: Some(2400.0),
+            background_joules: Some(1000.0),
+            unknown_joules: Some(200.0),
+            focused_seconds: Some(1800),
         }
     }
 
@@ -372,13 +392,15 @@ mod tests {
         };
         assert_eq!(
             usage_csv(&usage),
-            "key,kind,label,joules,wh,cpu_joules,gpu_joules,other_joules,watts,share\n\
-             app:org.mozilla.firefox,app,Firefox,3600,1,3000,500,100,1.25,0.4\n"
+            "key,kind,label,joules,wh,cpu_joules,gpu_joules,other_joules,watts,share,\
+             foreground_joules,background_joules,unknown_joules,focused_seconds\n\
+             app:org.mozilla.firefox,app,Firefox,3600,1,3000,500,100,1.25,0.4,2400,1000,200,1800\n"
         );
         let value: serde_json::Value = serde_json::from_str(&json(&usage).unwrap()).unwrap();
         assert_eq!(value["rows"][0]["key"], "app:org.mozilla.firefox");
         assert_eq!(value["measured_seconds"], 100);
         assert_eq!(value["model_version"], 3);
+        assert_eq!(value["rows"][0]["focused_seconds"], 1800);
     }
 
     #[test]

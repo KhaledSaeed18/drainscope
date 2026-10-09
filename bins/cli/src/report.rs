@@ -1,5 +1,6 @@
 //! `status`, `report`, `top` and `sleep`: views over the daemon's `Monitor1` interface.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -18,6 +19,53 @@ const LABEL_WIDTH: usize = 40;
 pub struct Row {
     pub label: String,
     pub joules: f64,
+    /// Apps' energy by focus (ADR 0011), when the daemon knows it.
+    pub focus: Option<Focus>,
+}
+
+/// An app's energy split by focus; the rest of its energy was used in the background.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Focus {
+    pub foreground_j: f64,
+    pub unknown_j: f64,
+    pub focused_secs: u64,
+}
+
+impl Focus {
+    #[must_use]
+    pub fn background_j(&self, total_j: f64) -> f64 {
+        (total_j - self.foreground_j - self.unknown_j).max(0.0)
+    }
+}
+
+/// Apps' focus split by consumer key; empty from daemons older than `GetFocus`.
+async fn focus_by_key(
+    monitor: &Monitor1Proxy<'_>,
+    since: i64,
+    until: i64,
+    source: &str,
+) -> anyhow::Result<HashMap<String, Focus>> {
+    match monitor.get_focus(since, until, source).await {
+        Ok(rows) => Ok(rows
+            .into_iter()
+            .map(|(key, foreground_j, unknown_j, focused_secs)| {
+                (
+                    key,
+                    Focus {
+                        foreground_j,
+                        unknown_j,
+                        focused_secs,
+                    },
+                )
+            })
+            .collect()),
+        Err(zbus::Error::MethodError(name, ..))
+            if name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod" =>
+        {
+            Ok(HashMap::new())
+        }
+        Err(err) => Err(daemon_hint(err)),
+    }
 }
 
 fn now_secs() -> i64 {
@@ -78,13 +126,16 @@ pub fn render_usage(rows: &[Row], span: Duration, measured: Duration, limit: usi
         shown.push(Row {
             label: format!("{} more", rows.len() - limit),
             joules: rest,
+            focus: None,
         });
     }
     let secs = measured.as_secs_f64().max(1.0);
+    // In use and background columns only when the daemon split something by focus.
+    let with_focus = shown.iter().any(|row| row.focus.is_some());
     let cells: Vec<Vec<String>> = shown
         .iter()
         .map(|row| {
-            vec![
+            let mut cells = vec![
                 truncate(&row.label, LABEL_WIDTH),
                 energy(row.joules),
                 watts(row.joules / secs),
@@ -93,10 +144,34 @@ pub fn render_usage(rows: &[Row], span: Duration, measured: Duration, limit: usi
                 } else {
                     0.0
                 }),
-            ]
+            ];
+            if with_focus {
+                match row.focus {
+                    Some(focus) => cells.extend([
+                        energy(focus.foreground_j),
+                        energy(focus.background_j(row.joules)),
+                    ]),
+                    None => cells.extend(["—".to_owned(), "—".to_owned()]),
+                }
+            }
+            cells
         })
         .collect();
-    let mut out = table(&["Consumer", "Energy", "Average", "Share"], &cells);
+    let mut out = if with_focus {
+        table(
+            &[
+                "Consumer",
+                "Energy",
+                "Average",
+                "Share",
+                "In use",
+                "Background",
+            ],
+            &cells,
+        )
+    } else {
+        table(&["Consumer", "Energy", "Average", "Share"], &cells)
+    };
     // Within 5% counts as the whole span (window edges don't line up with it exactly).
     if measured.as_secs_f64() >= span.as_secs_f64() * 0.95 {
         let _ = writeln!(
@@ -114,6 +189,17 @@ pub fn render_usage(rows: &[Row], span: Duration, measured: Duration, limit: usi
             duration(measured),
             duration(span),
             watts(total / secs)
+        );
+    }
+    let unknown: f64 = shown
+        .iter()
+        .filter_map(|row| row.focus.map(|focus| focus.unknown_j))
+        .sum();
+    if with_focus && unknown >= 3.6 {
+        let _ = writeln!(
+            out,
+            "In use and background leave out {} from while focus wasn't reported.",
+            energy(unknown)
         );
     }
     out
@@ -425,6 +511,11 @@ pub async fn usage(
             .await
             .map_err(daemon_hint)?,
     );
+    let focus = if by_kind {
+        HashMap::new()
+    } else {
+        focus_by_key(&monitor, start, now + 1, source).await?
+    };
     let mut names = Names::default();
     if format != Format::Text {
         // Every row, not just the top ones; averages over the measured time, like the table.
@@ -440,20 +531,27 @@ pub async fn usage(
             total_joules: total,
             rows: usage
                 .into_iter()
-                .map(|(key, kind, joules, cpu, gpu, other)| export::UsageRow {
-                    label: if by_kind {
-                        key.clone()
-                    } else {
-                        names.label(&key)
-                    },
-                    key,
-                    kind,
-                    joules,
-                    cpu_joules: cpu,
-                    gpu_joules: gpu,
-                    other_joules: other,
-                    watts: joules / seconds,
-                    share: if total > 0.0 { joules / total } else { 0.0 },
+                .map(|(key, kind, joules, cpu, gpu, other)| {
+                    let app_focus = focus.get(&key).copied();
+                    export::UsageRow {
+                        label: if by_kind {
+                            key.clone()
+                        } else {
+                            names.label(&key)
+                        },
+                        key,
+                        kind,
+                        joules,
+                        cpu_joules: cpu,
+                        gpu_joules: gpu,
+                        other_joules: other,
+                        watts: joules / seconds,
+                        share: if total > 0.0 { joules / total } else { 0.0 },
+                        foreground_joules: app_focus.map(|f| f.foreground_j),
+                        background_joules: app_focus.map(|f| f.background_j(joules)),
+                        unknown_joules: app_focus.map(|f| f.unknown_j),
+                        focused_seconds: app_focus.map(|f| f.focused_secs),
+                    }
                 })
                 .collect(),
         };
@@ -462,6 +560,7 @@ pub async fn usage(
     let rows: Vec<Row> = usage
         .into_iter()
         .map(|(key, _, joules, ..)| Row {
+            focus: focus.get(&key).copied(),
             label: if by_kind { key } else { names.label(&key) },
             joules,
         })
@@ -485,6 +584,7 @@ pub async fn top(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()> {
             .map(|(key, w)| Row {
                 label: names.label(key),
                 joules: *w,
+                focus: None,
             })
             .collect();
         rows.sort_by(|a, b| b.joules.total_cmp(&a.joules));
@@ -701,7 +801,34 @@ mod tests {
         Row {
             label: label.into(),
             joules,
+            focus: None,
         }
+    }
+
+    #[test]
+    fn usage_shows_in_use_and_background_for_apps() {
+        let mut firefox = row("Firefox", 3600.0);
+        firefox.focus = Some(Focus {
+            foreground_j: 2520.0,
+            unknown_j: 360.0,
+            focused_secs: 1800,
+        });
+        let rendered = render_usage(
+            &[firefox, row("Kernel", 360.0)],
+            Duration::from_secs(3600),
+            Duration::from_secs(3600),
+            5,
+        );
+        assert_eq!(
+            rendered,
+            "Consumer   Energy  Average  Share   In use  Background\n\
+             ──────────────────────────────────────────────────────\n\
+             Firefox   1.00 Wh   1.00 W    91%  0.70 Wh     0.20 Wh\n\
+             Kernel    0.10 Wh   0.10 W     9%        —           —\n\
+             \n\
+             Total 1.10 Wh over 1 h (average 1.10 W)\n\
+             In use and background leave out 0.10 Wh from while focus wasn't reported.\n"
+        );
     }
 
     #[test]
