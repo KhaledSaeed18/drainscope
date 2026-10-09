@@ -4,7 +4,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Released
 
-**Unreleased (on `main`):** model v3 charges network interrupt threads to apps by traffic (ADR 0008); `drainscope doctor` lists them.
+**Unreleased (on `main`):** model v3 charges network interrupt threads to apps by traffic (ADR 0008); `drainscope doctor` lists them. The daemon wakes a third less (3.0 to 2.0 context switches/s) and uses about 25% less CPU; the extension no longer wakes GNOME Shell every 5 s while its menu is closed.
 
 **v0.1.2** (2026-10-07): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.2) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). New app icon and a symbolic icon; the extension tile uses the drainscope symbolic icon; the daemon stops when its session bus closes.
 
@@ -51,6 +51,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.2 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (v0.1.2).
+- [x] Daemon self-cost, first pass (unreleased): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
 
 ### Brand identity
 - [x] Energy shares identity v1: editable SVG masters, logo/icon exports, colors, fonts, social graphics, templates, tokens, and visual guide in [branding/](branding/README.md).
@@ -64,7 +65,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, link it from the README install section ([docs/distribution.md](docs/distribution.md)).
 2. **Validate model v3 on battery:** run the dev daemon in place of the packaged one, then `cargo xtask validate --activity` unplugged (about 10 minutes) on a connection of at least 0.5 MB/s (the 2026-10-09 attempt got 0.13 MB/s and was inconclusive; the harness now checks first). Record the download charge in ADR 0008 and docs/validation-activity.md, then release it (0.1.3).
 3. **Model v4: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
-4. **Daemon self-cost:** about 4 wakeups/s (≈ 20 per 5 s tick). Batch the D-Bus calls and the collector thread.
+4. **Daemon self-cost, continued:** on battery the daemon still uses about 0.7% of one CPU, above PLAN's 0.5% target (memory is fine: 12 MB). Most of what's left is kernel time reading 155 `cpu.stat` files per tick. Next steps: one Probe1 call returning wakeups, traffic and network time together (an additive interface change: needs approval), and measuring SQLite's share.
 5. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
 
 ## Later

@@ -37,7 +37,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 /// Battery readings lag 6–8 s and windows are 10 s, so faster ticks add no accuracy; at 5 s
-/// the daemon costs ≈ 0.4% of one CPU, at 2 s it would exceed the 0.5% budget.
+/// the daemon costs ≈ 0.7% of one CPU on battery (dev machine, 2026-10-09); faster ticks would cost
+/// proportionally more.
 const TICK: Duration = Duration::from_secs(5);
 const SAVE_EVERY: Duration = Duration::from_secs(300);
 const PRUNE_EVERY: Duration = Duration::from_secs(6 * 3600);
