@@ -63,8 +63,10 @@ impl Activity {
         activity
     }
 
-    /// Model v2 (ADR 0007): moves the kernel's network-softirq time, `network_usec`, from
-    /// Kernel to the consumers that caused the traffic, in proportion to their `bytes`. Never
+    /// Moves the kernel's network processing time, `network_usec`, from Kernel to the
+    /// consumers that caused the traffic, in proportion to their `bytes`: the network softirqs
+    /// (model v2, ADR 0007) and the network devices' threaded interrupt handlers such as
+    /// `irq/<n>-iwlwifi` (model v3, ADR 0008), all Kernel's own CPU time. Never
     /// moves more than Kernel has, and keeps the total CPU time exact (the integer remainder
     /// goes to the consumer with the most bytes). A no-op without traffic.
     pub fn charge_network(&mut self, network_usec: u64, bytes: &BTreeMap<ConsumerKey, u64>) {

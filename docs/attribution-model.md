@@ -9,6 +9,7 @@ How drainscope turns measured energy into "who used it". The code is `crates/mod
 - **GPU time** per DRM client (fdinfo `drm-engine-*`).
 - **Battery** discharge power, when on battery.
 - **Network counters** from the optional eBPF probe (model v2): bytes per cgroup, and the kernel's time in the network softirqs.
+- **Network interrupt threads** (model v3): the CPU time of the network devices' threaded interrupt handlers, from procfs.
 
 Cgroups map to **consumers** (apps, terminal tabs, services, sessions, Kernel, …) by the identity rules in `model::cgroup`.
 
@@ -34,12 +35,24 @@ v2 adds one step, before step 2. The probe's network softirq time for the tick (
 
 Without the probe, or across a probe restart (new counter generation), v2 attributes exactly like v1. The trace-replay golden test, which has no probe data, gives identical numbers.
 
+## Model v3 (ADR 0008)
+
+Some network drivers handle their interrupts in a kernel thread, `irq/<n>-<driver>` (the dev machine's Wi-Fi: `irq/135-iwlwifi`). That time is Kernel's own time but not softirq time, so v2 left it with Kernel. During a download it added about 30% to the softirq time.
+
+v3 adds that thread time to v2's network time, which is then moved by bytes as before:
+
+- The network devices' interrupts are their MSI vectors (`/sys/class/net/<if>/device/msi_irqs/`), or the legacy line (`device/irq`) without MSI. Virtual interfaces have none.
+- Their handler threads are the kernel threads named `irq/<n>-…` for those interrupts. The daemon looks them up once a minute, or sooner when one exits.
+- Each thread's time is the first field of `/proc/<pid>/schedstat` (nanoseconds). Only threads present at both ends of a tick count, so a driver reload can't produce a bogus delta.
+
+No privileges are needed. Drivers that handle interrupts directly (the dev machine's Ethernet) have no thread; their work is already hard-IRQ time, which stays with Kernel. `drainscope doctor` lists the threads it found. Without the probe there are no bytes to share by, so v3 also attributes exactly like v1.
+
 ### Known limitations
 
-- Shares are proportional to CPU time, so low-utilization activity (network processing, timers) is charged less than its marginal cost. Each burst wakes the package from deep idle, which costs more per CPU-second than the average. Measured: downloads get about 20% of their RAPL increase under v2 (5% under v1), while large CPU loads get 79–90% (ADR 0007).
-- Network drivers' threaded interrupt handlers (e.g. `irq/<n>-iwlwifi`) remain Kernel's.
+- Shares are proportional to CPU time, so low-utilization activity (network processing, timers) is charged less than its marginal cost. Each burst wakes the package from deep idle, which costs more per CPU-second than the average. Measured: downloads get about 20% of their RAPL increase under v2 (5% under v1), while large CPU loads get 79–90% (ADR 0007). v3 moves about 30% more network time; its measured effect is pending a battery run of `validate --activity`.
+- Hard-IRQ time of network devices (drivers without a handler thread) remains Kernel's: the kernel doesn't report it per interrupt.
 
 ## Validation
 
 - `cargo xtask validate`: CPU loads; results in [validation.md](validation.md).
-- `cargo xtask validate --activity`: timer and download loads, measured with the probe; results in [validation-activity.md](validation-activity.md), including how much of a download's RAPL increase the model charges it (about 20% under v2; see the known limitations).
+- `cargo xtask validate --activity`: timer and download loads, measured with the probe; results in [validation-activity.md](validation-activity.md), including how much of a download's RAPL increase the running daemon's model charges it (about 20% under v2; see the known limitations).

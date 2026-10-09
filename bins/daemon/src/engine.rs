@@ -21,6 +21,18 @@ pub struct NetworkCounters {
     pub bytes: BTreeMap<CgroupPath, u64>,
     /// Kernel time in the network softirqs, machine-wide.
     pub softirq_ns: u64,
+    /// Time of the network devices' threaded interrupt handlers (`irq/<n>-iwlwifi`), by
+    /// thread id, from procfs (model v3, ADR 0008).
+    pub irq_thread_ns: BTreeMap<u32, u64>,
+}
+
+/// Time the threads in both readings ran in between. A thread that appeared or exited in
+/// between counts nothing, so a driver reload can't produce a bogus delta.
+fn thread_time_ns(before: &BTreeMap<u32, u64>, after: &BTreeMap<u32, u64>) -> u64 {
+    after
+        .iter()
+        .filter_map(|(tid, &ns)| Some(ns.saturating_sub(*before.get(tid)?)))
+        .sum()
 }
 
 /// A snapshot and everything known about the moment it was taken.
@@ -113,8 +125,9 @@ impl Engine {
             && before.generation == after.generation
         {
             let bytes = deltas_by_consumer(&before.bytes, &after.bytes, &resolver);
-            let usec = after.softirq_ns.saturating_sub(before.softirq_ns) / 1000;
-            activity.charge_network(usec, &bytes);
+            let softirq_ns = after.softirq_ns.saturating_sub(before.softirq_ns);
+            let irq_ns = thread_time_ns(&before.irq_thread_ns, &after.irq_thread_ns);
+            activity.charge_network((softirq_ns + irq_ns) / 1000, &bytes);
         }
         let estimator = self.floors.entry(power_source).or_default();
         estimator.observe(&delta, &activity);
@@ -261,6 +274,7 @@ mod tests {
                 generation,
                 bytes: BTreeMap::from([(CgroupPath::new(DNF), seconds * 1_000_000)]),
                 softirq_ns,
+                irq_thread_ns: BTreeMap::new(),
             });
             r
         };
@@ -292,6 +306,39 @@ mod tests {
         // A restarted probe (new generation) moves nothing: its counters aren't comparable.
         let outcome = v2.tick(with_network(4, 8, Some(5))).unwrap();
         assert!(watts(&outcome, &dnf).abs() < 1e-12);
+    }
+
+    #[test]
+    fn network_irq_threads_are_charged_with_the_softirqs() {
+        const DNF: &str = "system.slice/dnf.service";
+        // As above, plus the Wi-Fi driver's interrupt thread (tid 664) running 0.1 s per tick;
+        // tid 700 only exists in the second reading.
+        let with_irq = |seconds: u64, threads: &[(u32, u64)]| {
+            let mut r = reading(seconds, 1, seconds * 3_000_000);
+            r.snapshot
+                .cgroup_cpu_usec
+                .insert(CgroupPath::root(), seconds * 1_000_000);
+            r.network = Some(NetworkCounters {
+                generation: 7,
+                bytes: BTreeMap::from([(CgroupPath::new(DNF), seconds * 1_000_000)]),
+                softirq_ns: seconds * 100_000_000,
+                irq_thread_ns: threads.iter().copied().collect(),
+            });
+            r
+        };
+        let mut engine = engine();
+        engine.tick(with_irq(0, &[(664, 5_000_000_000)]));
+        let outcome = engine
+            .tick(with_irq(2, &[(664, 5_100_000_000), (700, 9_000_000_000)]))
+            .unwrap();
+        let dnf = ConsumerKey::SystemUnit("dnf.service".into());
+        let charged = outcome
+            .live
+            .iter()
+            .find(|(k, _)| *k == dnf)
+            .map_or(0.0, |(_, w)| w.0);
+        // 0.2 s of softirqs and 0.1 s of the interrupt thread, of 3 CPU-seconds at 3 W.
+        assert!((charged - 0.3).abs() < 1e-9, "{charged}");
     }
 
     #[test]

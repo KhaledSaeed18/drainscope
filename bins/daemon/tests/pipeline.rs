@@ -49,7 +49,7 @@ fn run(name: &str, engine: &mut Engine) -> Vec<FinishedWindow> {
             wall_ms: i64::try_from(recorded.real_ms).unwrap(),
             rapl_generation: trace.recorded_as_root.then_some(1),
             terminal_labels: collected.terminal_labels,
-            // Traces carry no probe data: model v2 then attributes exactly like v1.
+            // Traces carry no probe data: models v2 and v3 then attribute exactly like v1.
             network: None,
         };
         if let Some(outcome) = engine.tick(reading) {

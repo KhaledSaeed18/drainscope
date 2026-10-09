@@ -115,7 +115,8 @@ impl Daemon {
             self.wakeups
                 .observe(reading.generation, reading.wakeups, elapsed, &resolver);
         }
-        // Model v2 input: bytes and softirq time from the same probe generation.
+        // Model v2/v3 input: bytes and softirq time from the same probe generation, and the
+        // network IRQ threads' time from procfs.
         let network = match (&traffic, network_time) {
             (Some(traffic), Some((generation, softirq_ns))) if traffic.generation == generation => {
                 let mut bytes = traffic.received.clone();
@@ -126,6 +127,7 @@ impl Daemon {
                     generation,
                     bytes,
                     softirq_ns,
+                    irq_thread_ns: std::mem::take(&mut collected.network_irq_ns),
                 })
             }
             _ => None,
