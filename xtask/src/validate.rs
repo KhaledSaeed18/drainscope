@@ -315,6 +315,12 @@ impl Buses {
             .block_on(monitor.get_usage(since, until, "consumer", "any"))
             .ok()
     }
+
+    /// The running daemon's attribution model, if it's running.
+    fn model_version(&self) -> Option<u32> {
+        let monitor = self.monitor.as_ref()?;
+        self.runtime.block_on(monitor.model_version()).ok()
+    }
 }
 
 fn read_battery_w() -> Option<f64> {
@@ -853,6 +859,9 @@ fn activity_report(
         .and_then(|p| stats(p, samples))
         .context("no idle measurement")?;
     let date = run_output("date", &["-u", "+%Y-%m-%d %H:%M UTC"]).unwrap_or_default();
+    let model = buses
+        .model_version()
+        .map_or("not running".to_owned(), |v| format!("model v{v}"));
     let mut out = String::new();
     let _ = writeln!(out, "# Activity validation (ADR 0006)\n");
     let _ = writeln!(
@@ -867,7 +876,7 @@ fn activity_report(
          eBPF probe's counts for the load's scope. Averages skip the first {SETTLE:.0} s of each \
          phase; Δ values are relative to the rests just before and after the phase, which cancels \
          slow drift in the battery's readings. \"Outside RAPL\" is ΔBattery − ΔRAPL: the radio, \
-         chipset and other devices. \"Charged\" is what the running daemon (model v1) attributed to \
+         chipset and other devices. \"Charged\" is what the running daemon ({model}) attributed to \
          the load's scope, as average watts.\n"
     );
     let _ = writeln!(
@@ -928,7 +937,7 @@ fn activity_report(
         let _ = writeln!(
             out,
             "- Downloads were charged {:.0}% (median; {:.0}–{:.0}%) of their RAPL increase by the \
-             running daemon's model (model v1: about 5%, v2: about 20%; large CPU loads get \
+             running daemon's {model} (v1: about 5%, v2: about 20%; large CPU loads get \
              79–90%).",
             charge_ratios[charge_ratios.len() / 2] * 100.0,
             charge_ratios[0] * 100.0,
