@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeBatteryHealth, decodeCoverage, decodeSleepHistory, decodeNetwork, decodeUsage, decodeWakeups } from './monitor';
+import {
+  decodeBatteryHealth,
+  decodeCoverage,
+  decodeFocus,
+  decodeSleepHistory,
+  decodeNetwork,
+  decodeUsage,
+  decodeWakeups,
+  focusAppId,
+} from './monitor';
 import { buildHealth, buildNetwork, buildSleep, buildUsage, buildWakeups, rangeQuery } from './views';
 
 const appNames = (id: string): string | undefined => (id === 'org.mozilla.firefox' ? 'Firefox' : undefined);
@@ -21,6 +30,23 @@ describe('decoders', () => {
       value: [{ battery: 'BAT0', time: 100, fullWh: 30.9, designWh: 39, cycles: 312 }],
     });
     expect(decodeBatteryHealth([[['BAT0', 100, 30.9, 39]]]).ok).toBe(false);
+  });
+
+  it('decode focus replies', () => {
+    expect(decodeFocus([[['app:org.mozilla.firefox', 120, 30, 4]]])).toEqual({
+      ok: true,
+      value: [{ key: 'app:org.mozilla.firefox', foreground: 120, unknown: 30, focusedSeconds: 4 }],
+    });
+    expect(decodeFocus([[['app:org.mozilla.firefox', 120, 30]]]).ok).toBe(false);
+    expect(decodeFocus([]).ok).toBe(false);
+  });
+});
+
+describe('focusAppId', () => {
+  it('strips .desktop and reports nothing for window-backed apps', () => {
+    expect(focusAppId('org.mozilla.firefox.desktop')).toBe('org.mozilla.firefox');
+    expect(focusAppId('window:42')).toBe('');
+    expect(focusAppId(null)).toBe('');
   });
 });
 

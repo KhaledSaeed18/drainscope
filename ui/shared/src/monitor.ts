@@ -80,6 +80,18 @@ export const NETWORK_SIGNATURE = '(ba(sdd))';
 /** D-Bus type of `GetBatteryHealth`'s reply. */
 export const HEALTH_SIGNATURE = '(a(sxddu))';
 
+export const FOCUS_SIGNATURE = '(a(sddt))';
+
+/** One app's energy split by focus (ADR 0011); background is its usage total minus both. */
+export interface FocusRow {
+  key: string;
+  /** Joules while one of its windows had focus. */
+  foreground: number;
+  /** Joules while focus wasn't known (no extension, or before it was installed). */
+  unknown: number;
+  focusedSeconds: number;
+}
+
 export interface UsageRow {
   key: string;
   kind: string;
@@ -256,4 +268,32 @@ export function decodeNetwork(value: unknown): Decoded<Network> {
     rates.push({ key, received, sent });
   }
   return { ok: true, value: { available, rates } };
+}
+
+/** Decodes the unpacked `(a(sddt))` reply of `GetFocus`. */
+export function decodeFocus(value: unknown): Decoded<FocusRow[]> {
+  const rows = single(value);
+  if (!isArray(rows)) {
+    return { ok: false, error: 'expected (a(sddt))' };
+  }
+  const focus: FocusRow[] = [];
+  for (const row of rows) {
+    if (!isArray(row) || row.length !== 4) {
+      return { ok: false, error: 'malformed focus row' };
+    }
+    const [key, foreground, unknown, focusedSeconds] = row;
+    if (typeof key !== 'string' || !isNumber(foreground) || !isNumber(unknown) || !isNumber(focusedSeconds)) {
+      return { ok: false, error: 'malformed focus row' };
+    }
+    focus.push({ key, foreground, unknown, focusedSeconds });
+  }
+  return { ok: true, value: focus };
+}
+
+/**
+ * The app ID `SetFocus` takes for a Shell app ID: the desktop ID without `.desktop`, as in
+ * `app:` consumer keys. Apps without a desktop file (`window:…`) and no app report "".
+ */
+export function focusAppId(shellAppId: string | null): string {
+  return shellAppId?.endsWith('.desktop') === true ? shellAppId.slice(0, -'.desktop'.length) : '';
 }
