@@ -62,7 +62,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 ## Next (in priority order)
 
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Validate model v3 on battery:** install the dev daemon, run `cargo xtask validate --activity` unplugged (about an hour), and record the download charge in ADR 0008 and docs/validation-activity.md. Then release it (0.1.3).
+2. **Validate model v3 on battery:** run the dev daemon in place of the packaged one, `cargo xtask validate --activity` unplugged (about 10 minutes), and record the download charge in ADR 0008 and docs/validation-activity.md. Then release it (0.1.3).
 3. **Model v4: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
 4. **Daemon self-cost:** about 4 wakeups/s (≈ 20 per 5 s tick). Batch the D-Bus calls and the collector thread.
 5. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
