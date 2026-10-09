@@ -3,10 +3,10 @@ import GLib from 'gi://GLib';
 
 import { decodeSummary, SUMMARY_SIGNATURE, type Summary } from '@drainscope/shared';
 
-const BUS_NAME = 'io.github.khaledsaeed18.Drainscope.Monitor';
-const OBJECT_PATH = '/io/github/khaledsaeed18/Drainscope/Monitor';
-const INTERFACE = 'io.github.khaledsaeed18.Drainscope.Monitor1';
-const CALL_TIMEOUT_MS = 5000;
+export const BUS_NAME = 'io.github.khaledsaeed18.Drainscope.Monitor';
+export const OBJECT_PATH = '/io/github/khaledsaeed18/Drainscope/Monitor';
+export const INTERFACE = 'io.github.khaledsaeed18.Drainscope.Monitor1';
+export const CALL_TIMEOUT_MS = 5000;
 
 // GNOME Shell already promisifies Gio.DBusConnection.prototype.call.
 

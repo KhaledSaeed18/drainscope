@@ -18,6 +18,7 @@ import { buildMenu, iconName, type MenuModel, type MenuRow } from '@drainscope/s
 
 import { appIcon, appName } from './apps';
 import { MonitorClient } from './client';
+import { FocusReporter } from './focus';
 
 /** How often the tile's subtitle refreshes while the menu is closed. */
 const BACKGROUND_REFRESH_SECONDS = 60;
@@ -109,6 +110,7 @@ export default class DrainscopeExtension extends Extension {
   private client: MonitorClient | null = null;
   private refreshSource: number | null = null;
   private menuSignal: number | null = null;
+  private focus: FocusReporter | null = null;
 
   override enable(): void {
     const quickSettings = Main.panel.statusArea.quickSettings;
@@ -148,10 +150,14 @@ export default class DrainscopeExtension extends Extension {
     this.indicator = indicator;
     this.toggle = toggle;
     this.client = client;
+    this.focus = new FocusReporter();
+    this.focus.start();
     this.refresh();
   }
 
   override disable(): void {
+    this.focus?.stop();
+    this.focus = null;
     if (this.refreshSource !== null) {
       GLib.Source.remove(this.refreshSource);
       this.refreshSource = null;
