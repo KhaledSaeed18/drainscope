@@ -318,6 +318,14 @@ impl Buses {
             .ok()
     }
 
+    /// Calls the daemon as an open view would, so it keeps ticking every 5 s instead of its
+    /// idle 15 s; phases are too short for idle ticks. Failures don't matter.
+    fn keep_live(&self) {
+        if let Some(monitor) = self.monitor.as_ref() {
+            let _ = self.runtime.block_on(monitor.get_summary());
+        }
+    }
+
     /// The running daemon's attribution model, if it's running.
     fn model_version(&self) -> Option<u32> {
         let monitor = self.monitor.as_ref()?;
@@ -370,6 +378,7 @@ fn app_slice() -> String {
 }
 
 fn sample(buses: &Buses, start: Instant, units: &[String], activity: bool) -> Result<Sample> {
+    buses.keep_live();
     let (generation, rapl_uj) = buses.read_rapl()?;
     let probe = if activity {
         Some(buses.read_probe(units)?)
