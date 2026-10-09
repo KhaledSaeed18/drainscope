@@ -106,7 +106,8 @@ const MIGRATIONS: &[&str] = &[
     ) WITHOUT ROWID;
     ",
     // 3: each app's energy split by focus (ADR 0011), kept and rolled up like usage. Only app
-    // consumers get rows; the rest of an app's energy in usage_* is background.
+    // consumers get rows; the rest of an app's energy in usage_* is background. Every app usage
+    // row has a focus row: history from before this migration is all unknown.
     r"
     CREATE TABLE focus_raw (
         window_id    INTEGER NOT NULL REFERENCES windows (id) ON DELETE CASCADE,
@@ -136,6 +137,16 @@ const MIGRATIONS: &[&str] = &[
         focused_ms   INTEGER NOT NULL,
         PRIMARY KEY (bucket_ms, power_source, consumer_id)
     ) WITHOUT ROWID;
+
+    INSERT INTO focus_raw (window_id, consumer_id, foreground_j, unknown_j, focused_ms)
+        SELECT u.window_id, u.consumer_id, 0, u.cpu_j + u.gpu_j + u.other_j, 0
+        FROM usage_raw u JOIN consumers c ON c.id = u.consumer_id WHERE c.key LIKE 'app:%';
+    INSERT INTO focus_minute (bucket_ms, power_source, consumer_id, foreground_j, unknown_j, focused_ms)
+        SELECT u.bucket_ms, u.power_source, u.consumer_id, 0, u.cpu_j + u.gpu_j + u.other_j, 0
+        FROM usage_minute u JOIN consumers c ON c.id = u.consumer_id WHERE c.key LIKE 'app:%';
+    INSERT INTO focus_hour (bucket_ms, power_source, consumer_id, foreground_j, unknown_j, focused_ms)
+        SELECT u.bucket_ms, u.power_source, u.consumer_id, 0, u.cpu_j + u.gpu_j + u.other_j, 0
+        FROM usage_hour u JOIN consumers c ON c.id = u.consumer_id WHERE c.key LIKE 'app:%';
     ",
 ];
 
@@ -180,6 +191,34 @@ mod tests {
         assert_eq!(version(&conn), supported_version());
         // Running again is a no-op rather than a "table exists" error.
         migrate(&conn).unwrap();
+    }
+
+    #[test]
+    fn earlier_app_usage_becomes_unknown_focus() {
+        let conn = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..2] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch(
+            "INSERT INTO consumers (id, key, first_seen_ms) VALUES (1, 'app:org.mozilla.firefox', 0), (2, 'kernel', 0);
+             INSERT INTO windows VALUES (1, 0, 10000, 'battery', 'battery', 10, 0, 3);
+             INSERT INTO usage_raw VALUES (1, 1, 3, 1, 0.5), (1, 2, 2, 0, 0);
+             INSERT INTO usage_minute VALUES (0, 'battery', 1, 3, 1, 0.5), (0, 'battery', 2, 2, 0, 0);
+             INSERT INTO usage_hour VALUES (0, 'battery', 1, 3, 1, 0.5), (0, 'battery', 2, 2, 0, 0);",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        for table in ["focus_raw", "focus_minute", "focus_hour"] {
+            let rows: (i64, i64, f64, f64, i64) = conn
+                .query_row(
+                    &format!("SELECT COUNT(*), MIN(consumer_id), SUM(foreground_j), SUM(unknown_j), SUM(focused_ms) FROM {table}"),
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                )
+                .unwrap();
+            assert_eq!(rows, (1, 1, 0.0, 4.5, 0), "{table}");
+        }
     }
 
     #[test]
