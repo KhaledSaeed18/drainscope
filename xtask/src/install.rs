@@ -289,9 +289,18 @@ pub fn uninstall() -> Result<()> {
         }
     }
     reload()?;
+    let packaged = Path::new("/usr/bin/drainscope-daemon").exists();
+    let next = if packaged {
+        // The packages' units and SELinux modules take over again; keep the daemon enabled.
+        "The packaged drainscope takes over again. As your normal user, run:\n  \
+         systemctl --user daemon-reload\n  \
+         systemctl --user restart drainscope.service"
+    } else {
+        "If the daemon was enabled, also run as your normal user:\n  \
+         systemctl --user disable --now drainscope.service"
+    };
     println!(
-        "\nIf the daemon was enabled, also run as your normal user:\n  \
-         systemctl --user disable --now drainscope.service\n\
+        "\n{next}\n\
          The drainscope-sampler and drainscope-probe system users are kept (sysusers never deletes users), and so is \
          your history in ~/.local/state/drainscope/."
     );
