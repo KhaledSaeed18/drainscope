@@ -36,10 +36,13 @@ use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-/// Battery readings lag 6–8 s and windows are 10 s, so faster ticks add no accuracy; at 5 s
-/// the daemon costs ≈ 0.7% of one CPU on battery (dev machine, 2026-10-09); faster ticks would cost
-/// proportionally more.
+/// While someone watches live (the app or the Quick Settings menu is open). Battery readings
+/// lag 6–8 s and windows are 10 s, so faster ticks add no accuracy.
 const TICK: Duration = Duration::from_secs(5);
+/// Otherwise: each tick's scan is most of the daemon's cost (≈ 0.7% of one CPU at 5 s on
+/// battery, dev machine, 2026-10-09). Above the 10 s window, so every tick closes one, even
+/// when it measures a little under its period.
+const IDLE_TICK: Duration = Duration::from_secs(15);
 const SAVE_EVERY: Duration = Duration::from_secs(300);
 const PRUNE_EVERY: Duration = Duration::from_secs(6 * 3600);
 
@@ -477,7 +480,10 @@ async fn serve(
     // Started by D-Bus outside systemd (e.g. under dbus-run-session), nothing else stops us
     // when that bus goes away; there are no clients left to serve.
     let session_bus = daemon.session.clone();
-    let ticker = Ticker::new(TICK).context("creating the tick timer")?;
+    let shared = daemon.shared.clone();
+    let ticker = Ticker::new(IDLE_TICK).context("creating the tick timer")?;
+    let mut period = IDLE_TICK;
+    let mut last_tick = Instant::now();
     loop {
         tokio::select! {
             () = session_bus.closed() => {
@@ -485,12 +491,33 @@ async fn serve(
                 break;
             }
             expired = ticker.tick() => {
+                last_tick = Instant::now();
                 let result = match expired {
                     Ok(_) => daemon.tick().await,
                     Err(err) => Err(err.into()),
                 };
                 if let Err(err) = result {
                     tracing::warn!(%err, "tick failed");
+                }
+                let wanted = if shared.watched(Instant::now()) { TICK } else { IDLE_TICK };
+                if wanted != period {
+                    period = wanted;
+                    tracing::debug!(?period, "tick period");
+                    if let Err(err) = ticker.set_period(period, period) {
+                        tracing::warn!(%err, "changing the tick period failed");
+                    }
+                }
+            }
+            // Someone opened a live view: tick within one live period of the last tick
+            // instead of waiting out the idle one.
+            () = shared.called.notified(), if period != TICK => {
+                if shared.watched(Instant::now()) {
+                    period = TICK;
+                    tracing::debug!(?period, "tick period");
+                    let first = TICK.saturating_sub(last_tick.elapsed());
+                    if let Err(err) = ticker.set_period(TICK, first) {
+                        tracing::warn!(%err, "changing the tick period failed");
+                    }
                 }
             }
             Some(signal) = next_sleep_signal(&mut sleep_signals) => match signal.args() {

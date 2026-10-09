@@ -2,9 +2,11 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use drainscope_model::{ConsumerKey, EnergySplit, Joules, MODEL_VERSION, PowerSource};
 use drainscope_store::{PowerEventKind, SourceFilter, Store, StoreError};
+use tokio::sync::Notify;
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
 
@@ -64,10 +66,17 @@ impl Default for LiveState {
 }
 
 /// State shared between the tick loop and the D-Bus interface.
+/// Two Monitor1 calls this close together mean a live view is open (see [`Shared::watched`]).
+pub const WATCH_WINDOW: Duration = Duration::from_secs(20);
+
 #[derive(Debug)]
 pub struct Shared {
     pub store: Mutex<Store>,
     pub live: Mutex<LiveState>,
+    /// When clients last called, and the call before that.
+    calls: Mutex<(Option<Instant>, Option<Instant>)>,
+    /// Wakes the tick loop when a client calls.
+    pub called: Notify,
 }
 
 impl Shared {
@@ -76,7 +85,28 @@ impl Shared {
         Arc::new(Self {
             store: Mutex::new(store),
             live: Mutex::new(LiveState::default()),
+            calls: Mutex::new((None, None)),
+            called: Notify::new(),
         })
+    }
+
+    /// Records a client's call at `now`.
+    pub fn note_call(&self, now: Instant) {
+        let mut calls = self.calls.lock().unwrap_or_else(PoisonError::into_inner);
+        calls.1 = calls.0.replace(now);
+        drop(calls);
+        self.called.notify_one();
+    }
+
+    /// Whether someone is watching live: at least two calls within [`WATCH_WINDOW`]. An open
+    /// app or Quick Settings menu calls on every tick; the extension's background refresh, one
+    /// call a minute, doesn't count.
+    #[must_use]
+    pub fn watched(&self, now: Instant) -> bool {
+        let calls = self.calls.lock().unwrap_or_else(PoisonError::into_inner);
+        calls
+            .1
+            .is_some_and(|previous| now.saturating_duration_since(previous) <= WATCH_WINDOW)
     }
 }
 
@@ -214,6 +244,7 @@ impl Monitor {
     // in data/dbus/interfaces/ requires.
     #[zbus(out_args("on_battery", "since_unplug", "battery_percent", "top"))]
     fn get_summary(&self) -> fdo::Result<(bool, i64, f64, Vec<TopRow>)> {
+        self.shared.note_call(Instant::now());
         self.summary().map_err(|err| failed(&err))
     }
 
@@ -225,6 +256,7 @@ impl Monitor {
         group_by: &str,
         power_source: &str,
     ) -> fdo::Result<UsageRows> {
+        self.shared.note_call(Instant::now());
         let by_kind = match group_by {
             "consumer" => false,
             "kind" => true,
@@ -259,6 +291,7 @@ impl Monitor {
 
     #[zbus(out_args("seconds"))]
     fn get_coverage(&self, since: i64, until: i64, power_source: &str) -> fdo::Result<u64> {
+        self.shared.note_call(Instant::now());
         let filter = source_filter(power_source)?;
         let covered_ms = self
             .shared
@@ -272,6 +305,7 @@ impl Monitor {
 
     #[zbus(out_args("sessions"))]
     fn get_sleep_sessions(&self, since: i64) -> fdo::Result<Vec<SleepRow>> {
+        self.shared.note_call(Instant::now());
         let sessions = self
             .shared
             .store
@@ -295,6 +329,7 @@ impl Monitor {
 
     #[zbus(out_args("sessions"))]
     fn get_sleep_history(&self, since: i64) -> fdo::Result<Vec<SleepHistoryRow>> {
+        self.shared.note_call(Instant::now());
         let sessions = self
             .shared
             .store
@@ -319,6 +354,7 @@ impl Monitor {
 
     #[zbus(out_args("readings"))]
     fn get_battery_health(&self, since: i64) -> fdo::Result<Vec<HealthRow>> {
+        self.shared.note_call(Instant::now());
         let records = self
             .shared
             .store
@@ -344,6 +380,7 @@ impl Monitor {
 
     #[zbus(out_args("available", "wakeups"))]
     fn get_wakeups(&self) -> (bool, Vec<(String, f64)>) {
+        self.shared.note_call(Instant::now());
         let live = self.live();
         match &live.wakeups {
             Some(wakeups) => (true, wakeups.clone()),
@@ -353,6 +390,7 @@ impl Monitor {
 
     #[zbus(out_args("available", "traffic"))]
     fn get_network(&self) -> (bool, Vec<(String, f64, f64)>) {
+        self.shared.note_call(Instant::now());
         let live = self.live();
         match &live.network {
             Some(traffic) => (true, traffic.clone()),
@@ -396,5 +434,25 @@ mod tests {
             "user-unit"
         );
         assert_eq!(kind_of(&ConsumerKey::Devices), "devices");
+    }
+
+    #[test]
+    fn two_calls_close_together_mean_someone_is_watching() {
+        let shared = Shared::new(Store::open_in_memory().unwrap());
+        let start = Instant::now();
+        assert!(!shared.watched(start));
+        // The extension's background refresh: one call a minute.
+        shared.note_call(start);
+        assert!(!shared.watched(start + Duration::from_secs(1)));
+        shared.note_call(start + Duration::from_secs(60));
+        assert!(!shared.watched(start + Duration::from_secs(61)));
+        // A menu opened: its next call comes with the following tick.
+        shared.note_call(start + Duration::from_secs(70));
+        assert!(shared.watched(start + Duration::from_secs(71)));
+        // Closed: calls stop, and it no longer counts once the earlier call is old enough.
+        assert!(
+            !shared
+                .watched(start + Duration::from_secs(70) + WATCH_WINDOW + Duration::from_secs(1))
+        );
     }
 }

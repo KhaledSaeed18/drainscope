@@ -32,21 +32,23 @@ impl Ticker {
             TimerfdClockId::Monotonic,
             TimerfdFlags::NONBLOCK | TimerfdFlags::CLOEXEC,
         )?;
-        let period = Timespec {
-            tv_sec: i64::try_from(period.as_secs()).unwrap_or(i64::MAX),
-            tv_nsec: i64::from(period.subsec_nanos()),
-        };
-        timerfd_settime(
-            &timer,
-            TimerfdTimerFlags::empty(),
-            &Itimerspec {
-                it_interval: period,
-                it_value: period,
-            },
-        )?;
+        arm(&timer, period, period)?;
         Ok(Self {
             timer: AsyncFd::new(timer)?,
         })
+    }
+
+    /// Fires next after `first` (at once if zero), then every `period`.
+    ///
+    /// # Errors
+    /// If the timer can't be set.
+    pub fn set_period(&self, period: Duration, first: Duration) -> io::Result<()> {
+        // A zero first expiration would disarm the timer.
+        arm(
+            self.timer.get_ref(),
+            period,
+            first.max(Duration::from_nanos(1)),
+        )
     }
 
     /// Waits for the next tick. Returns how many periods elapsed since the last call; more
@@ -67,6 +69,22 @@ impl Ticker {
     }
 }
 
+fn arm(timer: &OwnedFd, period: Duration, first: Duration) -> io::Result<()> {
+    let spec = |d: Duration| Timespec {
+        tv_sec: i64::try_from(d.as_secs()).unwrap_or(i64::MAX),
+        tv_nsec: i64::from(d.subsec_nanos()),
+    };
+    timerfd_settime(
+        timer,
+        TimerfdTimerFlags::empty(),
+        &Itimerspec {
+            it_interval: spec(period),
+            it_value: spec(first),
+        },
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
@@ -80,6 +98,18 @@ mod tests {
         assert_eq!(ticker.tick().await.unwrap(), 1);
         assert_eq!(ticker.tick().await.unwrap(), 1);
         assert!(start.elapsed() >= Duration::from_millis(40));
+    }
+
+    #[tokio::test]
+    async fn changes_period() {
+        let ticker = Ticker::new(Duration::from_secs(60)).unwrap();
+        let start = Instant::now();
+        ticker
+            .set_period(Duration::from_millis(10), Duration::ZERO)
+            .unwrap();
+        assert_eq!(ticker.tick().await.unwrap(), 1);
+        ticker.tick().await.unwrap();
+        assert!(start.elapsed() < Duration::from_secs(1));
     }
 
     #[tokio::test]
