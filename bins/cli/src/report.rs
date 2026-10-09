@@ -7,6 +7,7 @@ use anyhow::Context;
 use drainscope_dbus::monitor::Monitor1Proxy;
 use futures_util::StreamExt;
 
+use crate::export::{self, Format, known};
 use crate::format::{byte_rate, duration, energy, percent, table, table_aligned, truncate, watts};
 use crate::names::Names;
 
@@ -33,6 +34,20 @@ pub async fn connect(bus: &zbus::Connection) -> anyhow::Result<Monitor1Proxy<'_>
     Monitor1Proxy::new(bus)
         .await
         .context("connecting to the drainscope daemon")
+}
+
+/// Prints a JSON or CSV export: `csv` turns the document into CSV.
+fn print_export<T: serde::Serialize>(
+    format: Format,
+    document: &T,
+    csv: impl FnOnce(&T) -> String,
+) -> anyhow::Result<()> {
+    match format {
+        Format::Json => print!("{}", export::json(document)?),
+        Format::Csv => print!("{}", csv(document)),
+        Format::Text => {}
+    }
+    Ok(())
 }
 
 /// Explains a failed call, which almost always means the daemon isn't running.
@@ -346,11 +361,30 @@ pub async fn status(bus: &zbus::Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn summary(bus: &zbus::Connection) -> anyhow::Result<()> {
+pub async fn summary(bus: &zbus::Connection, format: Format) -> anyhow::Result<()> {
     let monitor = connect(bus).await?;
     let (on_battery, since, battery_percent, top) =
         monitor.get_summary().await.map_err(daemon_hint)?;
     let mut names = Names::default();
+    if format != Format::Text {
+        let document = export::Summary {
+            on_battery,
+            since_unplug: (since > 0).then_some(since),
+            battery_percent_used: battery_percent,
+            model_version: monitor.model_version().await.map_err(daemon_hint)?,
+            rows: top
+                .into_iter()
+                .map(|(key, joules, of_battery, of_active)| export::SummaryRow {
+                    label: names.label(&key),
+                    key,
+                    joules,
+                    battery_percent: of_battery,
+                    active_percent: of_active,
+                })
+                .collect(),
+        };
+        return print_export(format, &document, export::summary_csv);
+    }
     let rows: Vec<SummaryRow> = top
         .into_iter()
         .map(|(key, joules, of_battery, of_active)| SummaryRow {
@@ -375,6 +409,7 @@ pub async fn usage(
     by_kind: bool,
     source: &str,
     limit: usize,
+    format: Format,
 ) -> anyhow::Result<()> {
     let monitor = connect(bus).await?;
     let now = now_secs();
@@ -391,6 +426,39 @@ pub async fn usage(
             .map_err(daemon_hint)?,
     );
     let mut names = Names::default();
+    if format != Format::Text {
+        // Every row, not just the top ones; averages over the measured time, like the table.
+        let total: f64 = usage.iter().map(|row| row.2).sum();
+        let seconds = measured.as_secs_f64().max(1.0);
+        let document = export::Usage {
+            since: start,
+            until: now + 1,
+            power_source: source.to_owned(),
+            group_by: group.to_owned(),
+            measured_seconds: measured.as_secs(),
+            model_version: monitor.model_version().await.map_err(daemon_hint)?,
+            total_joules: total,
+            rows: usage
+                .into_iter()
+                .map(|(key, kind, joules, cpu, gpu, other)| export::UsageRow {
+                    label: if by_kind {
+                        key.clone()
+                    } else {
+                        names.label(&key)
+                    },
+                    key,
+                    kind,
+                    joules,
+                    cpu_joules: cpu,
+                    gpu_joules: gpu,
+                    other_joules: other,
+                    watts: joules / seconds,
+                    share: if total > 0.0 { joules / total } else { 0.0 },
+                })
+                .collect(),
+        };
+        return print_export(format, &document, export::usage_csv);
+    }
     let rows: Vec<Row> = usage
         .into_iter()
         .map(|(key, _, joules, ..)| Row {
@@ -451,10 +519,24 @@ pub fn render_wakeups(available: bool, rows: &[(String, f64)], limit: usize) -> 
     out
 }
 
-pub async fn wakeups(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()> {
+pub async fn wakeups(bus: &zbus::Connection, limit: usize, format: Format) -> anyhow::Result<()> {
     let monitor = connect(bus).await?;
     let (available, wakeups) = monitor.get_wakeups().await.map_err(daemon_hint)?;
     let mut names = Names::default();
+    if format != Format::Text {
+        let document = export::Live {
+            available,
+            rows: wakeups
+                .into_iter()
+                .map(|(key, per_second)| export::WakeupRow {
+                    label: names.label(&key),
+                    key,
+                    per_second,
+                })
+                .collect(),
+        };
+        return print_export(format, &document, |d| export::wakeups_csv(&d.rows));
+    }
     let rows: Vec<(String, f64)> = wakeups
         .into_iter()
         .map(|(key, rate)| (names.label(&key), rate))
@@ -486,10 +568,25 @@ pub fn render_network(available: bool, rows: &[(String, f64, f64)], limit: usize
     out
 }
 
-pub async fn network(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()> {
+pub async fn network(bus: &zbus::Connection, limit: usize, format: Format) -> anyhow::Result<()> {
     let monitor = connect(bus).await?;
     let (available, traffic) = monitor.get_network().await.map_err(daemon_hint)?;
     let mut names = Names::default();
+    if format != Format::Text {
+        let document = export::Live {
+            available,
+            rows: traffic
+                .into_iter()
+                .map(|(key, received, sent)| export::NetworkRow {
+                    label: names.label(&key),
+                    key,
+                    received_bytes_per_second: received,
+                    sent_bytes_per_second: sent,
+                })
+                .collect(),
+        };
+        return print_export(format, &document, |d| export::network_csv(&d.rows));
+    }
     let rows: Vec<(String, f64, f64)> = traffic
         .into_iter()
         .map(|(key, received, sent)| (names.label(&key), received, sent))
@@ -498,7 +595,7 @@ pub async fn network(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()>
     Ok(())
 }
 
-pub async fn sleep(bus: &zbus::Connection, since: Duration) -> anyhow::Result<()> {
+pub async fn sleep(bus: &zbus::Connection, since: Duration, format: Format) -> anyhow::Result<()> {
     let monitor = connect(bus).await?;
     let now = now_secs();
     let start = now - i64::try_from(since.as_secs()).unwrap_or(i64::MAX);
@@ -506,6 +603,22 @@ pub async fn sleep(bus: &zbus::Connection, since: Duration) -> anyhow::Result<()
         .get_sleep_history(start)
         .await
         .map_err(daemon_hint)?;
+    if format != Format::Text {
+        let rows: Vec<export::SleepRow> = sessions
+            .into_iter()
+            .map(
+                |(start, end, wh_lost, percent_lost, mode, wake_reason)| export::SleepRow {
+                    start,
+                    end,
+                    wh_lost: known(wh_lost),
+                    percent_lost: known(percent_lost),
+                    mode,
+                    wake_reason,
+                },
+            )
+            .collect();
+        return print_export(format, &rows, |rows| export::sleep_csv(rows));
+    }
     let rows: Vec<SleepRow> = sessions
         .into_iter()
         .map(
@@ -523,13 +636,29 @@ pub async fn sleep(bus: &zbus::Connection, since: Duration) -> anyhow::Result<()
     Ok(())
 }
 
-pub async fn health(bus: &zbus::Connection, since: Duration) -> anyhow::Result<()> {
+pub async fn health(bus: &zbus::Connection, since: Duration, format: Format) -> anyhow::Result<()> {
     let monitor = connect(bus).await?;
     let start = now_secs() - i64::try_from(since.as_secs()).unwrap_or(i64::MAX);
     let readings = monitor
         .get_battery_health(start)
         .await
         .map_err(daemon_hint)?;
+    if format != Format::Text {
+        // Every daily reading, oldest first, not just the latest per battery.
+        let rows: Vec<export::HealthRow> = readings
+            .into_iter()
+            .map(
+                |(battery, time, full_wh, design_wh, cycles)| export::HealthRow {
+                    battery,
+                    time,
+                    full_wh,
+                    design_wh: known(design_wh).filter(|wh| *wh > 0.0),
+                    cycles: (cycles > 0).then_some(cycles),
+                },
+            )
+            .collect();
+        return print_export(format, &rows, |rows| export::health_csv(rows));
+    }
     print!("{}", render_health(&summarize_health(&readings)));
     Ok(())
 }

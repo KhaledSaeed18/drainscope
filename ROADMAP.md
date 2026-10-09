@@ -54,6 +54,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] Daemon self-cost, first pass (unreleased): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
 - [x] Probe1 `ReadAll` (unreleased; ADR 0006 addendum): wakeups, traffic and network time in one call instead of three per tick; the daemon falls back to the three methods for an older probe.
 - [x] Slower tick while nobody watches (unreleased): every 15 s, and every 5 s while the app or the Quick Settings menu is open (two Monitor1 calls within 20 s). Idle on battery: 0.28% of one CPU and 0.5 context switches/s (0.1.2: 0.82–1.0% and 3.0/s), under PLAN's 0.5% target. Unplugging is noticed within 15 s while idle. `validate` keeps the daemon live during its runs.
+- [x] CSV and JSON export (unreleased): `--format json|csv` on `drainscope`, `report`, `sleep`, `health`, `wakeups` and `network`; every row, in joules, watts and Unix seconds, with the period, coverage and model version in JSON.
 
 ### Brand identity
 - [x] Energy shares identity v1: editable SVG masters, logo/icon exports, colors, fonts, social graphics, templates, tokens, and visual guide in [branding/](branding/README.md).
@@ -78,7 +79,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - Flatpak for the app on Flathub (the daemon stays an RPM).
 - Fedora official packaging (needs every Rust dependency packaged; see docs/distribution.md).
 - Website and documentation site (low priority, after the app and model work): built from the brand kit's tokens and layout studies and the product screenshots ([docs/branding-handoff.md](docs/branding-handoff.md)); includes PLAN M5's write-up of the model and validation.
-- Ideas: backlight-weighted display share, per-app notifications, CSV/JSON export, Prometheus output, a KDE Plasma widget.
+- Ideas: backlight-weighted display share, per-app notifications, Prometheus output, a KDE Plasma widget.
 
 ## Known limitations
 

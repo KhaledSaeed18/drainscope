@@ -261,6 +261,8 @@ dependencies = [
  "drainscope-model",
  "drainscope-sys",
  "futures-util",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "zbus",

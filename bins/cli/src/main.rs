@@ -4,6 +4,7 @@
 //! database.
 
 mod doctor;
+mod export;
 mod format;
 mod names;
 mod report;
@@ -12,6 +13,8 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
+
+use crate::export::Format;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -22,6 +25,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
+    /// Output format for summary, report, sleep, health, wakeups and network. JSON and CSV
+    /// list every row, in joules, watts and Unix seconds.
+    #[arg(long, value_enum, global = true, default_value_t = Format::Text)]
+    format: Format,
 }
 
 #[derive(Debug, Subcommand)]
@@ -107,9 +114,22 @@ async fn session_bus() -> anyhow::Result<zbus::Connection> {
         .context("connecting to the session bus")
 }
 
-async fn run(command: Command) -> anyhow::Result<ExitCode> {
+async fn run(command: Command, format: Format) -> anyhow::Result<ExitCode> {
+    if format != Format::Text
+        && matches!(
+            command,
+            Command::Status | Command::Top { .. } | Command::Doctor
+        )
+    {
+        anyhow::bail!(
+            "--format {} works with summary, report, sleep, health, wakeups and network",
+            format
+                .to_possible_value()
+                .map_or_else(String::new, |v| v.get_name().to_owned())
+        );
+    }
     match command {
-        Command::Summary => report::summary(&session_bus().await?).await?,
+        Command::Summary => report::summary(&session_bus().await?, format).await?,
         Command::Status => report::status(&session_bus().await?).await?,
         Command::Report {
             since,
@@ -119,25 +139,35 @@ async fn run(command: Command) -> anyhow::Result<ExitCode> {
         } => {
             let bus = session_bus().await?;
             if since == "unplug" {
-                report::summary(&bus).await?;
+                report::summary(&bus, format).await?;
             } else {
                 let since = format::parse_duration(&since)?;
                 let by_kind = matches!(by, GroupBy::Kind);
-                report::usage(&bus, since, by_kind, source.wire_name(), top).await?;
+                report::usage(&bus, since, by_kind, source.wire_name(), top, format).await?;
             }
         }
         Command::Top { top } => report::top(&session_bus().await?, top).await?,
         Command::Wakeups { top } => {
-            report::wakeups(&session_bus().await?, top).await?;
+            report::wakeups(&session_bus().await?, top, format).await?;
         }
         Command::Network { top } => {
-            report::network(&session_bus().await?, top).await?;
+            report::network(&session_bus().await?, top, format).await?;
         }
         Command::Sleep { since } => {
-            report::sleep(&session_bus().await?, format::parse_duration(&since)?).await?;
+            report::sleep(
+                &session_bus().await?,
+                format::parse_duration(&since)?,
+                format,
+            )
+            .await?;
         }
         Command::Health { since } => {
-            report::health(&session_bus().await?, format::parse_duration(&since)?).await?;
+            report::health(
+                &session_bus().await?,
+                format::parse_duration(&since)?,
+                format,
+            )
+            .await?;
         }
         Command::Doctor => {
             return Ok(if doctor::run().await {
@@ -153,7 +183,7 @@ async fn run(command: Command) -> anyhow::Result<ExitCode> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
-    match run(cli.command.unwrap_or(Command::Summary)).await {
+    match run(cli.command.unwrap_or(Command::Summary), cli.format).await {
         Ok(code) => code,
         Err(err) => {
             eprintln!("drainscope: {err:#}");

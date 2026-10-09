@@ -39,6 +39,8 @@ GNOME Shell                  <1%             9%   0.12 Wh
 - `drainscope health` — battery wear: full-charge capacity against design, and charge cycles
 - `drainscope status` / `drainscope doctor` — what's measurable, and what to fix if something isn't
 
+Add `--format json` or `--format csv` to `drainscope`, `report`, `sleep`, `health`, `wakeups` or `network` to export every row in joules, watts and Unix seconds, e.g. `drainscope report --since 7d --format csv > week.csv`.
+
 The desktop app (`drainscope-app`) shows the same history with a stacked timeline (since unplugged, last hour, 24 h, 7 days), a breakdown per consumer, and battery lost in each suspend.
 
 ## Hardware support
