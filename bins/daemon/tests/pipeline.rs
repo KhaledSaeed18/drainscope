@@ -51,6 +51,7 @@ fn run(name: &str, engine: &mut Engine) -> Vec<FinishedWindow> {
             terminal_labels: collected.terminal_labels,
             // Traces carry no probe data: models v2 and v3 then attribute exactly like v1.
             network: None,
+            focus: drainscope_model::FocusLog::default(),
         };
         if let Some(outcome) = engine.tick(reading) {
             finished.extend(outcome.finished);

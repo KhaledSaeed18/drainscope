@@ -109,6 +109,8 @@ pub mod monitor {
     pub type SleepHistoryRow = (i64, i64, f64, f64, String, String);
     /// `GetBatteryHealth` row: (battery, time (Unix s), full-charge Wh, design Wh, cycles).
     pub type HealthRow = (String, i64, f64, f64, u32);
+    /// `GetFocus` row: (key, foreground J, unknown J, focused seconds).
+    pub type FocusRow = (String, f64, f64, u64);
 
     #[zbus::proxy(
         interface = "io.github.khaledsaeed18.Drainscope.Monitor1",
@@ -139,6 +141,20 @@ pub mod monitor {
 
         /// (probe network counting available, (key, received B/s, sent B/s) busiest first).
         fn get_network(&self) -> zbus::Result<(bool, Vec<(String, f64, f64)>)>;
+
+        /// The app in focus, or "" for none; GNOME Shell only (added after 0.1.3).
+        fn set_focus(&self, app_id: &str) -> zbus::Result<()>;
+
+        /// Focus is no longer reported; GNOME Shell only (added after 0.1.3).
+        fn end_focus(&self) -> zbus::Result<()>;
+
+        /// Apps' energy split by focus over `[since, until)` (added after 0.1.3).
+        fn get_focus(
+            &self,
+            since: i64,
+            until: i64,
+            power_source: &str,
+        ) -> zbus::Result<Vec<FocusRow>>;
 
         /// (tick length in ms, (key, watts) for consumers active during the tick).
         #[zbus(signal)]

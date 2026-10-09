@@ -4,11 +4,17 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use drainscope_model::{ConsumerKey, EnergySplit, Joules, MODEL_VERSION, PowerSource};
+use drainscope_model::{
+    ConsumerKey, EnergySplit, FocusLog, FocusState, Joules, MODEL_VERSION, PowerSource,
+};
 use drainscope_store::{PowerEventKind, SourceFilter, Store, StoreError};
 use tokio::sync::Notify;
 use zbus::fdo;
+use zbus::message::Header;
+use zbus::names::BusName;
 use zbus::object_server::SignalEmitter;
+
+use crate::collector::monotonic_now;
 
 /// Largest consumers returned by `GetSummary`.
 const TOP: usize = 10;
@@ -77,6 +83,8 @@ pub struct Shared {
     calls: Mutex<(Option<Instant>, Option<Instant>)>,
     /// Wakes the tick loop when a client calls.
     pub called: Notify,
+    /// Which app had focus when (ADR 0011), from the Shell extension.
+    pub focus: Mutex<FocusLog>,
 }
 
 impl Shared {
@@ -87,7 +95,16 @@ impl Shared {
             live: Mutex::new(LiveState::default()),
             calls: Mutex::new((None, None)),
             called: Notify::new(),
+            focus: Mutex::new(FocusLog::default()),
         })
+    }
+
+    /// Records that focus became `state` now.
+    pub fn set_focus(&self, state: FocusState) {
+        self.focus
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set(monotonic_now(), state);
     }
 
     /// Records a client's call at `now`.
@@ -143,6 +160,56 @@ fn source_filter(power_source: &str) -> fdo::Result<SourceFilter> {
 
 fn to_ms(unix_seconds: i64) -> i64 {
     unix_seconds.saturating_mul(1000)
+}
+
+/// The bus name GNOME Shell owns; extension code runs in its process.
+pub const SHELL_BUS_NAME: &str = "org.gnome.Shell";
+
+/// Only GNOME Shell's process may report focus (ADR 0011): the caller's PID must be the PID
+/// of `org.gnome.Shell`'s owner. Comparing processes holds whichever connection the
+/// extension's calls come from.
+async fn require_shell(header: &Header<'_>, connection: &zbus::Connection) -> fdo::Result<()> {
+    let denied = || fdo::Error::AccessDenied("only GNOME Shell reports focus".into());
+    let sender = header.sender().ok_or_else(denied)?;
+    let dbus = fdo::DBusProxy::new(connection)
+        .await
+        .map_err(|_| denied())?;
+    let caller = dbus
+        .get_connection_unix_process_id(BusName::from(sender.to_owned()))
+        .await
+        .map_err(|_| denied())?;
+    let shell_name = BusName::try_from(SHELL_BUS_NAME).map_err(|_| denied())?;
+    let owner = dbus
+        .get_name_owner(shell_name)
+        .await
+        .map_err(|_| denied())?;
+    let shell = dbus
+        .get_connection_unix_process_id(BusName::from(owner.into_inner()))
+        .await
+        .map_err(|_| denied())?;
+    if caller == shell {
+        Ok(())
+    } else {
+        Err(denied())
+    }
+}
+
+/// Marks focus unknown whenever `org.gnome.Shell` changes owner or goes away: a restarted
+/// Shell reports again once its extension is enabled.
+///
+/// # Errors
+/// If subscribing to `NameOwnerChanged` fails.
+pub async fn follow_shell(connection: &zbus::Connection, shared: &Shared) -> zbus::Result<()> {
+    use futures_util::StreamExt;
+    let dbus = fdo::DBusProxy::new(connection).await?;
+    let mut changes = dbus
+        .receive_name_owner_changed_with_args(&[(0, SHELL_BUS_NAME)])
+        .await?;
+    while changes.next().await.is_some() {
+        tracing::debug!("GNOME Shell changed owner: focus unknown");
+        shared.set_focus(FocusState::Unknown);
+    }
+    Ok(())
 }
 
 pub struct Monitor {
@@ -237,6 +304,8 @@ type SleepRow = (i64, i64, f64, f64, String);
 type SleepHistoryRow = (i64, i64, f64, f64, String, String);
 /// (battery, time, full-charge Wh, design Wh, cycles).
 type HealthRow = (String, i64, f64, f64, u32);
+/// (key, foreground J, unknown J, focused seconds).
+type FocusRow = (String, f64, f64, u64);
 
 #[zbus::interface(name = "io.github.khaledsaeed18.Drainscope.Monitor1")]
 impl Monitor {
@@ -301,6 +370,58 @@ impl Monitor {
             .covered_ms(to_ms(since), to_ms(until), filter, (self.now_ms)())
             .map_err(|err| failed(&err))?;
         Ok(u64::try_from(covered_ms / 1000).unwrap_or(0))
+    }
+
+    /// The app in focus, or "" for none (ADR 0011). GNOME Shell only. Not a "watching" call:
+    /// focus changes mustn't speed up the tick.
+    async fn set_focus(
+        &self,
+        app_id: &str,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
+    ) -> fdo::Result<()> {
+        require_shell(&header, connection).await?;
+        self.shared.set_focus(if app_id.is_empty() {
+            FocusState::Nothing
+        } else {
+            FocusState::App(app_id.to_owned())
+        });
+        Ok(())
+    }
+
+    /// Focus is no longer reported (ADR 0011). GNOME Shell only.
+    async fn end_focus(
+        &self,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
+    ) -> fdo::Result<()> {
+        require_shell(&header, connection).await?;
+        self.shared.set_focus(FocusState::Unknown);
+        Ok(())
+    }
+
+    #[zbus(out_args("focus"))]
+    fn get_focus(&self, since: i64, until: i64, power_source: &str) -> fdo::Result<Vec<FocusRow>> {
+        self.shared.note_call(Instant::now());
+        let filter = source_filter(power_source)?;
+        let rows = self
+            .shared
+            .store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .focus(to_ms(since), to_ms(until), filter, (self.now_ms)())
+            .map_err(|err| failed(&err))?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.key.to_string(),
+                    row.foreground_j,
+                    row.unknown_j,
+                    u64::try_from(row.focused_ms / 1000).unwrap_or(0),
+                )
+            })
+            .collect())
     }
 
     #[zbus(out_args("sessions"))]

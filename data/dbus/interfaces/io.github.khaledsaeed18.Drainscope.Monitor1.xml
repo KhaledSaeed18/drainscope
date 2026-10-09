@@ -101,6 +101,34 @@
       <arg name="traffic" type="a(sdd)" direction="out"/>
     </method>
     <!--
+      SetFocus: the app now in focus (ADR 0011), from the GNOME Shell extension.
+        app_id  Desktop ID without ".desktop" (e.g. "org.mozilla.firefox"), or "" when nothing
+                has focus (desktop, Overview, lock screen).
+      Accepted only from the GNOME Shell process (the PID of org.gnome.Shell's owner); others
+      get AccessDenied. Added after 0.1.3.
+    -->
+    <method name="SetFocus">
+      <arg name="app_id" type="s" direction="in"/>
+    </method>
+    <!--
+      EndFocus: focus is no longer reported (the extension was turned off), so it is unknown
+      from now on. Same caller rule as SetFocus. Added after 0.1.3.
+    -->
+    <method name="EndFocus"/>
+    <!--
+      GetFocus: how apps' energy over [since, until) splits by focus. Join with GetUsage: an
+      app's background energy is its total there minus foreground and unknown here. Apps
+      missing here have no known split. Added after 0.1.3.
+        power_source  "any", "battery" or "ac".
+        focus         (key, joules while focused, joules while focus was unknown, focused seconds).
+    -->
+    <method name="GetFocus">
+      <arg name="since" type="x" direction="in"/>
+      <arg name="until" type="x" direction="in"/>
+      <arg name="power_source" type="s" direction="in"/>
+      <arg name="focus" type="a(sddt)" direction="out"/>
+    </method>
+    <!--
       Tick: emitted after every attribution tick, for live views.
         duration_ms  Length of the tick.
         usage        (key, watts) for consumers active during the tick.

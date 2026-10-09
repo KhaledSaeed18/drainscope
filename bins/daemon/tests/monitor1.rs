@@ -4,6 +4,7 @@
 // Test helpers fail the test by panicking.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
@@ -11,7 +12,8 @@ use std::time::Duration;
 use drainscope_daemon::monitor::{LiveState, Monitor, Shared, Status};
 use drainscope_dbus::monitor::{BUS_NAME, INTERFACE, Monitor1Proxy, OBJECT_PATH};
 use drainscope_model::{
-    BatteryHealth, ClosedWindow, ConsumerKey, EnergySplit, Joules, Ledger, Measurement,
+    BatteryHealth, ClosedWindow, ConsumerKey, EnergySplit, FocusSplit, FocusState, Joules, Ledger,
+    Measurement,
 };
 use drainscope_store::{PowerEvent, PowerEventKind, SleepSession, Store, WindowRecord};
 use zbus::connection::Builder;
@@ -70,7 +72,15 @@ fn shared() -> Arc<Shared> {
             end_ms: T0 + 11_000,
             window: &window,
             model_version: 1,
-            focus: &std::collections::BTreeMap::new(),
+            // Firefox had focus for 4 s of the window; the search provider never did.
+            focus: &BTreeMap::from([(
+                ConsumerKey::App("org.mozilla.firefox".into()),
+                FocusSplit {
+                    foreground_j: 120.0,
+                    unknown_j: 30.0,
+                    focused: Duration::from_secs(4),
+                },
+            )]),
         })
         .unwrap();
     store
@@ -112,7 +122,11 @@ struct Peer {
 }
 
 async fn serve() -> Peer {
-    let monitor = Monitor::new(shared(), now);
+    serve_shared(shared()).await
+}
+
+async fn serve_shared(shared: Arc<Shared>) -> Peer {
+    let monitor = Monitor::new(shared, now);
     let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
     let server = Builder::unix_stream(server_end)
         .server(zbus::Guid::generate())
@@ -334,4 +348,50 @@ async fn network_is_unavailable_without_the_probe() {
     let (available, traffic) = proxy(&peer).await.get_network().await.unwrap();
     assert!(!available);
     assert_eq!(traffic, Vec::new());
+}
+
+#[tokio::test]
+async fn focus_splits_app_energy_by_window_start() {
+    let peer = serve().await;
+    let monitor = proxy(&peer).await;
+    let focus = monitor
+        .get_focus(T0 / 1000, now() / 1000, "battery")
+        .await
+        .unwrap();
+    assert_eq!(
+        focus,
+        [("app:org.mozilla.firefox".to_owned(), 120.0, 30.0, 4)]
+    );
+    assert_eq!(
+        monitor
+            .get_focus(T0 / 1000, now() / 1000, "ac")
+            .await
+            .unwrap(),
+        Vec::new()
+    );
+    assert!(
+        monitor
+            .get_focus(T0 / 1000, now() / 1000, "solar")
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn only_gnome_shell_may_report_focus() {
+    // A peer-to-peer caller has no bus to vouch for its process, so it can't be the Shell.
+    let shared = shared();
+    let peer = serve_shared(Arc::clone(&shared)).await;
+    let monitor = proxy(&peer).await;
+    for result in [
+        monitor.set_focus("org.mozilla.firefox").await,
+        monitor.end_focus().await,
+    ] {
+        let Err(zbus::Error::MethodError(name, _, _)) = result else {
+            panic!("expected AccessDenied, got {result:?}");
+        };
+        assert_eq!(name.as_str(), "org.freedesktop.DBus.Error.AccessDenied");
+    }
+    let focus = shared.focus.lock().unwrap_or_else(PoisonError::into_inner);
+    assert_eq!(focus.current(), &FocusState::Unknown);
 }

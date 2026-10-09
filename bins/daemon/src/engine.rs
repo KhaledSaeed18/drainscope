@@ -7,9 +7,11 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use drainscope_model::focus::split as focus_split;
 use drainscope_model::{
-    Activity, CgroupPath, ClosedWindow, ConsumerKey, FloorEstimator, PowerSource, PsysCheck,
-    PsysVerdict, Resolver, Snapshot, Watts, Window, attribute, deltas_by_consumer, diff,
+    Activity, CgroupPath, ClosedWindow, ConsumerKey, FloorEstimator, FocusLog, FocusSplit,
+    PowerSource, PsysCheck, PsysVerdict, Resolver, Snapshot, Watts, Window, attribute,
+    deltas_by_consumer, diff,
 };
 
 /// Cumulative network counters from the eBPF probe (ADR 0007).
@@ -47,6 +49,8 @@ pub struct Reading {
     pub terminal_labels: BTreeMap<CgroupPath, String>,
     /// `None` without the probe's network counting: attribution is then as in model v1.
     pub network: Option<NetworkCounters>,
+    /// Focus reports up to now (ADR 0011), on the same monotonic clock as the snapshot.
+    pub focus: FocusLog,
 }
 
 /// A window ready for storage.
@@ -55,6 +59,8 @@ pub struct FinishedWindow {
     pub window: ClosedWindow,
     pub start_ms: i64,
     pub end_ms: i64,
+    /// Apps' energy in the window split by focus.
+    pub focus: BTreeMap<ConsumerKey, FocusSplit>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +78,8 @@ pub struct Engine {
     previous: Option<Reading>,
     window: Window,
     window_start_ms: Option<i64>,
+    /// The open window's apps split by focus, tick by tick.
+    window_focus: BTreeMap<ConsumerKey, FocusSplit>,
     floors: BTreeMap<PowerSource, FloorEstimator>,
     psys: PsysCheck,
 }
@@ -88,6 +96,7 @@ impl Engine {
             previous: None,
             window: Window::default(),
             window_start_ms: None,
+            window_focus: BTreeMap::new(),
             floors,
             psys,
         }
@@ -140,6 +149,12 @@ impl Engine {
             .iter()
             .map(|(key, split)| (key.clone(), split.total().over(delta.duration)))
             .collect();
+        let spans = reading
+            .focus
+            .spans(previous.snapshot.taken_at, reading.snapshot.taken_at);
+        for (key, split) in focus_split(&tick.ledger, &spans, delta.duration) {
+            self.window_focus.entry(key).or_default().add(&split);
+        }
         self.window_start_ms.get_or_insert(previous.wall_ms);
         self.window.push(tick, delta.battery);
 
@@ -149,6 +164,7 @@ impl Engine {
                 window: std::mem::take(&mut self.window).close(&floor),
                 start_ms,
                 end_ms: reading.wall_ms.max(start_ms + 1),
+                focus: std::mem::take(&mut self.window_focus),
             })
         } else {
             None
@@ -168,6 +184,7 @@ impl Engine {
         self.previous = None;
         self.window = Window::default();
         self.window_start_ms = None;
+        self.window_focus.clear();
     }
 
     #[must_use]
@@ -218,6 +235,7 @@ mod tests {
             rapl_generation: Some(generation),
             terminal_labels: BTreeMap::new(),
             network: None,
+            focus: FocusLog::default(),
         }
     }
 
@@ -339,6 +357,44 @@ mod tests {
             .map_or(0.0, |(_, w)| w.0);
         // 0.2 s of softirqs and 0.1 s of the interrupt thread, of 3 CPU-seconds at 3 W.
         assert!((charged - 0.3).abs() < 1e-9, "{charged}");
+    }
+
+    #[test]
+    fn windows_carry_each_apps_split_by_focus() {
+        use drainscope_model::FocusState;
+        let firefox = ConsumerKey::App("org.mozilla.firefox".into());
+        // Unknown until the first report at 4 s, Firefox in focus until 8 s, then nothing.
+        let mut log = FocusLog::default();
+        log.set(
+            Duration::from_secs(4),
+            FocusState::App("org.mozilla.firefox".into()),
+        );
+        log.set(Duration::from_secs(8), FocusState::Nothing);
+        let mut engine = engine();
+        let mut finished = None;
+        for t in (0..=10).step_by(2) {
+            let mut r = reading(t, 1, t * 3_000_000);
+            r.focus = log.clone();
+            if let Some(outcome) = engine.tick(r) {
+                finished = finished.or(outcome.finished);
+            }
+        }
+        let window = finished.unwrap();
+        let energy = window.window.ledger[&firefox].total().0;
+        let focus = window.focus[&firefox];
+        assert!(
+            (focus.foreground_j - energy * 0.4).abs() < 1e-9,
+            "{focus:?}"
+        );
+        assert!((focus.unknown_j - energy * 0.4).abs() < 1e-9, "{focus:?}");
+        assert_eq!(focus.focused, Duration::from_secs(4));
+        // Only apps are split.
+        assert!(
+            window
+                .focus
+                .keys()
+                .all(|k| matches!(k, ConsumerKey::App(_)))
+        );
     }
 
     #[test]

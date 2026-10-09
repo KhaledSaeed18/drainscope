@@ -14,14 +14,14 @@ use anyhow::Context;
 use drainscope_daemon::collector::{Collector, monotonic_now, wall_now_ms};
 use drainscope_daemon::engine::{Engine, NetworkCounters, Reading, TickOutcome};
 use drainscope_daemon::lock::{EXIT_ALREADY_RUNNING, lock_database};
-use drainscope_daemon::monitor::{Monitor, Shared, Status};
+use drainscope_daemon::monitor::{Monitor, Shared, Status, follow_shell};
 use drainscope_daemon::power::{BatteryLevel, PowerTracker, SleepTracker};
 use drainscope_daemon::probe::{ProbeClient, ProbeReadings};
 use drainscope_daemon::rapl::RaplClient;
 use drainscope_daemon::ticker::Ticker;
 use drainscope_dbus::monitor::{BUS_NAME, OBJECT_PATH};
 use drainscope_model::{
-    BatteryHealth, MODEL_VERSION, PowerSource, RaplDomain, RateTracker, Resolver, health,
+    BatteryHealth, FocusLog, MODEL_VERSION, PowerSource, RaplDomain, RateTracker, Resolver, health,
 };
 use drainscope_store::{PowerEvent, PowerEventKind, Store, WindowRecord};
 use drainscope_sys::sleep::{PrepareForSleep, PrepareForSleepStream};
@@ -77,6 +77,13 @@ impl Daemon {
     fn store(&self) -> MutexGuard<'_, Store> {
         self.shared
             .store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn focus_log(&self) -> MutexGuard<'_, FocusLog> {
+        self.shared
+            .focus
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
@@ -163,13 +170,17 @@ impl Daemon {
                 .observe(reading.generation, reading.sent, elapsed, &resolver);
         }
         self.update_live_state(&level, &collected.snapshot.rapl);
+        let focus = self.focus_log().clone();
         let outcome = self.engine.tick(Reading {
             snapshot: collected.snapshot,
             wall_ms,
             rapl_generation: generation,
             terminal_labels: collected.terminal_labels,
             network,
+            focus,
         });
+        // The next interval starts here; earlier changes are no longer needed.
+        self.focus_log().forget_before(taken_at);
         if let Some(outcome) = outcome {
             self.finish_tick(outcome).await?;
         }
@@ -230,7 +241,7 @@ impl Daemon {
                 end_ms: finished.end_ms,
                 window: &finished.window,
                 model_version: MODEL_VERSION,
-                focus: &std::collections::BTreeMap::new(),
+                focus: &finished.focus,
             })?;
         }
         let usage = outcome
@@ -467,6 +478,12 @@ async fn main() -> anyhow::Result<()> {
     let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
     daemon.note_startup_power(&level)?;
     tracing::info!(database = %path.display(), "serving {BUS_NAME}");
+    let (bus, focus_shared) = (daemon.session.clone(), Arc::clone(&daemon.shared));
+    tokio::spawn(async move {
+        if let Err(err) = follow_shell(&bus, &focus_shared).await {
+            tracing::warn!(%err, "not following GNOME Shell restarts");
+        }
+    });
 
     serve(&mut daemon, sleep_signals).await?;
     daemon.save_state();
