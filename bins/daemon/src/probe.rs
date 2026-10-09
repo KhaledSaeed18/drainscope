@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use drainscope_dbus::probe::{Probe1Proxy, ProbeError, Traffic, Wakeups};
+use drainscope_dbus::probe::{All, Probe1Proxy, ProbeError, Traffic, Wakeups};
 use drainscope_model::CgroupPath;
 
 /// Retry delay after polkit refused us: that doesn't change quickly.
@@ -83,6 +83,22 @@ pub struct ProbeClient {
     network: Backoff,
     /// The probe's generation at the last wakeup reading.
     generation: Option<u64>,
+    /// Whether to use `ReadAll`; off after a probe older than it answered `UnknownMethod`, until
+    /// the probe restarts.
+    combined: bool,
+}
+
+/// An older probe without the method (e.g. still running across an upgrade).
+fn is_unknown_method(err: &ProbeError) -> bool {
+    match err {
+        ProbeError::ZBus(zbus::Error::MethodError(name, ..)) => {
+            name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod"
+        }
+        ProbeError::ZBus(zbus::Error::FDO(fdo)) => {
+            matches!(**fdo, zbus::fdo::Error::UnknownMethod(_))
+        }
+        _ => false,
+    }
 }
 
 impl ProbeClient {
@@ -109,6 +125,7 @@ impl ProbeClient {
                 retry_at: None,
             },
             generation: None,
+            combined: true,
         }
     }
 
@@ -124,12 +141,34 @@ impl ProbeClient {
         self.network.problem.is_none()
     }
 
-    /// Every reading a tick needs, with the three calls in flight together so their replies
-    /// cost one wakeup instead of three. The probe rate-limits each method separately.
+    /// Every reading a tick needs, in one `ReadAll` call; from a probe older than that, three
+    /// calls in flight together.
     pub async fn read_all(&mut self) -> ProbeReadings {
         let Some(proxy) = self.proxy.clone() else {
             return ProbeReadings::default();
         };
+        if self.combined {
+            if self.wakeups.waiting() {
+                return ProbeReadings::default();
+            }
+            match proxy.read_all().await {
+                Ok(reply) => return self.readings_from(reply),
+                Err(err) if is_unknown_method(&err) => {
+                    tracing::info!("the probe predates ReadAll; reading its counters separately");
+                    self.combined = false;
+                }
+                Err(err) => {
+                    self.wakeups.failed("wakeup counts", &err);
+                    return ProbeReadings::default();
+                }
+            }
+        }
+        self.read_separately(&proxy).await
+    }
+
+    /// The three readings with the calls in flight together (the probe limits each method
+    /// separately), so replies that arrive together cost one wakeup.
+    async fn read_separately(&mut self, proxy: &Probe1Proxy<'static>) -> ProbeReadings {
         let ask_wakeups = !self.wakeups.waiting();
         let ask_network = !self.network.waiting();
         let (wakeups, traffic, time) = tokio::join!(
@@ -191,14 +230,37 @@ impl ProbeClient {
         self.network_time_from(reply)
     }
 
+    fn readings_from(&mut self, reply: All) -> ProbeReadings {
+        let (monotonic_ns, generation, wakeups, network, traffic, tx_ns, rx_ns) = reply;
+        let wakeups = self.wakeups_from(Ok((monotonic_ns, generation, wakeups)));
+        if !network {
+            let err = ProbeError::Unsupported("network counting isn't available".into());
+            self.network.failed("network traffic", &err);
+            return ProbeReadings {
+                wakeups,
+                ..ProbeReadings::default()
+            };
+        }
+        ProbeReadings {
+            wakeups,
+            traffic: self.traffic_from(Ok((monotonic_ns, generation, traffic))),
+            network_time: self.network_time_from(Ok((monotonic_ns, generation, tx_ns, rx_ns))),
+        }
+    }
+
     fn wakeups_from(&mut self, reply: Result<Wakeups, ProbeError>) -> Option<ProbeReading> {
         match reply {
             Ok((_, generation, pairs)) => {
                 self.wakeups.succeeded("wakeup counts");
                 // A restarted (perhaps upgraded) probe may now count traffic: ask again
                 // instead of waiting out a backoff from the old one.
-                if self.generation.replace(generation) != Some(generation) {
+                let previous = self.generation.replace(generation);
+                if previous != Some(generation) {
                     self.network.retry_at = None;
+                    // A restarted probe may be a newer one, with ReadAll.
+                    if previous.is_some() {
+                        self.combined = true;
+                    }
                 }
                 Some(ProbeReading {
                     generation,
@@ -264,5 +326,131 @@ mod tests {
         assert_eq!(client.read().await, None);
         assert_eq!(client.read_network().await, None);
         assert_eq!(client.read_all().await, ProbeReadings::default());
+    }
+
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use drainscope_dbus::probe::OBJECT_PATH;
+    use zbus::connection::Builder;
+
+    const FIREFOX: &str = "user.slice/user-1000.slice/app-firefox.scope";
+
+    /// A probe from before `ReadAll`: the three methods only, counting calls.
+    struct OldProbe(Arc<AtomicUsize>);
+
+    #[zbus::interface(name = "io.github.khaledsaeed18.Drainscope.Probe1")]
+    impl OldProbe {
+        #[zbus(out_args("monotonic_ns", "generation", "wakeups"))]
+        fn read_wakeups(&self) -> (u64, u64, Vec<(String, u64)>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            (1, 7, vec![(FIREFOX.into(), 40)])
+        }
+
+        #[zbus(out_args("monotonic_ns", "generation", "traffic"))]
+        fn read_network(&self) -> (u64, u64, Vec<(String, u64, u64)>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            (1, 7, vec![(FIREFOX.into(), 1000, 50)])
+        }
+
+        #[zbus(out_args("monotonic_ns", "generation", "tx_ns", "rx_ns"))]
+        fn read_network_time(&self) -> (u64, u64, u64, u64) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            (1, 7, 30, 70)
+        }
+    }
+
+    /// A current probe answering `ReadAll`.
+    struct NewProbe(Arc<AtomicUsize>);
+
+    #[zbus::interface(name = "io.github.khaledsaeed18.Drainscope.Probe1")]
+    impl NewProbe {
+        // Spelled out so zbus emits seven out arguments, like the real probe.
+        #[allow(clippy::type_complexity)]
+        #[zbus(out_args(
+            "monotonic_ns",
+            "generation",
+            "wakeups",
+            "network_available",
+            "traffic",
+            "tx_ns",
+            "rx_ns"
+        ))]
+        fn read_all(
+            &self,
+        ) -> (
+            u64,
+            u64,
+            Vec<(String, u64)>,
+            bool,
+            Vec<(String, u64, u64)>,
+            u64,
+            u64,
+        ) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            (
+                1,
+                7,
+                vec![(FIREFOX.into(), 40)],
+                true,
+                vec![(FIREFOX.into(), 1000, 50)],
+                30,
+                70,
+            )
+        }
+    }
+
+    /// A client connected to `probe` over a peer-to-peer connection; keep the server alive.
+    async fn client_of(
+        probe: impl zbus::object_server::Interface,
+    ) -> (zbus::Connection, ProbeClient) {
+        let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
+        let server = Builder::unix_stream(server_end)
+            .server(zbus::Guid::generate())
+            .unwrap()
+            .p2p()
+            .serve_at(OBJECT_PATH, probe)
+            .unwrap()
+            .build();
+        let client = Builder::unix_stream(client_end).p2p().build();
+        let (server, client) = tokio::join!(server, client);
+        let client = client.unwrap();
+        (server.unwrap(), ProbeClient::connect(Some(&client)).await)
+    }
+
+    fn expected() -> ProbeReadings {
+        ProbeReadings {
+            wakeups: Some(ProbeReading {
+                generation: 7,
+                wakeups: BTreeMap::from([(CgroupPath::new(FIREFOX), 40)]),
+            }),
+            traffic: Some(TrafficReading {
+                generation: 7,
+                received: BTreeMap::from([(CgroupPath::new(FIREFOX), 1000)]),
+                sent: BTreeMap::from([(CgroupPath::new(FIREFOX), 50)]),
+            }),
+            network_time: Some((7, 100)),
+        }
+    }
+
+    #[tokio::test]
+    async fn reads_everything_in_one_call() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (_server, mut client) = client_of(NewProbe(calls.clone())).await;
+        assert_eq!(client.read_all().await, expected());
+        assert_eq!(client.read_all().await, expected());
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(client.available() && client.network_available());
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_separate_calls_for_an_older_probe() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (_server, mut client) = client_of(OldProbe(calls.clone())).await;
+        assert_eq!(client.read_all().await, expected());
+        // Once it knows, it doesn't try ReadAll again: three calls per reading.
+        assert_eq!(client.read_all().await, expected());
+        assert_eq!(calls.load(Ordering::SeqCst), 6);
+        assert!(!client.combined);
     }
 }
