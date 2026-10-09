@@ -10,7 +10,8 @@ use drainscope_dbus::probe::{Probe1Proxy, ProbeError};
 use drainscope_dbus::sampler::{Sampler1Proxy, SamplerError};
 use drainscope_model::CgroupPath;
 use drainscope_sys::{
-    DrmScanner, EngineTime, SysRoot, gpu_drivers, read_batteries, read_cpu_usage,
+    DrmScanner, EngineTime, SysRoot, gpu_drivers, irq_threads, network_irqs, read_batteries,
+    read_cpu_usage,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,6 +146,39 @@ fn gpu_check(
         Err(err) => check(
             Level::Warn,
             format!("{listed}: scanning GPU clients failed: {err}"),
+            None,
+        ),
+    }
+}
+
+/// The network devices' threaded interrupt handlers, whose time model v3 charges to the apps
+/// causing the traffic (ADR 0008).
+fn network_interrupts(root: &SysRoot) -> Check {
+    let threads = network_irqs(root).and_then(|irqs| irq_threads(root, &irqs));
+    match threads {
+        Ok(pids) if pids.is_empty() => check(
+            Level::Ok,
+            "network interrupts: no handler threads (handled directly, counted with the softirqs)",
+            None,
+        ),
+        Ok(pids) => {
+            let names: Vec<String> = pids
+                .iter()
+                .filter_map(|&pid| drainscope_sys::process::read_stat(root, pid).ok().flatten())
+                .map(|stat| stat.comm)
+                .collect();
+            check(
+                Level::Ok,
+                format!(
+                    "network interrupt threads: {} (charged to apps by traffic, with the probe)",
+                    names.join(", ")
+                ),
+                None,
+            )
+        }
+        Err(err) => check(
+            Level::Warn,
+            format!("finding network interrupt threads failed: {err}"),
             None,
         ),
     }
@@ -300,6 +334,7 @@ pub async fn run() -> bool {
         batteries(&root),
         gpu(&root),
         rapl_zones(&root),
+        network_interrupts(&root),
         sampler(system.as_ref()).await,
         probe(system.as_ref()).await,
         daemon(session.as_ref()).await,
@@ -334,6 +369,32 @@ mod tests {
             check(Level::Fail, "broken", Some("fix it")),
         ]);
         assert_eq!(rendered, "✓ fine\n✗ broken\n    fix it\n");
+    }
+
+    #[test]
+    fn names_the_network_interrupt_threads() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = SysRoot::at(dir.path());
+        assert!(
+            network_interrupts(&root)
+                .message
+                .contains("no handler threads")
+        );
+        fs::create_dir_all(root.path("sys/class/net/wlp2s0/device/msi_irqs/135")).unwrap();
+        fs::create_dir_all(root.path("proc/664")).unwrap();
+        fs::write(root.path("proc/664/comm"), "irq/135-iwlwifi\n").unwrap();
+        fs::write(
+            root.path("proc/664/stat"),
+            "664 (irq/135-iwlwifi) S 2 0 0 0 -1 2129984 0 0 0 0 0 773 0 0 -51 0 1 0 412 0 0 18446744073709551615",
+        )
+        .unwrap();
+        let found = network_interrupts(&root);
+        assert_eq!(found.level, Level::Ok);
+        assert!(
+            found.message.contains("irq/135-iwlwifi"),
+            "{}",
+            found.message
+        );
     }
 
     #[test]
