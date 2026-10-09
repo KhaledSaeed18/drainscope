@@ -8,7 +8,7 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 
 | Channel | Status | Account | Keys / tokens | Cost | Review |
 |---|---|---|---|---|---|
-| GitHub Releases | **Done** (v0.1.2) | GitHub | `gh` CLI login (already set up) | free | none |
+| GitHub Releases | **Done** (v0.1.3) | GitHub | `gh` CLI login (already set up) | free | none |
 | COPR (Fedora RPM repo) | **Done** (Fedora 44, 45, rawhide) | Fedora Account (FAS) | COPR API token | free | none (automatic builds) |
 | extensions.gnome.org | **In review** (v0.1.2, submitted 2026-10-09) | EGO account | none | free | human review, days to weeks |
 | Flathub (the app only) | Later | GitHub | none (Flathub signs) | free | human review of the manifest |
@@ -18,13 +18,13 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 ## 1. GitHub Releases (done)
 
 - Repository: https://github.com/KhaledSaeed18/drainscope (public).
-- Each release (latest: v0.1.2) holds the source tarball, the SRPM, the binary RPMs and the extension zip. The spec's `Source0` points at the tarball there, so COPR can fetch it.
+- Each release (latest: v0.1.3) holds the source tarball, the SRPM, the binary RPMs and the extension zip. The spec's `Source0` points at the tarball there, so COPR can fetch it.
 - To release again: bump the versions (packaging/README.md, "Releasing"), run `cargo xtask dist --rpm`, then `git tag -a vX.Y.Z` and `gh release create`.
 - The RPMs on GitHub are **unsigned**. `dnf install ./file.rpm` accepts that for local files, but users should prefer COPR, whose packages are signed (below).
 
 ## 2. COPR: Fedora package repository (done)
 
-Live at https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/ since 2026-10-06; v0.1.2 (2026-10-07) for Fedora 44, 45 and rawhide (x86_64). Verified on Fedora 45: `dnf copr enable` plus `dnf install` imports the project key and installs RSA/SHA256-signed packages.
+Live at https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/ since 2026-10-06; v0.1.3 (2026-10-10) for Fedora 44, 45 and rawhide (x86_64). Verified on Fedora 45: `dnf copr enable` plus `dnf install` imports the project key and installs RSA/SHA256-signed packages.
 
 Users get `sudo dnf copr enable khaledsaeed18/drainscope` and updates through `dnf upgrade`.
 
@@ -61,7 +61,7 @@ For each new release, only the `copr-cli build` line is needed. When a new Fedor
 
 ## 3. extensions.gnome.org (EGO)
 
-Listing: https://extensions.gnome.org/extension/11189/drainscope/ (extension 11189). v0.1.2 was uploaded on 2026-10-09 with the description below, the Quick Settings feature card as its screenshot and the 128 px app icon; it awaits its first review. Each later release with extension changes needs its zip uploaded again, and is reviewed again.
+Listing: https://extensions.gnome.org/extension/11189/drainscope/ (extension 11189). v0.1.2 was uploaded on 2026-10-09 with the description below, the Quick Settings feature card as its screenshot and the 128 px app icon; it awaits its first review. Each later release with extension changes needs its zip uploaded again, and is reviewed again. The 0.1.3 extension changed (it follows Tick only while its menu is open); its zip, attached to the [v0.1.3 release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.3), is to be uploaded once 0.1.2 is approved, so the first review isn't held up (maintainer, 2026-10-10).
 
 ### Account
 - Register at https://extensions.gnome.org/accounts/register/. This is separate from GitLab and the Fedora account. No keys are involved.
@@ -72,7 +72,7 @@ Listing: https://extensions.gnome.org/extension/11189/drainscope/ (extension 111
 - **Description:** must say the extension needs the drainscope daemon, installed from COPR or from source; without it, the tile just reads "Daemon not running". Link the README's install section.
 
 ### Testing a new GNOME release
-Before adding a GNOME version to `shell-version`, run the extension in a nested shell of that version: `toolbox create --release NN`, install `gnome-shell mutter-devkit` in it, then run `gnome-shell --devkit --wayland` under `dbus-run-session` with scratch `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CONFIG_HOME`, so the nested daemon can't write to the real database. Let it run for over 60 seconds: the shell's crash-guard file in `/run/user/$UID` is only removed after that. `gnome-extensions info` inside the nested session must report `ACTIVE`, with no `JS ERROR` in the log. GNOME 51 was tested this way on 2026-10-06, with a copy of real data so the tile rows were built. `packaging/validate-copr.sh` automates this for released packages; v0.1.1 and v0.1.2 passed it on Fedora 44 (GNOME 50.5) and Fedora 45 (GNOME 51.0).
+Before adding a GNOME version to `shell-version`, run the extension in a nested shell of that version: `toolbox create --release NN`, install `gnome-shell mutter-devkit` in it, then run `gnome-shell --devkit --wayland` under `dbus-run-session` with scratch `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CONFIG_HOME`, so the nested daemon can't write to the real database. Let it run for over 60 seconds: the shell's crash-guard file in `/run/user/$UID` is only removed after that. `gnome-extensions info` inside the nested session must report `ACTIVE`, with no `JS ERROR` in the log. GNOME 51 was tested this way on 2026-10-06, with a copy of real data so the tile rows were built. `packaging/validate-copr.sh` automates this for released packages; v0.1.1 to v0.1.3 passed it on Fedora 44 (GNOME 50.5) and Fedora 45 (GNOME 51.0).
 
 ### Review
 - The review checks: GPL-compatible license (ours is GPL-3.0-or-later), unminified code, nothing created before `enable()`, everything cleaned up in `disable()`, and no synchronous I/O in the Shell process. The extension was written to these rules.
