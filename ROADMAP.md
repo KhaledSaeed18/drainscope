@@ -52,7 +52,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (v0.1.2).
 - [x] Daemon self-cost, first pass (v0.1.3): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
-- [x] Probe1 `ReadAll` (v0.1.3; ADR 0006 addendum): wakeups, traffic and network time in one call instead of three per tick; the daemon falls back to the three methods for an older probe.
+- [x] Probe1 `ReadAll` (v0.1.3; ADR 0006 addendum): wakeups, traffic and network time in one call instead of three per tick; the daemon falls back to the three methods for an older probe. Measured: 12 → 4 context switches in the probe, 18 → 6 in the system bus broker, 9 → 3 in the daemon per reading.
 - [x] Slower tick while nobody watches (v0.1.3): every 15 s, and every 5 s while the app or the Quick Settings menu is open (two Monitor1 calls within 20 s). Idle on battery: 0.28% of one CPU and 0.5 context switches/s (0.1.2: 0.82–1.0% and 3.0/s), under PLAN's 0.5% target. Unplugging is noticed within 15 s while idle. `validate` keeps the daemon live during its runs.
 - [x] CSV and JSON export (v0.1.3): `--format json|csv` on `drainscope`, `report`, `sleep`, `health`, `wakeups` and `network`; every row, in joules, watts and Unix seconds, with the period, coverage and model version in JSON.
 
@@ -68,8 +68,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, link it from the README install section ([docs/distribution.md](docs/distribution.md)).
 2. **Foreground and background energy per app** ([ADR 0011](docs/adr/0011-foreground-background.md); M3's last item): the Shell extension reports the focused app over Monitor1 (accepted only from the Shell's process), the daemon splits each app's energy into in use, background and unknown, and the app view and CLI show it. Monitor1 additions and a schema migration; started after 0.1.3 as agreed (2026-10-10).
 3. **Model v4: charge the cost of waking the machine** ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work. The first replay of option A (split the overhead by idle exits) only helped the 250 Hz timer: median 12% under both v3 and A, against a 60% goal. Next: a second run on the home network with the harness's fixed exit totals, then refine A or try B/C.
-4. **Measure `ReadAll`** once the dev machine runs 0.1.3 (`sudo dnf upgrade`): probe and bus-broker wakeups per tick, against the three calls of 0.1.2.
-5. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
+4. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
 
 ## Later
 

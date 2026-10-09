@@ -46,3 +46,5 @@ Option 2, with these limits:
 ## Addendum (2026-10-09): `ReadAll`
 
 Approved by the maintainer: Probe1 gains `ReadAll`, additive within version 1. It returns what `ReadWakeups`, `ReadNetwork` and `ReadNetworkTime` return, from one reading of the counters, with a `network_available` flag instead of failing when network counting is missing. The daemon used three calls per tick, each waking the probe and the bus broker; now it uses one. It falls back to the three methods when an older probe answers `UnknownMethod` (e.g. still running across an upgrade) and tries again after the probe restarts. Same polkit action, same visibility rules, its own rate limit.
+
+Measured on 0.1.3 (2026-10-10), medians of 20 readings on one connection: the three calls cost 12 context switches in the probe, 18 in the system bus broker and 9 in the caller; `ReadAll` costs 4, 6 and 3. That is 20 fewer wakeups in the system services per tick: about 1.3 a second at the idle 15 s tick, 4 at the 5 s tick.
