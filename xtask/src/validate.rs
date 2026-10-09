@@ -13,6 +13,7 @@
 // Sample counts, seconds and microjoules are far below 2^52.
 #![allow(clippy::cast_precision_loss)]
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
@@ -192,7 +193,8 @@ struct ProbeSample {
     generation: u64,
     wakeups: BTreeMap<String, u64>,
     bytes: BTreeMap<String, (u64, u64)>,
-    /// Idle exits of every cgroup the probe reports, summed: the machine's wake activity.
+    /// The machine's idle exits so far: increases summed over every cgroup the probe reports,
+    /// so the total keeps growing when cgroups (and their counts) disappear.
     total_wakeups: u64,
     /// Idle exits of the root cgroup itself: kernel threads and interrupts.
     kernel_wakeups: u64,
@@ -238,6 +240,8 @@ struct Buses {
     /// `None` if the daemon isn't running.
     monitor: Option<Monitor1Proxy<'static>>,
     probe: Probe1Proxy<'static>,
+    /// Per-cgroup idle exits at the last sample, its probe generation, and the running total.
+    exits: RefCell<(BTreeMap<String, u64>, u64, u64)>,
 }
 
 impl Buses {
@@ -260,6 +264,7 @@ impl Buses {
             sampler,
             monitor,
             probe,
+            exits: RefCell::new((BTreeMap::new(), 0, 0)),
         })
     }
 
@@ -291,7 +296,7 @@ impl Buses {
             match self.runtime.block_on(self.probe.read_wakeups()) {
                 Ok((_, generation, rows)) => {
                     sample.generation = generation;
-                    sample.total_wakeups = rows.iter().map(|(_, count)| count).sum();
+                    sample.total_wakeups = self.accumulate_exits(generation, &rows);
                     sample.kernel_wakeups = rows
                         .iter()
                         .find(|(path, _)| path.is_empty())
@@ -320,6 +325,13 @@ impl Buses {
             }
         }
         bail!("the probe kept rate-limiting")
+    }
+
+    /// Adds each cgroup's increase since the last sample to the running total. A cgroup's count
+    /// disappears from the probe's answer when the cgroup is removed, so summing the answer
+    /// itself would make the total drop. A new probe generation starts the counts over.
+    fn accumulate_exits(&self, generation: u64, rows: &[(String, u64)]) -> u64 {
+        accumulate_exits(&mut self.exits.borrow_mut(), generation, rows)
     }
 
     /// The daemon's usage rows for `[since, until)`, if it's running.
@@ -447,6 +459,25 @@ fn read_idle_states() -> BTreeMap<String, (u64, u64)> {
         }
     }
     states
+}
+
+/// See [`Buses::accumulate_exits`]; `state` is (counts at the last sample, their generation,
+/// running total).
+fn accumulate_exits(
+    state: &mut (BTreeMap<String, u64>, u64, u64),
+    generation: u64,
+    rows: &[(String, u64)],
+) -> u64 {
+    let (last, last_generation, total) = state;
+    if *last_generation != generation {
+        last.clear();
+        *last_generation = generation;
+    }
+    for (path, count) in rows {
+        let before = last.insert(path.clone(), *count).unwrap_or(0);
+        *total += count.saturating_sub(before);
+    }
+    *total
 }
 
 /// What every sample of a run reads.
@@ -1144,6 +1175,26 @@ mod tests {
         let states = read_idle_states();
         assert!(states.contains_key("C10"), "{states:?}");
         assert!(states.values().any(|&(usage, time)| usage > 0 && time > 0));
+    }
+
+    #[test]
+    fn total_exits_keep_growing_when_cgroups_disappear() {
+        let mut state = (BTreeMap::new(), 0, 0);
+        let rows = |pairs: &[(&str, u64)]| -> Vec<(String, u64)> {
+            pairs.iter().map(|(p, c)| ((*p).to_owned(), *c)).collect()
+        };
+        assert_eq!(
+            accumulate_exits(&mut state, 1, &rows(&[("a", 100), ("b", 50)])),
+            150
+        );
+        // b was removed: its count vanishes from the answer, the total doesn't drop.
+        assert_eq!(accumulate_exits(&mut state, 1, &rows(&[("a", 130)])), 180);
+        assert_eq!(
+            accumulate_exits(&mut state, 1, &rows(&[("a", 140), ("c", 5)])),
+            195
+        );
+        // A restarted probe counts from zero again.
+        assert_eq!(accumulate_exits(&mut state, 2, &rows(&[("a", 3)])), 198);
     }
 
     #[test]
