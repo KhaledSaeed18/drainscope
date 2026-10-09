@@ -154,7 +154,9 @@ drainscope/
 - Intervals are measured on `CLOCK_MONOTONIC` (excludes suspend, so suspend is handled as a separate session). Wall-clock (`CLOCK_REALTIME`) is used only for stored timestamps.
 - Counters: `u64` microjoules. Model math: `f64` joules. Time deltas: `u64` nanoseconds.
 
-### Tick (every 5 s; at 2 s the daemon would exceed its 0.5% CPU budget, measured in task 1.19)
+### Tick (every 5 s while the app or the Quick Settings menu is open, 15 s otherwise)
+
+The scan in step 2 is most of the daemon's cost: on battery it used about 0.7% of one CPU at a steady 5 s tick. The daemon counts as watched when Monitor1 gets two calls within 20 s (open views call on every tick; the extension's background refresh calls once a minute) and then ticks every 5 s; otherwise every 15 s, which is above the 10 s window so every tick closes one. Idle on battery: 0.28% of one CPU (2026-10-09).
 
 ```
 1. read energy      Sampler1.ReadCounters() → {domain → cumulative µJ} (wrap handled sampler-side)

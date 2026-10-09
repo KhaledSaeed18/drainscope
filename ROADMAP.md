@@ -4,7 +4,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Released
 
-**Unreleased (on `main`):** model v3 charges network interrupt threads to apps by traffic (ADR 0008); `drainscope doctor` lists them. The daemon wakes a third less (3.0 to 2.0 context switches/s) and uses about 25% less CPU; the extension no longer wakes GNOME Shell every 5 s while its menu is closed.
+**Unreleased (on `main`):** model v3 charges network interrupt threads to apps by traffic (ADR 0008); `drainscope doctor` lists them. While nobody watches, the daemon ticks every 15 s instead of 5: idle on battery it uses 0.28% of one CPU instead of 0.82–1.0%, and wakes 0.5 times a second instead of 3. Probe1 gains `ReadAll`, and the extension no longer wakes GNOME Shell every 5 s while its menu is closed.
 
 **v0.1.2** (2026-10-07): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.2) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). New app icon and a symbolic icon; the extension tile uses the drainscope symbolic icon; the daemon stops when its session bus closes.
 
@@ -53,6 +53,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (v0.1.2).
 - [x] Daemon self-cost, first pass (unreleased): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
 - [x] Probe1 `ReadAll` (unreleased; ADR 0006 addendum): wakeups, traffic and network time in one call instead of three per tick; the daemon falls back to the three methods for an older probe.
+- [x] Slower tick while nobody watches (unreleased): every 15 s, and every 5 s while the app or the Quick Settings menu is open (two Monitor1 calls within 20 s). Idle on battery: 0.28% of one CPU and 0.5 context switches/s (0.1.2: 0.82–1.0% and 3.0/s), under PLAN's 0.5% target. Unplugging is noticed within 15 s while idle. `validate` keeps the daemon live during its runs.
 
 ### Brand identity
 - [x] Energy shares identity v1: editable SVG masters, logo/icon exports, colors, fonts, social graphics, templates, tokens, and visual guide in [branding/](branding/README.md).
@@ -66,7 +67,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, link it from the README install section ([docs/distribution.md](docs/distribution.md)).
 2. **Validate model v3 on battery:** run the dev daemon in place of the packaged one, then `cargo xtask validate --activity` unplugged (about 10 minutes) on a connection of at least 0.5 MB/s (the 2026-10-09 attempt got 0.13 MB/s and was inconclusive; the harness now checks first). Record the download charge in ADR 0008 and docs/validation-activity.md, then release it (0.1.3).
 3. **Model v4: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
-4. **Daemon self-cost, continued:** on battery the daemon still uses about 0.7% of one CPU, above PLAN's 0.5% target (memory is fine: 12 MB). SQLite is only 2–3% of that (WAL, 8 fsyncs a minute). The rest is the per-tick scan: about 430 opens and 600 reads every 5 s, mostly 155 cgroup `cpu.stat` files whose reads make the kernel flush per-CPU statistics. Reaching 0.5% likely needs a slower tick (e.g. 10 s) while no live view is open (a design change to decide). Also to measure: `ReadAll`'s effect once the new probe is installed.
+4. **Measure `ReadAll`** once the new probe is installed (0.1.3 or `install-dev`): probe and bus-broker wakeups per tick, against the three calls of 0.1.2.
 5. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
 
 ## Later
