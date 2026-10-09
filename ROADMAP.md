@@ -74,7 +74,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 ## Later
 
 - Exit capture for cgroups that come and go between ticks ([ADR 0010](docs/adr/0010-exit-capture.md), proposed): about 0.5% of attributable energy on the dev machine now lands in `exited:*`. Design: the probe records exiting threads' CPU time by cgroup (`sched_process_exit`), the model moves it from the parent's `Exited` to the cgroup's own consumer. Needs approval for the probe program and a Probe1 method.
-- Foreground vs background time per app (M3 scope).
+- Foreground vs background energy per app (M3 scope; [ADR 0011](docs/adr/0011-foreground-background.md), proposed): the Shell extension reports the focused app over Monitor1, the daemon splits each app's energy into in use, background and unknown, and the app view and CLI show it. Needs approval for the Monitor1 additions and a schema migration.
 - Intel xe driver (`drm-cycles-*`) and an AMD integrated-GPU part (ADR 0005); needs that hardware for validation.
 - Flatpak for the app on Flathub (the daemon stays an RPM).
 - Fedora official packaging (needs every Rust dependency packaged; see docs/distribution.md).
