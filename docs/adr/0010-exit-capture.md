@@ -40,4 +40,4 @@ A `validate` phase that starts short CPU-bound `systemd-run --user --wait` units
 
 ## Recommendation
 
-Implement C after model v3 is validated and released and model v4 is decided (ADR 0009). It needs approval for the new probe program and the Probe1 method, like ADR 0007's. Until then, D is a cheap improvement to the label.
+Implement C after model v3 is validated and released and model v4 is decided (ADR 0009). It needs approval for the new probe program and the Probe1 method, like ADR 0007's. Until then, D is a cheap improvement to the label: done on 2026-10-10 ("Short-lived apps and commands" for `app.slice`, "Short-lived system services" for `system.slice` and `system-*.slice`, "Short-lived processes (slice)" otherwise, in the app, the extension and the CLI).
