@@ -10,7 +10,7 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 |---|---|---|---|---|---|
 | GitHub Releases | **Done** (v0.1.2) | GitHub | `gh` CLI login (already set up) | free | none |
 | COPR (Fedora RPM repo) | **Done** (Fedora 44, 45, rawhide) | Fedora Account (FAS) | COPR API token | free | none (automatic builds) |
-| extensions.gnome.org | Next | EGO account | none | free | human review, days to weeks |
+| extensions.gnome.org | **In review** (v0.1.2, submitted 2026-10-09) | EGO account | none | free | human review, days to weeks |
 | Flathub (the app only) | Later | GitHub | none (Flathub signs) | free | human review of the manifest |
 | Fedora official repositories | Optional, long-term | FAS + packager group | Kerberos, SSH key, FAS 2FA | free | package review |
 | Release signing | Optional | — | GPG key (or Sigstore) | free | — |
@@ -61,6 +61,8 @@ For each new release, only the `copr-cli build` line is needed. When a new Fedor
 
 ## 3. extensions.gnome.org (EGO)
 
+Listing: https://extensions.gnome.org/extension/11189/drainscope/ (extension 11189). v0.1.2 was uploaded on 2026-10-09 with the description below, the Quick Settings feature card as its screenshot and the 128 px app icon; it awaits its first review. Each later release with extension changes needs its zip uploaded again, and is reviewed again.
+
 ### Account
 - Register at https://extensions.gnome.org/accounts/register/. This is separate from GitLab and the Fedora account. No keys are involved.
 
@@ -109,5 +111,5 @@ COPR covers Fedora users well in the meantime.
 ## What I need from you, in order
 
 1. ~~**COPR:** Fedora account and API token.~~ Done; renew the token every 180 days (COPR emails before it expires).
-2. **EGO** (deferred by the maintainer for now): register, take a screenshot of the tile, upload the zip from the latest release with the description above, and answer the reviewers.
+2. ~~**EGO:** register and upload.~~ Done (2026-10-09). Answer the reviewers when their email arrives, and upload each new release's zip.
 3. **Optional:** a GPG key for signed tags and tarballs, if you want "Verified" releases.

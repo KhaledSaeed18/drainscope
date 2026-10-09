@@ -334,7 +334,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | **M2 — GNOME Shell extension** (done) | Quick-settings section "Battery usage since unplug" (top 5 + "Open drainscope"); live refresh via `Tick`; app names and icons via `Shell.AppSystem`; GNOME 50 and 51 ESM; strict TS with validated GVariant decoders; EGO-compliant (no work outside `enable`, full cleanup in `disable`). |
 | **M3 — Desktop app + sleep and health** (done, except foreground vs background) | libadwaita app: since-unplug / 24 h / 7 d views, stacked timeline, per-app detail (CPU vs GPU, foreground vs background), sleep sessions with wake reason, battery health chart (`energy_full` vs design, cycle count). |
 | **M4 — eBPF precision** (done for wakeups, network bytes and model v2; ADRs 0006, 0007; exit capture remains) | Per-app wakeups (timer/sched tracepoints) to find idle-drain culprits; capture short-lived processes at exit; per-cgroup network bytes (cgroup_skb) for a Wi-Fi share of "devices"; model v2 weighting CPU time by per-CPU frequency. eBPF runs in a sibling of the sampler (`drainscope-probe`) and exports only aggregated per-cgroup counters. As built, model v2 charges network-softirq time to apps by bytes; frequency weighting was not needed on the measured hardware. |
-| **M5 — Hardening and distribution** (SELinux, packaging, GitHub releases and COPR done; EGO and Flatpak pending, see [docs/distribution.md](docs/distribution.md)) | SELinux policy modules for the sampler and the probe; COPR stable channel; EGO publication; Flatpak for the app; AMD support (no `psys`, different domains) tested on a donor machine or in CI with fixtures; docs site and a write-up of the model and validation. |
+| **M5 — Hardening and distribution** (SELinux, packaging, GitHub releases and COPR done; EGO in review and Flatpak pending, see [docs/distribution.md](docs/distribution.md)) | SELinux policy modules for the sampler and the probe; COPR stable channel; EGO publication; Flatpak for the app; AMD support (no `psys`, different domains) tested on a donor machine or in CI with fixtures; docs site and a write-up of the model and validation. |
 | **Later ideas** | Backlight-weighted display share; per-app notifications ("Slack has used 8% in the background"); export to CSV/JSON; Prometheus textfile output for homelab users; KDE Plasma widget (the D-Bus API makes it a pure UI addition). |
 
 ---
@@ -363,7 +363,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | `drainscope-sampler` RPM | sampler binary in `/usr/libexec`, system unit, sysusers.d entry, D-Bus system policy + activation file, polkit policy | same; recommended by `drainscope` |
 | `drainscope-probe` RPM | eBPF probe in `/usr/libexec`, system unit, sysusers.d entry, D-Bus policy + activation file, polkit policy | same; recommended by `drainscope` |
 | `drainscope-selinux` RPM (noarch) | policy modules for the sampler and the probe | same; pulled in by the sampler and probe on SELinux systems |
-| `gnome-shell-extension-drainscope` RPM (noarch) + zip | bundled ESM extension | same, plus extensions.gnome.org (pending) |
+| `gnome-shell-extension-drainscope` RPM (noarch) + zip | bundled ESM extension | same, plus extensions.gnome.org (in review) |
 | `drainscope-app` RPM (noarch) | GJS app, desktop entry, metainfo, icon | same; Flatpak on Flathub later, with `--talk-name=io.github.khaledsaeed18.Drainscope.Monitor` |
 
 Notes:

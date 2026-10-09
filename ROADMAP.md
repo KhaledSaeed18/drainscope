@@ -58,7 +58,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Next (in priority order)
 
-1. **Publish the extension on extensions.gnome.org** (deferred by the maintainer). Upload the zip from the latest release (GNOME 50 and 51; validated); needs an EGO account. The screenshot is ready ([docs/distribution.md](docs/distribution.md)).
+1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, link it from the README install section ([docs/distribution.md](docs/distribution.md)).
 2. **Model v2.1: count the network driver's IRQ thread** (e.g. `irq/134-iwlwifi`, about 30% more network work), charged by bytes like the softirqs. Small; needs one battery validation run.
 3. **Model v3: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
 4. **Daemon self-cost:** about 4 wakeups/s (≈ 20 per 5 s tick). Batch the D-Bus calls and the collector thread.
