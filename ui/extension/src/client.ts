@@ -45,8 +45,12 @@ export class MonitorClient {
     }
   }
 
-  /** Calls `onTick` after every attribution tick of the daemon (every few seconds). */
+  /**
+   * Calls `onTick` after every attribution tick of the daemon (every few seconds), until
+   * `unsubscribeTicks`. Replaces an earlier subscription.
+   */
   subscribeTicks(onTick: () => void): void {
+    this.unsubscribeTicks();
     this.tickSubscription = Gio.DBus.session.signal_subscribe(
       BUS_NAME,
       INTERFACE,
@@ -60,11 +64,15 @@ export class MonitorClient {
     );
   }
 
-  destroy(): void {
-    this.cancellable.cancel();
+  unsubscribeTicks(): void {
     if (this.tickSubscription !== null) {
       Gio.DBus.session.signal_unsubscribe(this.tickSubscription);
       this.tickSubscription = null;
     }
+  }
+
+  destroy(): void {
+    this.cancellable.cancel();
+    this.unsubscribeTicks();
   }
 }

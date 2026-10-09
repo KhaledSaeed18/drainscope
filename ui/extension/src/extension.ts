@@ -124,15 +124,16 @@ export default class DrainscopeExtension extends Extension {
     quickSettings.addExternalIndicator(indicator);
 
     const client = new MonitorClient();
-    // While the menu is open, follow the daemon's ticks; otherwise refresh slowly.
-    client.subscribeTicks(() => {
-      if (toggle.menu.isOpen) {
-        this.refresh();
-      }
-    });
+    // While the menu is open, follow the daemon's ticks; otherwise refresh slowly. Subscribing
+    // only then keeps the Shell from waking for every tick (every 5 s) while nobody looks.
     this.menuSignal = toggle.menu.connect('open-state-changed', (_menu, open) => {
       if (open) {
+        client.subscribeTicks(() => {
+          this.refresh();
+        });
         this.refresh();
+      } else {
+        client.unsubscribeTicks();
       }
     });
     this.refreshSource = GLib.timeout_add_seconds(
