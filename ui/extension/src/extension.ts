@@ -125,7 +125,7 @@ export default class DrainscopeExtension extends Extension {
 
     const client = new MonitorClient();
     // While the menu is open, follow the daemon's ticks; otherwise refresh slowly. Subscribing
-    // only then keeps the Shell from waking for every tick (every 5 s) while nobody looks.
+    // only then keeps the Shell from waking for every tick while nobody looks.
     this.menuSignal = toggle.menu.connect('open-state-changed', (_menu, open) => {
       if (open) {
         client.subscribeTicks(() => {

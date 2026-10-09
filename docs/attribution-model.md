@@ -2,7 +2,7 @@
 
 How drainscope turns measured energy into "who used it". The code is `crates/model` (`attribution`, `activity`, `calibration`, `window`); the version is `MODEL_VERSION`, stored with every window.
 
-## Inputs, every 5 s tick
+## Inputs, every tick (5 s while the app or the Quick Settings menu is open, 15 s otherwise)
 
 - **RAPL energy** (through the sampler), split into **parts**: `core`, `uncore` (the integrated GPU), the rest of the package (`package − core − uncore`), and `dram`. `psys` is used only when it passes a plausibility check (ADR 0001).
 - **CPU time** per cgroup (cgroup v2 `cpu.stat`), as "own time": a cgroup's usage minus its children's. Leaves are processes. The root's own time is the kernel, including IRQ and softirq time (`CONFIG_IRQ_TIME_ACCOUNTING`). Inner nodes' own time is processes that exited.
