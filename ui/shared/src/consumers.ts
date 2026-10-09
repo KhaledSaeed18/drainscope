@@ -56,6 +56,20 @@ export function isAttributable(consumer: Consumer): boolean {
 
 const withoutService = (unit: string): string => unit.replace(/\.service$/, '');
 
+/**
+ * Processes whose cgroup came and went between two measurements, by the slice they ran in
+ * (ADR 0010). Matches the CLI's labels.
+ */
+function shortLived(slice: string): string {
+  if (slice === 'app.slice') {
+    return 'Short-lived apps and commands';
+  }
+  if (slice === 'system.slice' || (slice.startsWith('system-') && slice.endsWith('.slice'))) {
+    return 'Short-lived system services';
+  }
+  return `Short-lived processes (${slice})`;
+}
+
 /** A readable label; `appName` resolves application ids (e.g. from desktop entries). */
 export function describeConsumer(consumer: Consumer, appName: (id: string) => string | undefined): string {
   switch (consumer.kind) {
@@ -80,7 +94,7 @@ export function describeConsumer(consumer: Consumer, appName: (id: string) => st
     case 'kernel':
       return 'Kernel';
     case 'exited':
-      return `Exited processes (${consumer.name})`;
+      return shortLived(consumer.name);
     case 'idle':
       return 'Idle';
     case 'platform':

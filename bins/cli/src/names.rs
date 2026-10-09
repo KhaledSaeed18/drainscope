@@ -71,6 +71,22 @@ impl Names {
     }
 }
 
+/// Processes whose cgroup came and went between two measurements, by the slice they ran in
+/// (ADR 0010). Matches the app's and extension's labels.
+fn short_lived(slice: &str) -> String {
+    // Slice names are case-sensitive: `system-<name>.slice` holds a template's services.
+    let system_template = slice
+        .strip_prefix("system-")
+        .is_some_and(|rest| rest.strip_suffix(".slice").is_some());
+    if slice == "app.slice" {
+        "Short-lived apps and commands".to_owned()
+    } else if slice == "system.slice" || system_template {
+        "Short-lived system services".to_owned()
+    } else {
+        format!("Short-lived processes ({slice})")
+    }
+}
+
 /// Describes a consumer, naming apps through `app_name`.
 pub fn describe(key: &ConsumerKey, mut app_name: impl FnMut(&str) -> Option<String>) -> String {
     let unit = |name: &str| name.strip_suffix(".service").unwrap_or(name).to_owned();
@@ -85,7 +101,7 @@ pub fn describe(key: &ConsumerKey, mut app_name: impl FnMut(&str) -> Option<Stri
         ConsumerKey::OtherUsers => "Other users".to_owned(),
         ConsumerKey::Root => "Root (sudo, admin sessions)".to_owned(),
         ConsumerKey::Kernel => "Kernel".to_owned(),
-        ConsumerKey::Exited(slice) => format!("Exited processes ({slice})"),
+        ConsumerKey::Exited(slice) => short_lived(slice),
         ConsumerKey::Idle => "Idle".to_owned(),
         ConsumerKey::Platform => "Chipset & platform".to_owned(),
         ConsumerKey::Devices => "Display & devices".to_owned(),
@@ -123,5 +139,12 @@ mod tests {
             "System: NetworkManager"
         );
         assert_eq!(describe(&ConsumerKey::Devices, named), "Display & devices");
+        let exited = |slice: &str| describe(&ConsumerKey::Exited(slice.into()), named);
+        assert_eq!(exited("app.slice"), "Short-lived apps and commands");
+        assert_eq!(
+            exited("system-systemd-coredump.slice"),
+            "Short-lived system services"
+        );
+        assert_eq!(exited("user.slice"), "Short-lived processes (user.slice)");
     }
 }

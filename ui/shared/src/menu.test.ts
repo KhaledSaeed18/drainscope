@@ -43,6 +43,11 @@ describe('consumers', () => {
     expect(describeConsumer(parseConsumer('app:org.mozilla.firefox'), appNames)).toBe('Firefox');
     expect(describeConsumer(parseConsumer('app:org.unknown'), appNames)).toBe('org.unknown');
     expect(describeConsumer(parseConsumer('unit:NetworkManager.service'), appNames)).toBe('System: NetworkManager');
+    expect(describeConsumer(parseConsumer('exited:app.slice'), appNames)).toBe('Short-lived apps and commands');
+    expect(describeConsumer(parseConsumer('exited:system-systemd-coredump.slice'), appNames)).toBe(
+      'Short-lived system services',
+    );
+    expect(describeConsumer(parseConsumer('exited:user.slice'), appNames)).toBe('Short-lived processes (user.slice)');
     expect(iconName(parseConsumer('term:pnpm'))).toBe('utilities-terminal-symbolic');
   });
 });

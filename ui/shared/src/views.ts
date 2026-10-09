@@ -47,7 +47,7 @@ const KIND_LABELS: Readonly<Record<string, string>> = {
   'other-users': 'Other users',
   root: 'Root',
   kernel: 'Kernel',
-  exited: 'Exited processes',
+  exited: 'Short-lived processes',
   idle: 'Idle',
   platform: 'Chipset & platform',
   devices: 'Display & devices',
