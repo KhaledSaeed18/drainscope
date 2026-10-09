@@ -28,3 +28,4 @@ Not chosen: timing the threads in the eBPF probe (`sched_switch`). It would be m
 - Without the probe (no bytes), v3 attributes exactly like v1, like v2. The trace-replay golden test is unchanged apart from its version header.
 - Drivers that handle interrupts directly have no thread; their hard-IRQ time stays with Kernel, since the kernel doesn't report it per interrupt.
 - To validate: with the v3 daemon running, `cargo xtask validate --activity` on battery. Downloads should be charged more than v2's 20% of their RAPL increase; record the result here and in `docs/validation-activity.md`.
+- First attempt, 2026-10-09: inconclusive. The connection only reached 0.10–0.13 MB/s (every server tried), so the download phases didn't move RAPL measurably. `validate --activity` now checks the download speed first and stops below 0.5 MB/s.
