@@ -72,7 +72,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Later
 
-- Exit capture for short-lived processes (eBPF `sched_process_exit`, ADR 0006 stage 2).
+- Exit capture for cgroups that come and go between ticks ([ADR 0010](docs/adr/0010-exit-capture.md), proposed): about 0.5% of attributable energy on the dev machine now lands in `exited:*`. Design: the probe records exiting threads' CPU time by cgroup (`sched_process_exit`), the model moves it from the parent's `Exited` to the cgroup's own consumer. Needs approval for the probe program and a Probe1 method.
 - Foreground vs background time per app (M3 scope).
 - Intel xe driver (`drm-cycles-*`) and an AMD integrated-GPU part (ADR 0005); needs that hardware for validation.
 - Flatpak for the app on Flathub (the daemon stays an RPM).
