@@ -10,7 +10,7 @@ Summary:        Per-app battery and energy usage for the Linux desktop
 
 # drainscope is GPL-3.0-or-later; the rest covers the bundled Rust crates, listed with their
 # licenses in LICENSE.dependencies. `cargo xtask dist` checks this expression is current.
-License:        GPL-3.0-or-later AND (Apache-2.0 OR MIT) AND (Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT) AND MIT AND Unicode-3.0 AND Zlib
+License:        GPL-3.0-or-later AND (Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT) AND (Apache-2.0 OR MIT) AND (MIT OR Unlicense) AND MIT AND Unicode-3.0 AND Zlib
 URL:            https://github.com/KhaledSaeed18/drainscope
 # Built by `cargo xtask dist`: the git tree plus vendored crates (offline build) and the
 # bundled GNOME Shell extension.
