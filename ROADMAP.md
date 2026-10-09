@@ -4,6 +4,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Released
 
+**Unreleased (on `main`):** model v3 charges network interrupt threads to apps by traffic (ADR 0008); `drainscope doctor` lists them.
+
 **v0.1.2** (2026-10-07): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.2) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). New app icon and a symbolic icon; the extension tile uses the drainscope symbolic icon; the daemon stops when its session bus closes.
 
 **v0.1.1** (2026-10-06): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.1) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). The daemon locks its database so a second instance can't double-count; the extension supports GNOME 51.
@@ -39,6 +41,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] Network bytes per cgroup (`cgroup_skb`, loopback excluded): `drainscope network`, app section. Validated: 20 MB counted as 20.64 MB.
 - [x] Costs measured on battery (`validate --activity`): wakeups 1.2–1.5 mW per 100/s; network stack 170–211 mW per MB/s; radio ≈ 70 mW per MB/s.
 - [x] Model v2: network-softirq time moves from Kernel to apps by bytes. Downloads charged 20% of their cost (v1: 5%).
+- [x] Model v3 (ADR 0008): the network devices' threaded interrupt handlers (`irq/135-iwlwifi` here) are charged by bytes with the softirqs, read from procfs without privileges; `drainscope doctor` lists them (unreleased; battery validation pending).
 
 ### M5 — Hardening and distribution
 - [x] SELinux modules for the sampler and the probe, enforcing, no denials; `drainscope-selinux` package.
@@ -59,8 +62,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 ## Next (in priority order)
 
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Model v2.1: count the network driver's IRQ thread** (e.g. `irq/134-iwlwifi`, about 30% more network work), charged by bytes like the softirqs. Small; needs one battery validation run.
-3. **Model v3: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
+2. **Validate model v3 on battery:** install the dev daemon, run `cargo xtask validate --activity` unplugged (about an hour), and record the download charge in ADR 0008 and docs/validation-activity.md. Then release it (0.1.3).
+3. **Model v4: marginal-cost attribution** (needs an ADR first). Proportional sharing undercharges light, bursty consumers: downloads get about 20% of their cost and timer loads 7–50%, while large CPU loads get 79–90%. Charge each consumer the power it adds, measured against the idle floor and current utilization.
 4. **Daemon self-cost:** about 4 wakeups/s (≈ 20 per 5 s tick). Batch the D-Bus calls and the collector thread.
 5. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
 
