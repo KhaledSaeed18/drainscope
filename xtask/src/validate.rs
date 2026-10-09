@@ -194,6 +194,8 @@ struct ProbeSample {
     bytes: BTreeMap<String, (u64, u64)>,
     /// Idle exits of every cgroup the probe reports, summed: the machine's wake activity.
     total_wakeups: u64,
+    /// Idle exits of the root cgroup itself: kernel threads and interrupts.
+    kernel_wakeups: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -290,6 +292,10 @@ impl Buses {
                 Ok((_, generation, rows)) => {
                     sample.generation = generation;
                     sample.total_wakeups = rows.iter().map(|(_, count)| count).sum();
+                    sample.kernel_wakeups = rows
+                        .iter()
+                        .find(|(path, _)| path.is_empty())
+                        .map_or(0, |(_, count)| *count);
                     sample.wakeups = rows
                         .into_iter()
                         .filter_map(|(path, count)| Some((scope_of(&path)?, count)))
@@ -512,8 +518,9 @@ fn preflight(options: &Options) -> Result<()> {
             .parse::<f64>()
             .unwrap_or(0.0)
             / 1e6;
+        // --allow-ac only checks the harness, so a slow link is just noted then.
         ensure!(
-            speed >= MIN_DOWNLOAD_MB_S,
+            speed >= MIN_DOWNLOAD_MB_S || options.allow_ac,
             "the connection downloads at {speed:.2} MB/s; the download phases need at least \
              {MIN_DOWNLOAD_MB_S} MB/s to be measurable. Run it on a faster network."
         );
@@ -598,7 +605,8 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
         });
     }
 
-    let raw = write_raw(repo_root, run_id, &samples, &phases)?;
+    let charged: Vec<Option<f64>> = phases.iter().map(|p| daemon_watts(&buses, p)).collect();
+    let raw = write_raw(repo_root, run_id, &samples, &phases, &charged)?;
     let (report, name) = if options.activity {
         (
             activity_report(&buses, &phases, &samples, &raw)?,
@@ -615,26 +623,29 @@ pub fn run(repo_root: &Path, options: &Options) -> Result<()> {
 }
 
 /// Writes the samples, and the phase boundaries next to them, for later re-analysis.
+/// `charged`: what the running daemon attributed to each phase's load, as average watts.
 fn write_raw(
     repo_root: &Path,
     run_id: i64,
     samples: &[Sample],
     phases: &[Phase],
+    charged: &[Option<f64>],
 ) -> Result<String> {
     let dir = repo_root.join("testdata/local");
     fs::create_dir_all(&dir)?;
     let name = format!("validation-{run_id}.csv");
-    let mut phase_csv = String::from("name,unit,start,end,wall_start,wall_end\n");
-    for p in phases {
+    let mut phase_csv = String::from("name,unit,start,end,wall_start,wall_end,charged_w\n");
+    for (p, charged) in phases.iter().zip(charged) {
         let _ = writeln!(
             phase_csv,
-            "{},{},{:.3},{:.3},{},{}",
+            "{},{},{:.3},{:.3},{},{},{}",
             p.name,
             p.unit.as_deref().unwrap_or(""),
             p.start,
             p.end,
             p.wall_start,
-            p.wall_end
+            p.wall_end,
+            charged.map_or(String::new(), |w| format!("{w:.4}"))
         );
     }
     fs::write(
@@ -643,7 +654,7 @@ fn write_raw(
     )?;
     let mut csv = String::from(
         "t,generation,battery_w,backlight,root_usec,rapl_uj,scope_usec,probe_generation,\
-         scope_wakeups,scope_bytes,total_wakeups,idle_states\n",
+         scope_wakeups,scope_bytes,total_wakeups,kernel_wakeups,idle_states\n",
     );
     for s in samples {
         let rapl: Vec<String> = s.rapl_uj.iter().map(|(d, v)| format!("{d}={v}")).collect();
@@ -670,7 +681,7 @@ fn write_raw(
             .collect();
         let _ = writeln!(
             csv,
-            "{:.3},{},{},{},{},{},{},{},{},{},{},{}",
+            "{:.3},{},{},{},{},{},{},{},{},{},{},{},{}",
             s.t,
             s.generation,
             s.battery_w.map_or(String::new(), |w| format!("{w:.3}")),
@@ -686,6 +697,9 @@ fn write_raw(
             s.probe
                 .as_ref()
                 .map_or(String::new(), |p| p.total_wakeups.to_string()),
+            s.probe
+                .as_ref()
+                .map_or(String::new(), |p| p.kernel_wakeups.to_string()),
             idle.join(";")
         );
     }
@@ -1162,6 +1176,7 @@ mod tests {
                 wakeups: wakeups.map(|w| ("u".to_owned(), w)).into_iter().collect(),
                 bytes: BTreeMap::new(),
                 total_wakeups: 0,
+                kernel_wakeups: 0,
             });
             s
         };

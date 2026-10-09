@@ -26,6 +26,6 @@ From the raw samples of earlier `validate` runs on battery (one CPU run, three a
 
 ## Next
 
-`validate --activity` now also records the machine's total idle exits and each cpuidle state's entries and time per sample. The next battery run (also needed for model v3, ADR 0008) gives the data to replay option A offline: what each timer and download phase would be charged, against what it adds to RAPL.
+`validate --activity` now also records the machine's total and kernel idle exits and each cpuidle state's entries and time per sample, and what the running daemon charged each phase. The next battery run (also needed for model v3, ADR 0008) gives the data to replay option A offline. Option A only re-splits the overhead, so for a phase's load: charge_A = charge_v3 + overhead × (exit share − CPU share), with overhead = active energy − k × (busy CPUs above the idle phase's), for a few prices k from the CPU run. Compared with the RAPL increase the phase caused.
 
 Proposed success criteria for adopting a v4: timer and download loads charged at least 60% (median) of their RAPL increase; CPU loads stay at 79–100%; the energy split stays exact (property-tested); without the probe, identical to v3.
