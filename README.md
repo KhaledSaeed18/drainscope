@@ -31,7 +31,7 @@ GNOME Shell                  <1%             9%   0.12 Wh
 ```
 
 - `drainscope` — battery used since unplugged, by consumer
-- `drainscope report --since 24h [--by kind] [--source battery|ac]` — energy over a period
+- `drainscope report --since 24h [--by kind] [--source battery|ac]` — energy over a period, with each app's share while in use and in the background (needs the GNOME Shell extension)
 - `drainscope top` — live power per consumer
 - `drainscope sleep` — battery lost while suspended, and what woke the machine
 - `drainscope wakeups` — which apps keep waking the processor from idle (needs the optional eBPF probe)
@@ -41,7 +41,7 @@ GNOME Shell                  <1%             9%   0.12 Wh
 
 Add `--format json` or `--format csv` to `drainscope`, `report`, `sleep`, `health`, `wakeups` or `network` to export every row in joules, watts and Unix seconds, e.g. `drainscope report --since 7d --format csv > week.csv`.
 
-The desktop app (`drainscope-app`) shows the same history with a stacked timeline (since unplugged, last hour, 24 h, 7 days), a breakdown per consumer, and battery lost in each suspend.
+The desktop app (`drainscope-app`) shows the same history with a stacked timeline (since unplugged, last hour, 24 h, 7 days), a breakdown per consumer (for apps, how much was used while in use and in the background), and battery lost in each suspend.
 
 ## Hardware support
 
@@ -63,7 +63,7 @@ The desktop app (`drainscope-app`) shows the same history with a stacked timelin
 | `drainscope-daemon` | you, as a `systemd --user` service | Every 5 s: reads cgroup CPU time, GPU time from DRM fdinfo, batteries and RAPL; attributes energy above the machine's learned idle floor to whoever was active; reconciles with the battery over 10 s windows; stores history in `~/.local/state/drainscope/` (one daemon per database, enforced with a lock file); serves `Monitor1` on the session bus. |
 | `drainscope` | you | Reads `Monitor1`. |
 
-Everything stays on your machine; no component uses the network.
+Everything stays on your machine; no component uses the network. With the GNOME Shell extension, the daemon also records which app had focus, to split each app's energy into while in use and in the background: only the app's ID (never window titles), kept and pruned with the rest of the history.
 
 ## Installing (Fedora, COPR)
 

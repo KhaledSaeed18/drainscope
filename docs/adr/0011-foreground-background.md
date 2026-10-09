@@ -1,6 +1,6 @@
 # 0011 — Foreground and background energy per app
 
-- Status: proposed (design; needs approval for a Monitor1 addition and a schema migration)
+- Status: accepted (approved by the maintainer after 0.1.3); implemented 2026-10-10, on-machine validation pending
 - Date: 2026-10-10
 
 ## Context
@@ -28,7 +28,7 @@ So the extension reports focus, and the daemon classifies energy. Without the ex
 
 **Classifying energy (daemon).** The daemon keeps the focus timeline in memory (state changes with their `CLOCK_MONOTONIC` times). For each tick and each `app:*` consumer: foreground = energy × (seconds focused in the tick ÷ tick length), unknown = energy × (seconds unknown ÷ tick length), background = the rest. Energy within a tick is assumed even, which is good enough at 5 s ticks (the extension's own calls keep the daemon at 5 s while anyone is working with the menu or app open; at the 15 s idle tick the user isn't looking at drainscope, but focus changes are still timed exactly). Focused seconds per app are recorded too: that's screen time, which the app view can show next to the energy. Attribution itself doesn't change, so `MODEL_VERSION` stays.
 
-**Storage.** A migration adds `focus_raw (window_id, consumer_id, foreground_j, unknown_j, focused_ms)` next to `usage_raw`, rolled up into `focus_minute` and `focus_hour` exactly like usage, with the same retention. Only app consumers get rows. History from before the migration has no rows: unknown. (Columns on the usage tables would have meant migrating every existing row; a separate table keeps the hot tables untouched.)
+**Storage.** A migration adds `focus_raw (window_id, consumer_id, foreground_j, unknown_j, focused_ms)` next to `usage_raw`, rolled up into `focus_minute` and `focus_hour` exactly like usage, with the same retention. Only app consumers get rows, and every app usage row has one: the migration gives history from before it rows with all of its energy unknown, so background never includes energy recorded before focus was tracked. (Columns on the usage tables would have meant migrating every existing row; a separate table keeps the hot tables untouched.)
 
 **Reading it (Monitor1, additive).** `GetFocus(x since, x until, s power_source) → a(sddt)`: per app key, foreground J, unknown J, focused seconds. Clients join it with `GetUsage` rows; background = total − foreground − unknown.
 
@@ -46,7 +46,7 @@ This records which app had focus, per minute after rollup: screen time. It stays
 ## Consequences and limits
 
 - Needs the Shell extension, so it's GNOME-only for now (KDE's KWin and wlroots' foreign-toplevel protocol could report focus later through the same `SetFocus`).
-- Apps whose windows map to no desktop ID (`window:<n>` in Shell) can't be matched to a consumer and count as unknown. Where an app's cgroup scope name differs from its desktop ID, the app consumer and the focus report won't match; the identity rules' tests should cover the common cases (GNOME and Flatpak launches).
+- Apps whose windows map to no desktop ID (`window:<n>` in Shell) can't be matched to a consumer: the extension reports nothing focused, so their own energy isn't split and other apps' energy meanwhile counts as background. Where an app's cgroup scope name differs from its desktop ID, the app consumer and the focus report won't match; the identity rules' tests should cover the common cases (GNOME and Flatpak launches).
 - A new Monitor1 addition and a schema migration: both need the maintainer's approval (CLAUDE.md). No privilege changes: the daemon and extension stay unprivileged.
 - The extension changes, so a new extensions.gnome.org review.
 
@@ -55,3 +55,10 @@ This records which app had focus, per minute after rollup: screen time. It stays
 Unit tests for the timeline split (focus changes inside a tick, unknown spans, `EndFocus`, a Shell restart) and the migration and rollups (focus sums equal raw sums). An integration test over a peer-to-peer bus for the caller check. On the machine: two apps with similar steady CPU load, focus alternated on a known schedule for 10 minutes; each app's foreground share should match its focused share within 5 percentage points, and totals must be unchanged from usage.
 
 Estimated work: about two to three days across daemon, store, extension, app and CLI.
+
+### Status (2026-10-10)
+
+- Unit tests: the timeline and split (`model::focus`), the engine carrying each window's split, migration 3's backfill, and the rollups at all three resolutions with pruning.
+- Peer-to-peer integration test: `SetFocus` and `EndFocus` from a caller that isn't the Shell get `AccessDenied` and leave focus unknown; `GetFocus` round-trips.
+- On a private bus with the new daemon: `SetFocus` was refused before the test process owned `org.gnome.Shell`, accepted after, and refused from another process of the same user. Focused time per window matched the schedule to the tick (15 s, then 136 ms for a report just after a tick).
+- Still to do: the on-machine test above, with the new extension in the real session (needs a re-login).

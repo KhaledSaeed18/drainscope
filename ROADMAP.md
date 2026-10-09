@@ -1,6 +1,6 @@
 # Roadmap
 
-What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-10-07.
+What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-10-10.
 
 ## Released
 
@@ -66,7 +66,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 ## Next (in priority order)
 
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Foreground and background energy per app** ([ADR 0011](docs/adr/0011-foreground-background.md); M3's last item): the Shell extension reports the focused app over Monitor1 (accepted only from the Shell's process), the daemon splits each app's energy into in use, background and unknown, and the app view and CLI show it. Monitor1 additions and a schema migration; started after 0.1.3 as agreed (2026-10-10).
+2. **Foreground and background energy per app** ([ADR 0011](docs/adr/0011-foreground-background.md); M3's last item): implemented on main, unreleased. The Shell extension reports the focused app (`SetFocus`/`EndFocus`, accepted only from the Shell's process); the daemon splits each app's energy into in use, background and unknown (migration 3, `GetFocus`); the app's detail page, the usage list, `report` and the exports show it. Remaining: the on-machine test with the new extension in the real session (needs a re-login), then a 0.1.4 release and a new extensions.gnome.org upload.
 3. **Model v4: charge the cost of waking the machine** ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work. The first replay of option A (split the overhead by idle exits) only helped the 250 Hz timer: median 12% under both v3 and A, against a 60% goal. Next: a second run on the home network with the harness's fixed exit totals, then refine A or try B/C.
 4. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
 
