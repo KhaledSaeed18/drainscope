@@ -21,7 +21,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: eBPF build tools (the probe compiles bpf/*.bpf.c with clang)
-        run: sudo apt-get install -y --no-install-recommends clang libbpf-dev
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends clang libbpf-dev
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -36,6 +36,7 @@ jobs:
           systemd-analyze security --offline=yes --threshold=20 data/systemd/drainscope-probe.service
       - name: D-Bus and polkit files are well-formed
         run: |
+          sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends libxml2-utils
           xmllint --noout data/dbus/interfaces/*.xml data/dbus/system.d/*.conf data/polkit/*.policy
 
