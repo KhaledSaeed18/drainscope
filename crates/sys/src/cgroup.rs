@@ -2,8 +2,14 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read as _;
+use std::mem::MaybeUninit;
+use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+
+use rustix::fs::{AtFlags, CWD, FileType, Mode, OFlags, RawDir, openat, statat};
+use rustix::io::Errno;
 
 use drainscope_model::CgroupPath;
 use drainscope_model::cgroup::TERMINAL_SCOPE_PREFIXES;
@@ -24,19 +30,115 @@ pub const CGROUPFS: &str = "sys/fs/cgroup";
 /// Unexpected I/O errors, or a `cpu.stat` without `usage_usec`.
 pub fn read_cpu_usage(root: &SysRoot) -> Result<BTreeMap<CgroupPath, u64>, SysError> {
     let base = root.path(CGROUPFS);
-    let dirs = cgroup_dirs(&base)?;
     let mut usage = BTreeMap::new();
-    for dir in dirs.iter().rev() {
-        let stat_path = dir.join("cpu.stat");
-        let Some(text) = root.read_optional(&stat_path)? else {
-            continue;
-        };
-        let usec = parse_usage_usec(&text)
-            .ok_or_else(|| SysError::parse(&stat_path, "missing usage_usec"))?;
-        let relative = dir.strip_prefix(&base).unwrap_or(dir);
-        usage.insert(CgroupPath::new(&relative.to_string_lossy()), usec);
-    }
+    let Some(dir) = open_dir(CWD, &base, &base)? else {
+        return Ok(usage);
+    };
+    let mut walk = Walk {
+        entries: vec![MaybeUninit::uninit(); 16 * 1024],
+        text: String::new(),
+        usage: &mut usage,
+    };
+    walk.cgroup(&dir, &base, "")?;
     Ok(usage)
+}
+
+/// The per-tick walk. Each cgroup directory holds dozens of control files, so it lists them
+/// without allocating per entry (`RawDir`) and opens everything relative to the parent's
+/// descriptor instead of resolving each full path again.
+struct Walk<'a> {
+    entries: Vec<MaybeUninit<u8>>,
+    text: String,
+    usage: &'a mut BTreeMap<CgroupPath, u64>,
+}
+
+impl Walk<'_> {
+    /// Reads `dir`'s child cgroups, then its own `cpu.stat`. `path` is only for errors.
+    fn cgroup(&mut self, dir: &OwnedFd, path: &Path, relative: &str) -> Result<(), SysError> {
+        // List the children before descending, so one buffer serves every level.
+        let mut children = Vec::new();
+        let mut entries = RawDir::new(dir, &mut self.entries);
+        while let Some(entry) = entries.next() {
+            let entry = match entry {
+                Ok(entry) => entry,
+                // Removed while listing: skip it and its children.
+                Err(err) if gone(err) => return Ok(()),
+                Err(err) => return Err(SysError::io(path, err.into())),
+            };
+            let name = entry.file_name();
+            if name == c"." || name == c".." {
+                continue;
+            }
+            let is_dir = match entry.file_type() {
+                FileType::Directory => true,
+                // Filesystems without d_type (not cgroupfs); fixtures may live on one.
+                FileType::Unknown => statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)
+                    .is_ok_and(|stat| FileType::from_raw_mode(stat.st_mode) == FileType::Directory),
+                _ => false,
+            };
+            if is_dir {
+                children.push(name.to_owned());
+            }
+        }
+        for name in children {
+            let name_text = name.to_string_lossy();
+            let child_path = path.join(name_text.as_ref());
+            let Some(child) = open_dir(dir, &name, &child_path)? else {
+                continue;
+            };
+            let child_relative = if relative.is_empty() {
+                name_text.into_owned()
+            } else {
+                format!("{relative}/{name_text}")
+            };
+            self.cgroup(&child, &child_path, &child_relative)?;
+        }
+
+        // This cgroup's own counter, after every child's.
+        let stat_path = path.join("cpu.stat");
+        let file = match openat(
+            dir,
+            c"cpu.stat",
+            OFlags::RDONLY | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            Ok(file) => file,
+            Err(err) if gone(err) => return Ok(()),
+            Err(err) => return Err(SysError::io(&stat_path, err.into())),
+        };
+        self.text.clear();
+        match fs::File::from(file).read_to_string(&mut self.text) {
+            Ok(_) => {}
+            Err(err) if is_gone(&err) => return Ok(()),
+            Err(err) => return Err(SysError::io(&stat_path, err)),
+        }
+        let usec = parse_usage_usec(&self.text)
+            .ok_or_else(|| SysError::parse(&stat_path, "missing usage_usec"))?;
+        self.usage.insert(CgroupPath::new(relative), usec);
+        Ok(())
+    }
+}
+
+/// Opens a directory relative to `parent`; `Ok(None)` when it's gone.
+fn open_dir(
+    parent: impl AsFd,
+    name: impl rustix::path::Arg,
+    path: &Path,
+) -> Result<Option<OwnedFd>, SysError> {
+    match openat(
+        parent,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(fd) => Ok(Some(fd)),
+        Err(err) if gone(err) => Ok(None),
+        Err(err) => Err(SysError::io(path, err.into())),
+    }
+}
+
+fn gone(err: Errno) -> bool {
+    is_gone(&err.into())
 }
 
 /// Every cgroup directory under `base`, parents before their children.
