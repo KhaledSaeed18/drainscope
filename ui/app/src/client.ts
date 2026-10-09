@@ -3,7 +3,9 @@ import GLib from 'gi://GLib';
 
 import {
   COVERAGE_SIGNATURE,
+  FOCUS_SIGNATURE,
   decodeCoverage,
+  decodeFocus,
   decodeBatteryHealth,
   decodeSleepHistory,
   decodeSummary,
@@ -17,6 +19,7 @@ import {
   USAGE_SIGNATURE,
   WAKEUPS_SIGNATURE,
   type Decoded,
+  type FocusRow,
   type HealthReading,
   type Network,
   type SleepSession,
@@ -99,6 +102,12 @@ export class MonitorClient {
   coverage(since: number, until: number, source: string): Promise<Result<number>> {
     const parameters = new GLib.Variant('(xxs)', [since, until, source]);
     return this.call('GetCoverage', parameters, COVERAGE_SIGNATURE, decodeCoverage);
+  }
+
+  /** Apps' energy split by focus (ADR 0011); daemons before it answer UnknownMethod. */
+  focus(since: number, until: number, source: string): Promise<Result<FocusRow[]>> {
+    const parameters = new GLib.Variant('(xxs)', [since, until, source]);
+    return this.call('GetFocus', parameters, FOCUS_SIGNATURE, decodeFocus);
   }
 
   sleepSessions(since: number): Promise<Result<SleepSession[]>> {

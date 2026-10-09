@@ -74,6 +74,28 @@ describe('buildUsage', () => {
     expect(model.entries[0]?.parts.map((p) => p.label)).toEqual(['Display & devices']);
   });
 
+  it('splits apps by focus when the daemon knows it', () => {
+    const app = (key: string, total: number) => ({ key, kind: 'app', total, cpu: total, gpu: 0, other: 0 });
+    const usage = [app('app:org.mozilla.firefox', 9000), app('app:org.gnome.Software', 1800), ...rows.slice(0, 1)];
+    const focus = [
+      { key: 'app:org.mozilla.firefox', foreground: 7560, unknown: 0, focusedSeconds: 2100 },
+      // Mostly before the extension reported focus; the rest in the background.
+      { key: 'app:org.gnome.Software', foreground: 0, unknown: 360, focusedSeconds: 0 },
+    ];
+    const model = buildUsage(usage, 3600, 3600, false, appNames, focus);
+    const [firefox, software, devices] = model.entries;
+    expect(firefox?.focus).toEqual({
+      inUse: '2.10 Wh over 35 min',
+      background: '0.40 Wh',
+      unknown: undefined,
+      mostlyBackground: false,
+    });
+    expect(software?.focus).toEqual({ inUse: '0.000 Wh over 0 s', background: '0.40 Wh', unknown: '0.10 Wh', mostlyBackground: true });
+    expect(devices?.focus).toBeUndefined();
+    // No data for the app (older daemon or history before focus tracking).
+    expect(buildUsage(usage, 3600, 3600, false, appNames).entries[0]?.focus).toBeUndefined();
+  });
+
   it('folds small consumers into one entry', () => {
     const many = Array.from({ length: 5 }, (_, i) => ({
       key: `unit:s${String(i)}.service`,
@@ -83,7 +105,7 @@ describe('buildUsage', () => {
       gpu: 0,
       other: 0,
     }));
-    const model = buildUsage(many, 60, 60, false, appNames, 2);
+    const model = buildUsage(many, 60, 60, false, appNames, [], 2);
     expect(model.entries.map((e) => [e.label, e.energy])).toEqual([
       ['System: s0', '0.014 Wh'],
       ['System: s1', '0.014 Wh'],
@@ -91,7 +113,7 @@ describe('buildUsage', () => {
     ]);
     expect(model.entries[2]?.consumer).toBeUndefined();
     // One extra row isn't worth folding.
-    expect(buildUsage(many.slice(0, 3), 60, 60, false, appNames, 2).entries).toHaveLength(3);
+    expect(buildUsage(many.slice(0, 3), 60, 60, false, appNames, [], 2).entries).toHaveLength(3);
   });
 
   it('labels kinds when grouped by kind', () => {

@@ -32,6 +32,23 @@ export function detailPage(entry: UsageEntry, rangeLabel: string): Adw.Navigatio
   }
   page.add(overview);
 
+  const focus = entry.focus;
+  if (focus !== undefined) {
+    const use = new Adw.PreferencesGroup({ title: 'Use' });
+    if (focus.unknown !== undefined) {
+      use.set_description(`${focus.unknown} is from while the GNOME Shell extension wasn’t reporting which app was in use.`);
+    }
+    for (const [title, value] of [
+      ['While in use', focus.inUse],
+      ['In the background', focus.background],
+    ] as const) {
+      const row = dataRow(title);
+      row.add_suffix(new Gtk.Label({ label: value, css_classes: ['numeric', 'dim-label'] }));
+      use.add(row);
+    }
+    page.add(use);
+  }
+
   const breakdown = new Adw.PreferencesGroup({
     title: 'Breakdown',
     description: 'Where the energy was measured',

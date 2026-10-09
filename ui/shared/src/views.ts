@@ -1,8 +1,8 @@
 /** View models for the desktop app's history and sleep pages. */
 
 import { describeConsumer, parseConsumer, type Consumer } from './consumers';
-import type { HealthReading, Network, SleepSession, UsageRow, Wakeups } from './monitor';
-import { formatByteRate, formatDuration, formatEnergy, formatPercent, formatWatts } from './units';
+import type { FocusRow, HealthReading, Network, SleepSession, UsageRow, Wakeups } from './monitor';
+import { formatByteRate, formatDuration, formatEnergy, formatPercent, formatWatts, joulesToWattHours } from './units';
 
 export interface EnergyPart {
   label: string;
@@ -28,6 +28,38 @@ export interface UsageEntry {
    * outside RAPL (display, chipset, devices). Empty parts are left out.
    */
   parts: EnergyPart[];
+  /** How an app's energy splits by focus; `undefined` for other consumers or without data. */
+  focus: FocusView | undefined;
+}
+
+/** An app's energy by focus (ADR 0011). */
+export interface FocusView {
+  /** e.g. `2.10 Wh over 35 min`. */
+  inUse: string;
+  background: string;
+  /** Energy from while focus wasn't reported, e.g. `0.40 Wh`; `undefined` when none. */
+  unknown: string | undefined;
+  /** Background was at least half of the energy, and at least 0.1 Wh. */
+  mostlyBackground: boolean;
+}
+
+/** Below this an app's background energy isn't worth pointing out in the list. */
+const NOTABLE_BACKGROUND_WH = 0.1;
+/** Unknown energy below this (rounding) isn't mentioned. */
+const NOTABLE_UNKNOWN_WH = 0.001;
+
+/** The focus view for an app that used `total` joules, from its `GetFocus` row. */
+export function focusView(total: number, row: FocusRow | undefined): FocusView | undefined {
+  if (row === undefined) {
+    return undefined;
+  }
+  const background = Math.max(0, total - row.foreground - row.unknown);
+  return {
+    inUse: `${formatEnergy(row.foreground)} over ${formatDuration(row.focusedSeconds)}`,
+    background: formatEnergy(background),
+    unknown: joulesToWattHours(row.unknown) >= NOTABLE_UNKNOWN_WH ? formatEnergy(row.unknown) : undefined,
+    mostlyBackground: total > 0 && background >= total / 2 && joulesToWattHours(background) >= NOTABLE_BACKGROUND_WH,
+  };
 }
 
 export interface UsageModel {
@@ -90,8 +122,10 @@ export function buildUsage(
   measuredSeconds: number,
   byKind: boolean,
   appName: (id: string) => string | undefined,
+  focus: readonly FocusRow[] = [],
   limit = USAGE_LIMIT,
 ): UsageModel {
+  const focusByKey = new Map(focus.map((row) => [row.key, row]));
   const total = rows.reduce((sum, row) => sum + row.total, 0);
   const seconds = Math.max(measuredSeconds, 1);
   const { kept, rest, count } = fold(rows, limit);
@@ -128,6 +162,7 @@ export function buildUsage(
       fraction,
       share: formatPercent(fraction * 100),
       parts,
+      focus: consumer?.kind === 'app' ? focusView(row.total, focusByKey.get(row.key)) : undefined,
     };
   });
   const average = formatWatts(total / seconds);

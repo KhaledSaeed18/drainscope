@@ -253,9 +253,10 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
       return;
     }
     const groupBy = this.byKind ? 'kind' : 'consumer';
-    const [usage, coverage] = await Promise.all([
+    const [usage, coverage, focus] = await Promise.all([
       this.client.usage(query.since, query.until, groupBy, query.source),
       this.client.coverage(query.since, query.until, query.source),
+      this.client.focus(query.since, query.until, query.source),
     ]);
     // A newer refresh may have started rendering; drop rows added meanwhile.
     removeAll(this.usageGroup, this.usageRows);
@@ -266,10 +267,12 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     const span = query.until - query.since;
     // Daemons older than GetCoverage: average over the whole span.
     const measured = coverage.ok ? coverage.value : span;
-    const model = buildUsage(usage.value, span, measured, this.byKind, appName);
+    // Daemons older than GetFocus: no foreground/background split.
+    const model = buildUsage(usage.value, span, measured, this.byKind, appName, focus.ok ? focus.value : []);
     this.usageGroup.set_description(model.entries.length === 0 ? 'Nothing measured in this range yet.' : model.footer);
     for (const entry of model.entries) {
-      const row = dataRow(entry.label, `${entry.energy} · ${entry.average}`, true);
+      const background = entry.focus?.mostlyBackground === true ? ' · mostly in the background' : '';
+      const row = dataRow(entry.label, `${entry.energy} · ${entry.average}${background}`, true);
       const rangeLabel = RANGES.find((r) => r.id === this.range)?.label ?? '';
       row.connect('activated', () => {
         this.navigation.push(detailPage(entry, rangeLabel));
