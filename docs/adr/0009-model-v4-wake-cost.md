@@ -28,4 +28,14 @@ From the raw samples of earlier `validate` runs on battery (one CPU run, three a
 
 `validate --activity` now also records the machine's total and kernel idle exits and each cpuidle state's entries and time per sample, and what the running daemon charged each phase. The next battery run (also needed for model v3, ADR 0008) gives the data to replay option A offline. Option A only re-splits the overhead, so for a phase's load: charge_A = charge_v3 + overhead × (exit share − CPU share), with overhead = active energy − k × (busy CPUs above the idle phase's), for a few prices k from the CPU run. Compared with the RAPL increase the phase caused.
 
+### First replay (2026-10-10)
+
+From the battery run of ADR 0008's result, replaying option A offline (`testdata/local/replay-v4.py`):
+
+- **Timer 250 Hz:** 9% under v3, 24% under A. The load has 24% of the machine's idle exits but only 9% of its CPU-time share, so A moves overhead its way, as intended.
+- **Timer 1000 Hz:** unchanged at 12%. Its extra busy CPU time at the measured price already accounts for the whole power increase, which leaves no overhead to re-split.
+- **Timer 4000 Hz:** invalid. The harness summed the probe's answer for the machine's total, and the probe drops the counts of removed cgroups, so the total fell whenever one disappeared. The harness now accumulates per-cgroup increases instead.
+- **Downloads:** unchanged (12–16%). The downloading app wakes the CPU about twice a second; the interrupts are the kernel's.
+- **Median: 12% for both v3 and A**, far from the 60% criterion. Option A as specified isn't enough. A second run on the home network, with the fixed totals, should come before choosing between refining A, B and C, or a different split of the work term.
+
 Proposed success criteria for adopting a v4: timer and download loads charged at least 60% (median) of their RAPL increase; CPU loads stay at 79–100%; the energy split stays exact (property-tested); without the probe, identical to v3.

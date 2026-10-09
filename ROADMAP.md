@@ -41,7 +41,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] Network bytes per cgroup (`cgroup_skb`, loopback excluded): `drainscope network`, app section. Validated: 20 MB counted as 20.64 MB.
 - [x] Costs measured on battery (`validate --activity`): wakeups 1.2–1.5 mW per 100/s; network stack 170–211 mW per MB/s; radio ≈ 70 mW per MB/s.
 - [x] Model v2: network-softirq time moves from Kernel to apps by bytes. Downloads charged 20% of their cost (v1: 5%).
-- [x] Model v3 (ADR 0008): the network devices' threaded interrupt handlers (`irq/135-iwlwifi` here) are charged by bytes with the softirqs, read from procfs without privileges; `drainscope doctor` lists them (unreleased; battery validation pending).
+- [x] Model v3 (ADR 0008): the network devices' threaded interrupt handlers (`irq/135-iwlwifi` here) are charged by bytes with the softirqs, read from procfs without privileges; `drainscope doctor` lists them (unreleased; validated 2026-10-10: 22% more network time moved; on its own no visible change in a download's charge, see ADR 0008).
 
 ### M5 — Hardening and distribution
 - [x] SELinux modules for the sampler and the probe, enforcing, no denials; `drainscope-selinux` package.
@@ -66,8 +66,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 ## Next (in priority order)
 
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Validate model v3 on battery:** run the dev daemon in place of the packaged one, then `cargo xtask validate --activity` unplugged (about 10 minutes) on a connection of at least 0.5 MB/s (the 2026-10-09 attempt got 0.13 MB/s and was inconclusive; the harness now checks first). Record the download charge in ADR 0008 and docs/validation-activity.md, then release it (0.1.3). The same run records total idle exits and sleep-state time for model v4.
-3. **Model v4: charge the cost of waking the machine** ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work (downloads about 20% of their cost, timers 7–50%, large CPU loads 79–90%). Findings so far: there is no constant cost per wakeup, and power follows where idle time is spent. Candidate: split the overhead above the work's price by each consumer's share of idle exits. The next validation run records what's needed to replay it offline.
+2. **Release 0.1.3** (prepared; model v3 validated 2026-10-10, ADR 0008): bump, `dist --rpm`, GitHub release, COPR, `validate-copr.sh` on Fedora 44 and 45, the extension's new zip to extensions.gnome.org.
+3. **Model v4: charge the cost of waking the machine** ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work. The first replay of option A (split the overhead by idle exits) only helped the 250 Hz timer: median 12% under both v3 and A, against a 60% goal. Next: a second run on the home network with the harness's fixed exit totals, then refine A or try B/C.
 4. **Measure `ReadAll`** once the new probe is installed (0.1.3 or `install-dev`): probe and bus-broker wakeups per tick, against the three calls of 0.1.2.
 5. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
 

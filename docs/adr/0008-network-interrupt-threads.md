@@ -1,6 +1,6 @@
 # 0008 — Model v3: charge network interrupt threads with the network softirqs
 
-- Status: accepted (requested by the maintainer on 2026-10-09); validation on battery pending
+- Status: accepted (requested by the maintainer on 2026-10-09); validated 2026-10-10
 - Date: 2026-10-09
 
 ## Context
@@ -29,3 +29,12 @@ Not chosen: timing the threads in the eBPF probe (`sched_switch`). It would be m
 - Drivers that handle interrupts directly have no thread; their hard-IRQ time stays with Kernel, since the kernel doesn't report it per interrupt.
 - To validate: with the v3 daemon running, `cargo xtask validate --activity` on battery. Downloads should be charged more than v2's 20% of their RAPL increase; record the result here and in `docs/validation-activity.md`.
 - First attempt, 2026-10-09: inconclusive. The connection only reached 0.10–0.13 MB/s (every server tried), so the download phases didn't move RAPL measurably. `validate --activity` now checks the download speed first and stops below 0.5 MB/s.
+
+## Result (validated 2026-10-10)
+
+On battery over a phone hotspot (the home connection was capped at 0.13 MB/s), with the v3 daemon running:
+
+- **The mechanism works.** During a 20 s download at 0.82 MB/s, `irq/135-iwlwifi` ran 66 ms next to 299 ms of network softirqs: v3 moves 22% more network time to the app than v2 (ADR 0007 measured +29% on the home network).
+- **Downloads were charged 16%** (median; 12–16%) of their RAPL increase ([validation-activity.md](../validation-activity.md)). That isn't comparable with v2's 20%: on this network the download phases added only 0.04–0.08 W, and it didn't follow the traffic (R² = 0.18, against 170–211 mW per MB/s and R² > 0.9 on the home network), so these ratios are mostly noise.
+- The extra time is small (about 0.36 CPU-seconds per 20 s here), and CPU-time sharing undercharges light work whatever time it is given (ADR 0009). So v3 is correct and safe (it only moves measured Kernel time, never more than Kernel has), but on its own it doesn't visibly raise a download's charge. It ships in 0.1.3.
+
