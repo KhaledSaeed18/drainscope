@@ -8,3 +8,4 @@ pub mod monitor;
 pub mod power;
 pub mod probe;
 pub mod rapl;
+pub mod ticker;

@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use drainscope_dbus::probe::{Probe1Proxy, ProbeError};
+use drainscope_dbus::probe::{Probe1Proxy, ProbeError, Traffic, Wakeups};
 use drainscope_model::CgroupPath;
 
 /// Retry delay after polkit refused us: that doesn't change quickly.
@@ -29,6 +29,15 @@ pub struct TrafficReading {
     /// Cumulative bytes by cgroup.
     pub received: BTreeMap<CgroupPath, u64>,
     pub sent: BTreeMap<CgroupPath, u64>,
+}
+
+/// Everything one tick reads from the probe.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProbeReadings {
+    pub wakeups: Option<ProbeReading>,
+    pub traffic: Option<TrafficReading>,
+    /// (generation, kernel nanoseconds in the network softirqs), cumulative.
+    pub network_time: Option<(u64, u64)>,
 }
 
 /// Failure state of one kind of reading.
@@ -115,15 +124,78 @@ impl ProbeClient {
         self.network.problem.is_none()
     }
 
+    /// Every reading a tick needs, with the three calls in flight together so their replies
+    /// cost one wakeup instead of three. The probe rate-limits each method separately.
+    pub async fn read_all(&mut self) -> ProbeReadings {
+        let Some(proxy) = self.proxy.clone() else {
+            return ProbeReadings::default();
+        };
+        let ask_wakeups = !self.wakeups.waiting();
+        let ask_network = !self.network.waiting();
+        let (wakeups, traffic, time) = tokio::join!(
+            async {
+                if ask_wakeups {
+                    Some(proxy.read_wakeups().await)
+                } else {
+                    None
+                }
+            },
+            async {
+                if ask_network {
+                    Some(proxy.read_network().await)
+                } else {
+                    None
+                }
+            },
+            async {
+                if ask_network {
+                    Some(proxy.read_network_time().await)
+                } else {
+                    None
+                }
+            },
+        );
+        ProbeReadings {
+            wakeups: wakeups.and_then(|reply| self.wakeups_from(reply)),
+            traffic: traffic.and_then(|reply| self.traffic_from(reply)),
+            network_time: time.and_then(|reply| self.network_time_from(reply)),
+        }
+    }
+
     pub async fn read(&mut self) -> Option<ProbeReading> {
         let proxy = self.proxy.as_ref()?;
         if self.wakeups.waiting() {
             return None;
         }
-        match proxy.read_wakeups().await {
+        let reply = proxy.read_wakeups().await;
+        self.wakeups_from(reply)
+    }
+
+    pub async fn read_network(&mut self) -> Option<TrafficReading> {
+        let proxy = self.proxy.as_ref()?;
+        if self.network.waiting() {
+            return None;
+        }
+        let reply = proxy.read_network().await;
+        self.traffic_from(reply)
+    }
+
+    /// (generation, kernel nanoseconds in the network softirqs), cumulative. Shares the
+    /// network backoff: both come from the same probe programs.
+    pub async fn read_network_time(&mut self) -> Option<(u64, u64)> {
+        let proxy = self.proxy.as_ref()?;
+        if self.network.waiting() {
+            return None;
+        }
+        let reply = proxy.read_network_time().await;
+        self.network_time_from(reply)
+    }
+
+    fn wakeups_from(&mut self, reply: Result<Wakeups, ProbeError>) -> Option<ProbeReading> {
+        match reply {
             Ok((_, generation, pairs)) => {
                 self.wakeups.succeeded("wakeup counts");
-                // A restarted (perhaps upgraded) probe may now count traffic: ask again now
+                // A restarted (perhaps upgraded) probe may now count traffic: ask again
                 // instead of waiting out a backoff from the old one.
                 if self.generation.replace(generation) != Some(generation) {
                     self.network.retry_at = None;
@@ -143,12 +215,8 @@ impl ProbeClient {
         }
     }
 
-    pub async fn read_network(&mut self) -> Option<TrafficReading> {
-        let proxy = self.proxy.as_ref()?;
-        if self.network.waiting() {
-            return None;
-        }
-        match proxy.read_network().await {
+    fn traffic_from(&mut self, reply: Result<Traffic, ProbeError>) -> Option<TrafficReading> {
+        match reply {
             Ok((_, generation, rows)) => {
                 self.network.succeeded("network traffic");
                 let mut reading = TrafficReading {
@@ -170,14 +238,11 @@ impl ProbeClient {
         }
     }
 
-    /// (generation, kernel nanoseconds in the network softirqs), cumulative. Shares the
-    /// network backoff: both come from the same probe programs.
-    pub async fn read_network_time(&mut self) -> Option<(u64, u64)> {
-        let proxy = self.proxy.as_ref()?;
-        if self.network.waiting() {
-            return None;
-        }
-        match proxy.read_network_time().await {
+    fn network_time_from(
+        &mut self,
+        reply: Result<(u64, u64, u64, u64), ProbeError>,
+    ) -> Option<(u64, u64)> {
+        match reply {
             Ok((_, generation, tx_ns, rx_ns)) => Some((generation, tx_ns.saturating_add(rx_ns))),
             Err(err) => {
                 self.network.failed("network traffic", &err);
@@ -198,5 +263,6 @@ mod tests {
         assert!(!client.network_available());
         assert_eq!(client.read().await, None);
         assert_eq!(client.read_network().await, None);
+        assert_eq!(client.read_all().await, ProbeReadings::default());
     }
 }

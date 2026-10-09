@@ -16,8 +16,9 @@ use drainscope_daemon::engine::{Engine, NetworkCounters, Reading, TickOutcome};
 use drainscope_daemon::lock::{EXIT_ALREADY_RUNNING, lock_database};
 use drainscope_daemon::monitor::{Monitor, Shared, Status};
 use drainscope_daemon::power::{BatteryLevel, PowerTracker, SleepTracker};
-use drainscope_daemon::probe::ProbeClient;
+use drainscope_daemon::probe::{ProbeClient, ProbeReadings};
 use drainscope_daemon::rapl::RaplClient;
+use drainscope_daemon::ticker::Ticker;
 use drainscope_dbus::monitor::{BUS_NAME, OBJECT_PATH};
 use drainscope_model::{
     BatteryHealth, MODEL_VERSION, PowerSource, RaplDomain, RateTracker, Resolver, health,
@@ -79,16 +80,23 @@ impl Daemon {
     async fn tick(&mut self) -> anyhow::Result<()> {
         let taken_at = monotonic_now();
         let wall_ms = wall_now_ms();
-        let rapl = self.rapl.read().await;
-        let probe = self.probe.read().await;
-        let traffic = self.probe.read_network().await;
-        let network_time = self.probe.read_network_time().await;
         let mut collector = self.collector.take().context("collector busy")?;
-        let (collector, collected) = tokio::task::spawn_blocking(move || {
-            let collected = collector.collect(taken_at);
-            (collector, collected)
-        })
-        .await?;
+        // Everything a tick reads, in flight together: replies that arrive close together cost
+        // one wakeup instead of one each.
+        let (rapl, readings, collection) = tokio::join!(
+            self.rapl.read(),
+            self.probe.read_all(),
+            tokio::task::spawn_blocking(move || {
+                let collected = collector.collect(taken_at);
+                (collector, collected)
+            }),
+        );
+        let ProbeReadings {
+            wakeups: probe,
+            traffic,
+            network_time,
+        } = readings;
+        let (collector, collected) = collection?;
         self.collector = Some(collector);
         let mut collected = collected?;
 
@@ -420,7 +428,7 @@ async fn main() -> anyhow::Result<()> {
             .ok(),
         None => None,
     };
-    let mut sleep_signals = match &logind {
+    let sleep_signals = match &logind {
         Some(logind) => Some(logind.receive_prepare_for_sleep().await?),
         None => None,
     };
@@ -451,19 +459,36 @@ async fn main() -> anyhow::Result<()> {
     daemon.note_startup_power(&level)?;
     tracing::info!(database = %path.display(), "serving {BUS_NAME}");
 
+    serve(&mut daemon, sleep_signals).await?;
+    daemon.save_state();
+    tracing::info!("stopped");
+    Ok(())
+}
+
+/// Ticks, follows suspend and resume, and serves Monitor1 until asked to stop or the session
+/// bus goes away.
+async fn serve(
+    daemon: &mut Daemon,
+    mut sleep_signals: Option<PrepareForSleepStream>,
+) -> anyhow::Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
     // Started by D-Bus outside systemd (e.g. under dbus-run-session), nothing else stops us
     // when that bus goes away; there are no clients left to serve.
     let session_bus = daemon.session.clone();
+    let ticker = Ticker::new(TICK).context("creating the tick timer")?;
     loop {
         tokio::select! {
             () = session_bus.closed() => {
                 tracing::info!("session bus closed");
                 break;
             }
-            () = tokio::time::sleep(TICK) => {
-                if let Err(err) = daemon.tick().await {
+            expired = ticker.tick() => {
+                let result = match expired {
+                    Ok(_) => daemon.tick().await,
+                    Err(err) => Err(err.into()),
+                };
+                if let Err(err) = result {
                     tracing::warn!(%err, "tick failed");
                 }
             }
@@ -476,8 +501,6 @@ async fn main() -> anyhow::Result<()> {
             _ = interrupt.recv() => break,
         }
     }
-    daemon.save_state();
-    tracing::info!("stopped");
     Ok(())
 }
 
