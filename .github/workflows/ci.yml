@@ -41,7 +41,8 @@ jobs:
 
   selinux:
     runs-on: ubuntu-latest
-    container: fedora:44
+    # Fedora's own registry: Docker Hub's anonymous pull limit failed these runs.
+    container: registry.fedoraproject.org/fedora:44
     steps:
       - uses: actions/checkout@v5
       - run: dnf install -y --setopt=install_weak_deps=False selinux-policy-devel make
@@ -53,7 +54,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      # A release binary from GitHub: the Docker-based action pulled its image from Docker Hub,
+      # whose anonymous pull limit failed these runs.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - run: cargo deny check
 
   ui:
     runs-on: ubuntu-latest
