@@ -91,6 +91,7 @@ fn battery_trace_matches_the_golden_attribution() {
                 end_ms: finished.end_ms,
                 window: &finished.window,
                 model_version: MODEL_VERSION,
+                focus: &std::collections::BTreeMap::new(),
             })
             .unwrap();
     }

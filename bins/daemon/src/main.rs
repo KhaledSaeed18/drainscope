@@ -230,6 +230,7 @@ impl Daemon {
                 end_ms: finished.end_ms,
                 window: &finished.window,
                 model_version: MODEL_VERSION,
+                focus: &std::collections::BTreeMap::new(),
             })?;
         }
         let usage = outcome

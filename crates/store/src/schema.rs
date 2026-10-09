@@ -105,6 +105,38 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (battery, day)
     ) WITHOUT ROWID;
     ",
+    // 3: each app's energy split by focus (ADR 0011), kept and rolled up like usage. Only app
+    // consumers get rows; the rest of an app's energy in usage_* is background.
+    r"
+    CREATE TABLE focus_raw (
+        window_id    INTEGER NOT NULL REFERENCES windows (id) ON DELETE CASCADE,
+        consumer_id  INTEGER NOT NULL REFERENCES consumers (id),
+        foreground_j REAL    NOT NULL,
+        unknown_j    REAL    NOT NULL,
+        focused_ms   INTEGER NOT NULL,
+        PRIMARY KEY (window_id, consumer_id)
+    ) WITHOUT ROWID;
+
+    CREATE TABLE focus_minute (
+        bucket_ms    INTEGER NOT NULL,
+        power_source TEXT    NOT NULL,
+        consumer_id  INTEGER NOT NULL REFERENCES consumers (id),
+        foreground_j REAL    NOT NULL,
+        unknown_j    REAL    NOT NULL,
+        focused_ms   INTEGER NOT NULL,
+        PRIMARY KEY (bucket_ms, power_source, consumer_id)
+    ) WITHOUT ROWID;
+
+    CREATE TABLE focus_hour (
+        bucket_ms    INTEGER NOT NULL,
+        power_source TEXT    NOT NULL,
+        consumer_id  INTEGER NOT NULL REFERENCES consumers (id),
+        foreground_j REAL    NOT NULL,
+        unknown_j    REAL    NOT NULL,
+        focused_ms   INTEGER NOT NULL,
+        PRIMARY KEY (bucket_ms, power_source, consumer_id)
+    ) WITHOUT ROWID;
+    ",
 ];
 
 pub(crate) fn supported_version() -> i64 {

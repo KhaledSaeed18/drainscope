@@ -70,6 +70,7 @@ fn shared() -> Arc<Shared> {
             end_ms: T0 + 11_000,
             window: &window,
             model_version: 1,
+            focus: &std::collections::BTreeMap::new(),
         })
         .unwrap();
     store

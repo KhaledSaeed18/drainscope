@@ -5,9 +5,9 @@
 //! deletes: raw rows after [`RAW_RETENTION_MS`], minutes after [`MINUTE_RETENTION_MS`], hours
 //! after [`HOUR_RETENTION_MS`]. Queries read the finest resolution still covering their range.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use drainscope_model::{ClosedWindow, ConsumerKey, EnergySplit, Joules, PowerSource};
+use drainscope_model::{ClosedWindow, ConsumerKey, EnergySplit, FocusSplit, Joules, PowerSource};
 use rusqlite::{Transaction, params};
 
 use crate::{Store, StoreError};
@@ -27,6 +27,18 @@ pub struct WindowRecord<'a> {
     pub end_ms: i64,
     pub window: &'a ClosedWindow,
     pub model_version: u32,
+    /// Apps' energy in the window split by focus (ADR 0011); empty when nothing reported it.
+    pub focus: &'a BTreeMap<ConsumerKey, FocusSplit>,
+}
+
+/// One app's foreground and unknown energy, and focused time, over a period. The rest of its
+/// energy (from [`Store::usage`]) was used in the background.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FocusRow {
+    pub key: ConsumerKey,
+    pub foreground_j: f64,
+    pub unknown_j: f64,
+    pub focused_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,6 +129,17 @@ const ADD_TO_HOUR: &str = "INSERT INTO usage_hour (bucket_ms, power_source, cons
      ON CONFLICT (bucket_ms, power_source, consumer_id) DO UPDATE SET
        cpu_j = cpu_j + excluded.cpu_j, gpu_j = gpu_j + excluded.gpu_j, other_j = other_j + excluded.other_j";
 
+const ADD_FOCUS_TO_MINUTE: &str = "INSERT INTO focus_minute (bucket_ms, power_source, consumer_id, foreground_j, unknown_j, focused_ms)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+     ON CONFLICT (bucket_ms, power_source, consumer_id) DO UPDATE SET
+       foreground_j = foreground_j + excluded.foreground_j, unknown_j = unknown_j + excluded.unknown_j,
+       focused_ms = focused_ms + excluded.focused_ms";
+const ADD_FOCUS_TO_HOUR: &str = "INSERT INTO focus_hour (bucket_ms, power_source, consumer_id, foreground_j, unknown_j, focused_ms)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+     ON CONFLICT (bucket_ms, power_source, consumer_id) DO UPDATE SET
+       foreground_j = foreground_j + excluded.foreground_j, unknown_j = unknown_j + excluded.unknown_j,
+       focused_ms = focused_ms + excluded.focused_ms";
+
 impl Store {
     /// Stores a closed window and adds it to its rollups, atomically.
     ///
@@ -159,6 +182,21 @@ impl Store {
                 .execute(params![minute, source, id, cpu, gpu, other])?;
             tx.prepare_cached(ADD_TO_HOUR)?
                 .execute(params![hour, source, id, cpu, gpu, other])?;
+        }
+        for (key, focus) in record.focus {
+            let key = key.to_string();
+            let id = consumer_id(&tx, consumer_ids, &mut created, &key, record.start_ms)?;
+            let focused_ms = i64::try_from(focus.focused.as_millis()).unwrap_or(i64::MAX);
+            let (foreground, unknown) = (focus.foreground_j, focus.unknown_j);
+            tx.prepare_cached(
+                "INSERT INTO focus_raw (window_id, consumer_id, foreground_j, unknown_j, focused_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?
+            .execute(params![window_id, id, foreground, unknown, focused_ms])?;
+            tx.prepare_cached(ADD_FOCUS_TO_MINUTE)?
+                .execute(params![minute, source, id, foreground, unknown, focused_ms])?;
+            tx.prepare_cached(ADD_FOCUS_TO_HOUR)?
+                .execute(params![hour, source, id, foreground, unknown, focused_ms])?;
         }
         tx.commit()?;
         consumer_ids.extend(created);
@@ -251,6 +289,69 @@ impl Store {
         Ok(usage)
     }
 
+    /// Each app's foreground and unknown energy and focused time for windows starting in
+    /// `[since_ms, until_ms)`, at the same resolution [`Self::usage`] uses. Apps without
+    /// focus rows there have no known split.
+    ///
+    /// # Errors
+    /// SQLite errors, or a stored key that no longer parses.
+    pub fn focus(
+        &self,
+        since_ms: i64,
+        until_ms: i64,
+        filter: SourceFilter,
+        now_ms: i64,
+    ) -> Result<Vec<FocusRow>, StoreError> {
+        let (sql, since) = match Granularity::for_range(since_ms, now_ms) {
+            Granularity::Raw => (
+                "SELECT c.key, SUM(f.foreground_j), SUM(f.unknown_j), SUM(f.focused_ms)
+                 FROM focus_raw f
+                 JOIN windows w ON w.id = f.window_id
+                 JOIN consumers c ON c.id = f.consumer_id
+                 WHERE w.start_ms >= ?1 AND w.start_ms < ?2 AND (?3 IS NULL OR w.power_source = ?3)
+                 GROUP BY c.key ORDER BY c.key",
+                since_ms,
+            ),
+            Granularity::Minute => (
+                "SELECT c.key, SUM(f.foreground_j), SUM(f.unknown_j), SUM(f.focused_ms)
+                 FROM focus_minute f JOIN consumers c ON c.id = f.consumer_id
+                 WHERE f.bucket_ms >= ?1 AND f.bucket_ms < ?2 AND (?3 IS NULL OR f.power_source = ?3)
+                 GROUP BY c.key ORDER BY c.key",
+                bucket(since_ms, MINUTE_MS),
+            ),
+            Granularity::Hour => (
+                "SELECT c.key, SUM(f.foreground_j), SUM(f.unknown_j), SUM(f.focused_ms)
+                 FROM focus_hour f JOIN consumers c ON c.id = f.consumer_id
+                 WHERE f.bucket_ms >= ?1 AND f.bucket_ms < ?2 AND (?3 IS NULL OR f.power_source = ?3)
+                 GROUP BY c.key ORDER BY c.key",
+                bucket(since_ms, HOUR_MS),
+            ),
+        };
+        let mut statement = self.conn.prepare_cached(sql)?;
+        let rows = statement.query_map(params![since, until_ms, filter.wire_name()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, f64>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut focus = Vec::new();
+        for row in rows {
+            let (key, foreground_j, unknown_j, focused_ms) = row?;
+            let key = key
+                .parse()
+                .map_err(|err| StoreError::Corrupt(format!("consumer key: {err}")))?;
+            focus.push(FocusRow {
+                key,
+                foreground_j,
+                unknown_j,
+                focused_ms,
+            });
+        }
+        Ok(focus)
+    }
+
     /// How much of `[since_ms, until_ms)` was measured, in milliseconds: the length of the
     /// windows recorded there, or, for older data, the number of minute or hour buckets with
     /// any data times their width (an upper bound at that resolution).
@@ -308,13 +409,27 @@ impl Store {
                 "DELETE FROM usage_hour WHERE bucket_ms < ?1",
                 params![now_ms - HOUR_RETENTION_MS],
             )?,
-            consumers: tx.execute(
-                "DELETE FROM consumers WHERE id NOT IN (
-                     SELECT consumer_id FROM usage_raw
-                     UNION SELECT consumer_id FROM usage_minute
-                     UNION SELECT consumer_id FROM usage_hour)",
-                [],
-            )?,
+            consumers: {
+                // Focus rows follow the same retention; raw ones go with their windows.
+                tx.execute(
+                    "DELETE FROM focus_minute WHERE bucket_ms < ?1",
+                    params![now_ms - MINUTE_RETENTION_MS],
+                )?;
+                tx.execute(
+                    "DELETE FROM focus_hour WHERE bucket_ms < ?1",
+                    params![now_ms - HOUR_RETENTION_MS],
+                )?;
+                tx.execute(
+                    "DELETE FROM consumers WHERE id NOT IN (
+                         SELECT consumer_id FROM usage_raw
+                         UNION SELECT consumer_id FROM usage_minute
+                         UNION SELECT consumer_id FROM usage_hour
+                         UNION SELECT consumer_id FROM focus_raw
+                         UNION SELECT consumer_id FROM focus_minute
+                         UNION SELECT consumer_id FROM focus_hour)",
+                    [],
+                )?
+            },
         };
         tx.execute(
             "DELETE FROM power_events WHERE ts_ms < ?1",
@@ -372,6 +487,7 @@ mod tests {
                 end_ms: start_ms + 10_000,
                 window: closed,
                 model_version: 1,
+                focus: &BTreeMap::new(),
             })
             .unwrap();
     }
@@ -425,6 +541,7 @@ mod tests {
             end_ms: T0, // not after start
             window: &closed,
             model_version: 1,
+            focus: &BTreeMap::new(),
         };
         assert!(store.record_window(&bad).is_err());
         assert_eq!(
@@ -432,6 +549,104 @@ mod tests {
             Vec::new()
         );
         assert!(store.consumer_ids.is_empty());
+    }
+
+    fn split(foreground_j: f64, unknown_j: f64, focused_s: u64) -> FocusSplit {
+        FocusSplit {
+            foreground_j,
+            unknown_j,
+            focused: Duration::from_secs(focused_s),
+        }
+    }
+
+    fn record_focused(
+        store: &mut Store,
+        start_ms: i64,
+        closed: &ClosedWindow,
+        focus: &BTreeMap<ConsumerKey, FocusSplit>,
+    ) {
+        store
+            .record_window(&WindowRecord {
+                start_ms,
+                end_ms: start_ms + 10_000,
+                window: closed,
+                model_version: 3,
+                focus,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn records_focus_and_rolls_it_up_like_usage() {
+        let mut store = Store::open_in_memory().unwrap();
+        let editor = ConsumerKey::App("org.gnome.TextEditor".into());
+        let hour = T0 - T0.rem_euclid(HOUR_MS);
+        for (i, source) in [
+            Measurement::Battery,
+            Measurement::Rapl,
+            Measurement::Battery,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let start = hour + i64::try_from(i).unwrap() * 20_000;
+            // Firefox used energy; the editor had focus without using any.
+            let focus = BTreeMap::from([
+                (firefox(), split(2.0, 0.5, 4)),
+                (editor.clone(), split(0.0, 0.0, 6)),
+            ]);
+            record_focused(
+                &mut store,
+                start,
+                &window(source, &[(firefox(), 3.0, 0.0)]),
+                &focus,
+            );
+        }
+        let raw = store
+            .focus(hour, hour + HOUR_MS, SourceFilter::Any, hour + HOUR_MS)
+            .unwrap();
+        let firefox_raw = raw.iter().find(|r| r.key == firefox()).unwrap();
+        assert!((firefox_raw.foreground_j - 6.0).abs() < 1e-9);
+        assert!((firefox_raw.unknown_j - 1.5).abs() < 1e-9);
+        assert_eq!(firefox_raw.focused_ms, 12_000);
+        assert_eq!(
+            raw.iter().find(|r| r.key == editor).unwrap().focused_ms,
+            18_000
+        );
+        // The same at minute and hour resolution, and filtered by power source.
+        for now in [hour + 10 * DAY_MS, hour + 100 * DAY_MS] {
+            assert_eq!(
+                store
+                    .focus(hour, hour + HOUR_MS, SourceFilter::Any, now)
+                    .unwrap(),
+                raw
+            );
+        }
+        let on_battery = store
+            .focus(
+                hour,
+                hour + HOUR_MS,
+                SourceFilter::Only(PowerSource::Battery),
+                hour + HOUR_MS,
+            )
+            .unwrap();
+        assert_eq!(
+            on_battery
+                .iter()
+                .find(|r| r.key == firefox())
+                .unwrap()
+                .focused_ms,
+            8_000
+        );
+
+        // The editor has focus rows but no usage: pruning must keep its consumer.
+        store.prune(hour + HOUR_MS).unwrap();
+        assert_eq!(
+            store
+                .focus(hour, hour + HOUR_MS, SourceFilter::Any, hour + HOUR_MS)
+                .unwrap(),
+            raw
+        );
     }
 
     #[test]
