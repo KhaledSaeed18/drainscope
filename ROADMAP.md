@@ -66,14 +66,21 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] Icons checked in the real session after upgrading to v0.1.2 (app grid, dash, Alt+Tab, Quick Settings tile; light and dark).
 - [x] Product screenshots, light and dark, with illustrative data: README hero, feature cards, window cutouts, AppStream screenshots ([branding/screenshots](branding/screenshots/README.md)). Reproducible with `branding/screenshots/tools/capture.sh`: a demo Monitor1 service and a headless GNOME Shell on scratch directories.
 
-## Next (in priority order)
+## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
-1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, upload the v0.1.4 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Model v4: charge the cost of waking the machine** ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work. The first replay of option A (split the overhead by idle exits) only helped the 250 Hz timer: median 12% under both v3 and A, against a 60% goal. Next: a second run on the home network with the harness's fixed exit totals, then refine A or try B/C.
-3. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
+No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–7 are done and no known bugs remain.
 
-## Later
+1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.4 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
+2. **Suspend test on real hardware** (suspend is masked on the dev machine; needs the maintainer): sleep sessions, battery lost and wake reasons end to end. Shipped since 0.1.0 but only unit-tested.
+3. **Soak test:** two days of normal use on the dev machine with 0.1.4: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log.
+4. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once.
+5. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test).
+6. **Optimization:** measure the 0.1.4 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow.
+7. **User docs:** README install and usage checked against 0.1.4 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
 
+## After 1.0
+
+- Model v4: charge the cost of waking the machine ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work; the first replay of option A only helped the 250 Hz timer (median 12% under both v3 and A, against a 60% goal). Next: a second run on the home network with the harness's fixed exit totals.
 - Exit capture for cgroups that come and go between ticks ([ADR 0010](docs/adr/0010-exit-capture.md), proposed): about 0.5% of attributable energy on the dev machine now lands in `exited:*`. Design: the probe records exiting threads' CPU time by cgroup (`sched_process_exit`), the model moves it from the parent's `Exited` to the cgroup's own consumer. Needs approval for the probe program and a Probe1 method.
 - Intel xe driver (`drm-cycles-*`) and an AMD integrated-GPU part (ADR 0005); needs that hardware for validation.
 - Flatpak for the app on Flathub (the daemon stays an RPM).
@@ -83,6 +90,6 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Known limitations
 
-- Light, bursty activity is undercharged by proportional sharing (see Next 5 and docs/attribution-model.md).
+- Light, bursty activity is undercharged by proportional sharing (model v4, after 1.0; see docs/attribution-model.md).
 - AMD integrated-GPU energy is split by CPU time; xe GPUs aren't split per app (ADR 0005).
 - Validated on one machine (i7-8550U, i915, Wi-Fi). Results on other hardware are welcome as `validate` reports.

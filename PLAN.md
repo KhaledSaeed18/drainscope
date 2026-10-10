@@ -3,7 +3,7 @@
 > Per-app battery and energy usage for the Linux desktop.
 > "Firefox used 14% of your battery since you unplugged." Windows, macOS and Android have had this for years; Linux has not.
 
-Status: **v0.1.4 released** (2026-10-10; GitHub and COPR). M0–M2 are done; M3–M5 are done apart from the items in [ROADMAP.md](ROADMAP.md), which tracks status and what's next. This file keeps the architecture, the privilege model and the original milestone scopes.
+Status: **v0.1.4 released** (2026-10-10; GitHub and COPR). M0–M2 are done; M3–M5 are done apart from the items in [ROADMAP.md](ROADMAP.md), which tracks status and what's next. Features are frozen until 1.0 (2026-10-10): the ROADMAP lists the stabilization work. This file keeps the architecture, the privilege model and the original milestone scopes.
 
 The selected Energy shares brand identity is maintained in [branding/](branding/README.md). Its application/package integration and Linux verification are tracked in [docs/branding-handoff.md](docs/branding-handoff.md).
 
