@@ -174,6 +174,15 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     this.client.subscribeTicks(() => {
       this.refresh();
     });
+    // Without calling: a call would start the daemon again right after someone stopped it.
+    this.client.watchDaemon(
+      () => {
+        this.refresh();
+      },
+      () => {
+        this.showNotRunning('');
+      },
+    );
     this.connect('close-request', () => {
       this.client.destroy();
       return false;
@@ -197,7 +206,17 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     });
   }
 
+  private showNotRunning(error: string): void {
+    const detail = error === '' ? '' : `\n\n${GLib.markup_escape_text(error, -1)}`;
+    this.showStatus(
+      'drainscope isn’t running',
+      `Start it with <tt>systemctl --user enable --now drainscope.service</tt>${detail}`,
+    );
+  }
+
   private showStatus(title: string, description: string): void {
+    // The banner describes data that is no longer shown.
+    this.banner.set_revealed(false);
     this.status.set_title(title);
     this.status.set_description(description);
     this.stack.set_visible_child_name('status');
@@ -206,10 +225,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private async load(): Promise<void> {
     const summary = await this.client.summary();
     if (!summary.ok) {
-      this.showStatus(
-        'drainscope isn’t running',
-        `Start it with <tt>systemctl --user enable --now drainscope.service</tt>\n\n${GLib.markup_escape_text(summary.error, -1)}`,
-      );
+      this.showNotRunning(summary.error);
       return;
     }
     this.stack.set_visible_child_name('history');

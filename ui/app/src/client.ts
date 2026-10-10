@@ -41,6 +41,7 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 export class MonitorClient {
   private readonly cancellable = new Gio.Cancellable();
   private tickSubscription = 0;
+  private ownerSubscription = 0;
 
   /** Calls `onTick` after every attribution tick of the daemon (every few seconds). */
   subscribeTicks(onTick: () => void): void {
@@ -53,6 +54,31 @@ export class MonitorClient {
       Gio.DBusSignalFlags.NONE,
       () => {
         onTick();
+      },
+    );
+  }
+
+  /**
+   * Calls `onAppeared` when the daemon takes its bus name (started or restarted) and
+   * `onVanished` when it stops, so a restart shows at once instead of at its first tick.
+   */
+  watchDaemon(onAppeared: () => void, onVanished: () => void): void {
+    this.ownerSubscription = Gio.DBus.session.signal_subscribe(
+      'org.freedesktop.DBus',
+      'org.freedesktop.DBus',
+      'NameOwnerChanged',
+      '/org/freedesktop/DBus',
+      BUS_NAME,
+      Gio.DBusSignalFlags.NONE,
+      (_connection, _sender, _path, _interface, _signal, parameters) => {
+        if (parameters.get_type_string() !== '(sss)') {
+          return;
+        }
+        if (parameters.get_child_value(2).get_string()[0] === '') {
+          onVanished();
+        } else {
+          onAppeared();
+        }
       },
     );
   }
@@ -129,10 +155,13 @@ export class MonitorClient {
   }
 
   destroy(): void {
-    if (this.tickSubscription !== 0) {
-      Gio.DBus.session.signal_unsubscribe(this.tickSubscription);
-      this.tickSubscription = 0;
+    for (const subscription of [this.tickSubscription, this.ownerSubscription]) {
+      if (subscription !== 0) {
+        Gio.DBus.session.signal_unsubscribe(subscription);
+      }
     }
+    this.tickSubscription = 0;
+    this.ownerSubscription = 0;
     this.cancellable.cancel();
   }
 }
