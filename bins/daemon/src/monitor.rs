@@ -99,6 +99,19 @@ impl Shared {
         })
     }
 
+    /// The batteries' state before the first tick; the status assumes no RAPL until a tick
+    /// reads it.
+    pub fn set_battery(&self, on_battery: bool, capacity: Option<Joules>) {
+        let mut live = self.live.lock().unwrap_or_else(PoisonError::into_inner);
+        live.on_battery = on_battery;
+        live.capacity = capacity;
+        live.status = if on_battery {
+            Status::BatteryOnly
+        } else {
+            Status::TimeOnly
+        };
+    }
+
     /// Records that focus became `state` now.
     pub fn set_focus(&self, state: FocusState) {
         self.focus

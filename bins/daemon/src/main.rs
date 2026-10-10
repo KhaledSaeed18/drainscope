@@ -460,6 +460,10 @@ async fn main() -> anyhow::Result<()> {
     let psys = store.load_psys_check()?;
     let engine = Engine::new(rustix::process::getuid().as_raw(), floors, psys);
     let shared = Shared::new(store);
+    // Clients ask as soon as the name appears (the extension at login): answer with the
+    // batteries' state now rather than "plugged in, capacity unknown" until the first tick.
+    let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
+    shared.set_battery(level.on_battery, level.capacity);
 
     let session = zbus::Connection::session()
         .await
@@ -518,7 +522,6 @@ async fn main() -> anyhow::Result<()> {
         store_failing: false,
     };
     daemon.take_inhibitor().await;
-    let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
     daemon.note_startup_power(&level)?;
     tracing::info!(database = %path.display(), "serving {BUS_NAME}");
     let (bus, focus_shared) = (daemon.session.clone(), Arc::clone(&daemon.shared));
