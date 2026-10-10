@@ -77,7 +77,8 @@ Released after the maintainer's own testing, together with any other fixes found
 - CLI: when the daemon fails to start, `doctor` and the other commands point to its log instead of saying to enable it.
 - Daemon: right after it starts (e.g. at login, when the extension first asks), it reports the batteries' real state instead of "plugged in, 0% used" until its first tick, up to a minute in the extension.
 - Packaging: upgrades restart running user daemons (`%systemd_user_postun_with_restart`); until now the old daemon kept running until the next login. To verify on the 0.1.5 upgrade: the daemon's start time changes during `dnf upgrade`.
-- Faster history queries: ranges are answered from the coarsest exact rollups (last 24 hours 175 → 38 ms, 7 days 94 → 39 ms, including the D-Bus call), with unchanged results.
+- Faster history queries: ranges are answered from the coarsest exact rollups (last 24 hours 175 → 38 ms, 7 days 94 → 39 ms, including the D-Bus call), with unchanged results. With the app open on the last 24 hours, the daemon uses 1.45% of one CPU instead of 7.05%.
+- CLI: `report --by kind` names kinds as the app does (Terminals, Your services…) instead of `term`, `user-unit`.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
