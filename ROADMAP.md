@@ -66,6 +66,13 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] Icons checked in the real session after upgrading to v0.1.2 (app grid, dash, Alt+Tab, Quick Settings tile; light and dark).
 - [x] Product screenshots, light and dark, with illustrative data: README hero, feature cards, window cutouts, AppStream screenshots ([branding/screenshots](branding/screenshots/README.md)). Reproducible with `branding/screenshots/tools/capture.sh`: a demo Monitor1 service and a headless GNOME Shell on scratch directories.
 
+## Unreleased (for 0.1.5)
+
+Released after the maintainer's own testing, together with any other fixes found by then.
+
+- App: lists update in place instead of being rebuilt on every refresh; the usage list no longer disappears for a moment every few seconds, shifting everything below it.
+- App and CLI: no "0.000 Wh over 0 s" in-use/background split for apps whose focus is all unknown (all history right after upgrading to 0.1.4).
+
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
 No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–7 are done and no known bugs remain.
