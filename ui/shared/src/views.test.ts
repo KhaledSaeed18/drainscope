@@ -94,6 +94,9 @@ describe('buildUsage', () => {
     expect(devices?.focus).toBeUndefined();
     // No data for the app (older daemon or history before focus tracking).
     expect(buildUsage(usage, 3600, 3600, false, appNames).entries[0]?.focus).toBeUndefined();
+    // Only unknown energy, e.g. right after upgrading: nothing to show rather than "0 Wh over 0 s".
+    const allUnknown = [{ key: 'app:org.mozilla.firefox', foreground: 0, unknown: 9000, focusedSeconds: 0 }];
+    expect(buildUsage(usage, 3600, 3600, false, appNames, allUnknown).entries[0]?.focus).toBeUndefined();
   });
 
   it('folds small consumers into one entry', () => {

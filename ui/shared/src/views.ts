@@ -48,12 +48,19 @@ const NOTABLE_BACKGROUND_WH = 0.1;
 /** Unknown energy below this (rounding) isn't mentioned. */
 const NOTABLE_UNKNOWN_WH = 0.001;
 
-/** The focus view for an app that used `total` joules, from its `GetFocus` row. */
+/**
+ * The focus view for an app that used `total` joules, from its `GetFocus` row; `undefined`
+ * when nothing about its focus is known (no row, or all of its energy from while focus wasn't
+ * reported, e.g. history from before 0.1.4).
+ */
 export function focusView(total: number, row: FocusRow | undefined): FocusView | undefined {
   if (row === undefined) {
     return undefined;
   }
   const background = Math.max(0, total - row.foreground - row.unknown);
+  if (row.focusedSeconds === 0 && joulesToWattHours(row.foreground + background) < NOTABLE_UNKNOWN_WH) {
+    return undefined;
+  }
   return {
     inUse: `${formatEnergy(row.foreground)} over ${formatDuration(row.focusedSeconds)}`,
     background: formatEnergy(background),

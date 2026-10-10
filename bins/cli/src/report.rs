@@ -36,6 +36,13 @@ impl Focus {
     pub fn background_j(&self, total_j: f64) -> f64 {
         (total_j - self.foreground_j - self.unknown_j).max(0.0)
     }
+
+    /// Whether anything about the app's focus is known: it had focus, or some of its energy
+    /// (at least 1 mWh) was classified. History from before 0.1.4 is all unknown.
+    #[must_use]
+    pub fn is_known(&self, total_j: f64) -> bool {
+        self.focused_secs > 0 || self.foreground_j + self.background_j(total_j) >= 3.6
+    }
 }
 
 /// Apps' focus split by consumer key; empty from daemons older than `GetFocus`.
@@ -130,7 +137,10 @@ pub fn render_usage(rows: &[Row], span: Duration, measured: Duration, limit: usi
         });
     }
     let secs = measured.as_secs_f64().max(1.0);
-    // In use and background columns only when the daemon split something by focus.
+    // Rows whose focus is all unknown show none, and the columns only appear for a split.
+    for row in &mut shown {
+        row.focus = row.focus.filter(|focus| focus.is_known(row.joules));
+    }
     let with_focus = shown.iter().any(|row| row.focus.is_some());
     let cells: Vec<Vec<String>> = shown
         .iter()
@@ -803,6 +813,27 @@ mod tests {
             joules,
             focus: None,
         }
+    }
+
+    #[test]
+    fn usage_leaves_out_focus_that_is_all_unknown() {
+        let mut firefox = row("Firefox", 3600.0);
+        firefox.focus = Some(Focus {
+            foreground_j: 0.0,
+            unknown_j: 3600.0,
+            focused_secs: 0,
+        });
+        let rendered = render_usage(
+            &[firefox],
+            Duration::from_secs(3600),
+            Duration::from_secs(3600),
+            5,
+        );
+        assert!(
+            rendered.starts_with("Consumer   Energy  Average  Share\n"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("focus wasn't reported"), "{rendered}");
     }
 
     #[test]
