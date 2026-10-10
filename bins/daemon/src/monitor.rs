@@ -15,6 +15,7 @@ use zbus::names::BusName;
 use zbus::object_server::SignalEmitter;
 
 use crate::collector::monotonic_now;
+use crate::power::BatteryLevel;
 
 /// Largest consumers returned by `GetSummary`.
 const TOP: usize = 10;
@@ -45,6 +46,8 @@ impl Status {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveState {
     pub on_battery: bool,
+    /// Energy stored in all batteries now.
+    pub energy: Option<Joules>,
     /// Combined capacity of all batteries.
     pub capacity: Option<Joules>,
     pub status: Status,
@@ -62,6 +65,7 @@ impl Default for LiveState {
     fn default() -> Self {
         Self {
             on_battery: false,
+            energy: None,
             capacity: None,
             status: Status::TimeOnly,
             domains: Vec::new(),
@@ -101,11 +105,12 @@ impl Shared {
 
     /// The batteries' state before the first tick; the status assumes no RAPL until a tick
     /// reads it.
-    pub fn set_battery(&self, on_battery: bool, capacity: Option<Joules>) {
+    pub fn set_battery(&self, level: &BatteryLevel) {
         let mut live = self.live.lock().unwrap_or_else(PoisonError::into_inner);
-        live.on_battery = on_battery;
-        live.capacity = capacity;
-        live.status = if on_battery {
+        live.on_battery = level.on_battery;
+        live.energy = level.energy;
+        live.capacity = level.capacity;
+        live.status = if level.on_battery {
             Status::BatteryOnly
         } else {
             Status::TimeOnly
@@ -259,15 +264,25 @@ impl Monitor {
         };
         let since = unplug.ts_ms;
         // On AC, report the last discharge: up to the plug-in that ended it.
-        let until = if live.on_battery {
-            now
+        let plug = if live.on_battery {
+            None
         } else {
             store
                 .last_power_event(PowerEventKind::Plug)?
-                .map(|event| event.ts_ms)
-                .filter(|&plugged| plugged >= since)
-                .unwrap_or(now)
+                .filter(|event| event.ts_ms >= since)
         };
+        let until = plug.as_ref().map_or(now, |event| event.ts_ms);
+        // What the batteries themselves lost, Wh: it includes time the daemon didn't measure
+        // (logged out, stopped), which the attributed energy can't.
+        let end_wh = match &plug {
+            Some(event) => event.energy_wh,
+            None if live.on_battery => live.energy.map(|j| j.0 / 3600.0),
+            None => None,
+        };
+        let drained_wh = unplug
+            .energy_wh
+            .zip(end_wh)
+            .map(|(start, end)| (start - end).max(0.0));
         let rows = store.usage(since, until, SourceFilter::Only(PowerSource::Battery), now)?;
         drop(store);
 
@@ -297,12 +312,11 @@ impl Monitor {
                 )
             })
             .collect();
-        Ok((
-            live.on_battery,
-            since / 1000,
-            percent_of_battery(total),
-            top,
-        ))
+        let used = drained_wh.map_or_else(
+            || percent_of_battery(total),
+            |wh| percent_of_battery(wh * 3600.0),
+        );
+        Ok((live.on_battery, since / 1000, used, top))
     }
 }
 

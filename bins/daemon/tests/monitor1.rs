@@ -107,6 +107,7 @@ fn shared() -> Arc<Shared> {
     let shared = Shared::new(store);
     *shared.live.lock().unwrap_or_else(PoisonError::into_inner) = LiveState {
         on_battery: true,
+        energy: None,
         capacity: Some(Joules(100_000.0)),
         status: Status::Full,
         domains: vec!["package".into(), "core".into()],
@@ -167,6 +168,53 @@ async fn summary_reports_battery_and_attributable_shares() {
         .unwrap();
     assert!((firefox.2 - 0.3).abs() < 1e-9, "% of battery");
     assert!((firefox.3 - 60.0).abs() < 1e-9, "300 of 500 attributable J");
+}
+
+#[tokio::test]
+async fn battery_used_is_what_the_batteries_lost() {
+    // Unplugged at 30 Wh; the measured windows (2000 J) cover only part of the discharge.
+    let shared = shared();
+    let event = |ts_ms, kind, energy_wh| PowerEvent {
+        ts_ms,
+        kind,
+        battery_percent: None,
+        energy_wh: Some(energy_wh),
+    };
+    shared
+        .store
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .record_power_event(&event(T0 + 500, PowerEventKind::Unplug, 30.0))
+        .unwrap();
+    shared
+        .live
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .energy = Some(Joules(28.0 * 3600.0));
+    let peer = serve_shared(Arc::clone(&shared)).await;
+    let (on_battery, since, used, _) = proxy(&peer).await.get_summary().await.unwrap();
+    assert!(on_battery);
+    assert_eq!(since, (T0 + 500) / 1000);
+    assert!(
+        (used - 7.2).abs() < 1e-9,
+        "2 Wh of 100 kJ, not the 2000 J measured: {used}"
+    );
+
+    // Back on AC: up to the plug-in that ended the discharge.
+    shared
+        .store
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .record_power_event(&event(T0 + 550_000, PowerEventKind::Plug, 27.5))
+        .unwrap();
+    shared
+        .live
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .on_battery = false;
+    let (on_battery, _, used, _) = proxy(&peer).await.get_summary().await.unwrap();
+    assert!(!on_battery);
+    assert!((used - 9.0).abs() < 1e-9, "2.5 Wh of 100 kJ: {used}");
 }
 
 #[tokio::test]

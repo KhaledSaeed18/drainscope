@@ -250,6 +250,7 @@ impl Daemon {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         live.on_battery = level.on_battery;
+        live.energy = level.energy;
         live.capacity = level.capacity;
         live.status = status;
         live.domains = domains;
@@ -463,7 +464,7 @@ async fn main() -> anyhow::Result<()> {
     // Clients ask as soon as the name appears (the extension at login): answer with the
     // batteries' state now rather than "plugged in, capacity unknown" until the first tick.
     let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
-    shared.set_battery(level.on_battery, level.capacity);
+    shared.set_battery(&level);
 
     let session = zbus::Connection::session()
         .await
