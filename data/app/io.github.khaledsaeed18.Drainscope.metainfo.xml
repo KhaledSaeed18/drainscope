@@ -58,6 +58,11 @@
     <color type="primary" scheme_preference="dark">#15282f</color>
   </branding>
   <releases>
+    <release version="0.1.4" date="2026-10-10">
+      <description>
+        <p>See how much of each app's energy it used while you were using it, and how much in the background. Needs the GNOME Shell extension, which reports only which app has focus.</p>
+      </description>
+    </release>
     <release version="0.1.3" date="2026-10-10">
       <description>
         <p>Network traffic is charged more completely to the apps that cause it. The daemon uses much less power while nothing shows its data, and the command line can export everything as CSV or JSON.</p>

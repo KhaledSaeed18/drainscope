@@ -4,7 +4,7 @@
 %global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
-Version:        0.1.3
+Version:        0.1.4
 Release:        1%{?dist}
 Summary:        Per-app battery and energy usage for the Linux desktop
 
@@ -237,6 +237,13 @@ fi
 %{_datadir}/icons/hicolor/symbolic/apps/%{app_id}-symbolic.svg
 
 %changelog
+* Sat Oct 10 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.4-1
+- Each app's energy is split into while in use and in the background (ADR 0011)
+- GNOME Shell extension: report the focused app to the daemon (app ID only)
+- Daemon: Monitor1 SetFocus, EndFocus and GetFocus; schema migration 3
+- App: the detail page shows energy while in use and in the background
+- CLI: report shows In use and Background columns; exports gain focus fields
+
 * Sat Oct 10 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.3-1
 - Attribution model v3: network interrupt threads are charged to the apps causing the traffic
 - Daemon: tick every 15 s while no view is open (5 s while one is); lower CPU and wakeups
