@@ -300,19 +300,31 @@ async fn probe(system: Option<&zbus::Connection>) -> Check {
     }
 }
 
-async fn daemon(session: Option<&zbus::Connection>) -> Check {
-    let not_running = || {
+/// Why asking the daemon failed: not installed or enabled (`ServiceUnknown`), or installed
+/// but failing to start, whose reason is in its log.
+fn daemon_failure(error_name: Option<&str>, detail: &str) -> Check {
+    if error_name == Some("org.freedesktop.DBus.Error.ServiceUnknown") {
         check(
             Level::Fail,
             "the drainscope daemon isn't running",
             Some("systemctl --user enable --now drainscope.service"),
         )
-    };
+    } else {
+        check(
+            Level::Fail,
+            format!("the drainscope daemon doesn't start: {detail}"),
+            Some("see why: journalctl --user -u drainscope.service -n 20"),
+        )
+    }
+}
+
+async fn daemon(session: Option<&zbus::Connection>) -> Check {
     let Some(bus) = session else {
         return check(Level::Fail, "no session bus", None);
     };
-    let Ok(proxy) = Monitor1Proxy::new(bus).await else {
-        return not_running();
+    let proxy = match Monitor1Proxy::new(bus).await {
+        Ok(proxy) => proxy,
+        Err(err) => return daemon_failure(None, &err.to_string()),
     };
     match proxy.status().await {
         Ok(status) => check(
@@ -320,7 +332,11 @@ async fn daemon(session: Option<&zbus::Connection>) -> Check {
             format!("daemon running (measurement: {status})"),
             None,
         ),
-        Err(_) => not_running(),
+        Err(zbus::Error::MethodError(name, detail, _)) => daemon_failure(
+            Some(name.as_str()),
+            detail.as_deref().unwrap_or(name.as_str()),
+        ),
+        Err(err) => daemon_failure(None, &err.to_string()),
     }
 }
 
@@ -346,6 +362,29 @@ pub async fn run() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tells_a_missing_daemon_from_one_that_fails_to_start() {
+        let missing = daemon_failure(Some("org.freedesktop.DBus.Error.ServiceUnknown"), "x");
+        assert_eq!(
+            missing.hint.as_deref(),
+            Some("systemctl --user enable --now drainscope.service")
+        );
+        let failing = daemon_failure(
+            Some("org.freedesktop.DBus.Error.Spawn.ChildExited"),
+            "Process io.github.khaledsaeed18.Drainscope.Monitor exited with status 4",
+        );
+        assert_eq!(failing.level, Level::Fail);
+        assert!(
+            failing.message.contains("doesn't start: Process"),
+            "{}",
+            failing.message
+        );
+        assert_eq!(
+            failing.hint.as_deref(),
+            Some("see why: journalctl --user -u drainscope.service -n 20")
+        );
+    }
 
     #[test]
     fn explains_gpu_support() {

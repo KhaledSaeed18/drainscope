@@ -105,20 +105,30 @@ fn print_export<T: serde::Serialize>(
     Ok(())
 }
 
-/// Explains a failed call, which almost always means the daemon isn't running.
-fn daemon_hint(err: zbus::Error) -> anyhow::Error {
-    if let zbus::Error::MethodError(name, ..) = &err
-        && name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod"
-    {
-        return anyhow::Error::new(err).context(
+/// What to do about a failed call to the daemon, by D-Bus error name.
+fn hint_for(error_name: Option<&str>) -> &'static str {
+    match error_name {
+        Some("org.freedesktop.DBus.Error.UnknownMethod") => {
             "the running daemon is older than this command; restart it after updating \
-             (systemctl --user restart drainscope.service)",
-        );
+             (systemctl --user restart drainscope.service)"
+        }
+        Some("org.freedesktop.DBus.Error.ServiceUnknown") => {
+            "the drainscope daemon isn't running (systemctl --user enable --now drainscope.service)"
+        }
+        // Installed but failing to start, or not answering: the reason is in its log.
+        _ => {
+            "the drainscope daemon didn't answer; see why: journalctl --user -u drainscope.service -n 20"
+        }
     }
-    anyhow::Error::new(err).context(
-        "the drainscope daemon didn't answer; is it running? \
-         (systemctl --user enable --now drainscope.service)",
-    )
+}
+
+/// Explains a failed call to the daemon.
+fn daemon_hint(err: zbus::Error) -> anyhow::Error {
+    let hint = hint_for(match &err {
+        zbus::Error::MethodError(name, ..) => Some(name.as_str()),
+        _ => None,
+    });
+    anyhow::Error::new(err).context(hint)
 }
 
 /// The top `limit` rows, the rest folded into one line, as table rows with shares of the
@@ -806,6 +816,19 @@ fn summarize_health(readings: &[drainscope_dbus::monitor::HealthRow]) -> Vec<Hea
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hints_say_what_to_do_about_the_daemon() {
+        assert!(
+            hint_for(Some("org.freedesktop.DBus.Error.ServiceUnknown")).contains("enable --now")
+        );
+        assert!(hint_for(Some("org.freedesktop.DBus.Error.UnknownMethod")).contains("older"));
+        // A daemon that fails to start (e.g. a database from a newer version) explains why in its log.
+        assert!(
+            hint_for(Some("org.freedesktop.DBus.Error.Spawn.ChildExited")).contains("journalctl")
+        );
+        assert!(hint_for(None).contains("journalctl"));
+    }
 
     fn row(label: &str, joules: f64) -> Row {
         Row {
