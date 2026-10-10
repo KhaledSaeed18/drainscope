@@ -75,6 +75,7 @@ Released after the maintainer's own testing, together with any other fixes found
 - Daemon: a history that can't be written (full disk, I/O error) no longer stops `Tick` and live views; failures are logged when they start and end, not every tick.
 - Daemon: an unreadable database is kept aside (`drainscope.db.unreadable-<time>`) and a new history starts; a database from a newer drainscope stops the daemon with status 4, which the unit doesn't restart on (both used to restart every 10 s forever).
 - CLI: when the daemon fails to start, `doctor` and the other commands point to its log instead of saying to enable it.
+- Packaging: upgrades restart running user daemons (`%systemd_user_postun_with_restart`); until now the old daemon kept running until the next login. To verify on the 0.1.5 upgrade: the daemon's start time changes during `dnf upgrade`.
 - Faster history queries: ranges are answered from the coarsest exact rollups (last 24 hours 175 → 38 ms, 7 days 94 → 39 ms, including the D-Bus call), with unchanged results.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)

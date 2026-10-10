@@ -158,6 +158,11 @@ cargo test --release --frozen --offline --workspace --exclude xtask
 %preun
 %systemd_user_preun drainscope.service
 
+# Restart running daemons after an upgrade, so the new one (and its migrations) runs without
+# waiting for the next login.
+%postun
+%systemd_user_postun_with_restart drainscope.service
+
 %post sampler
 %systemd_post drainscope-sampler.service
 
