@@ -1,6 +1,6 @@
 # 0011 — Foreground and background energy per app
 
-- Status: accepted (approved by the maintainer after 0.1.3); implemented 2026-10-10, on-machine validation pending
+- Status: accepted (approved by the maintainer after 0.1.3); implemented and validated 2026-10-10
 - Date: 2026-10-10
 
 ## Context
@@ -61,4 +61,11 @@ Estimated work: about two to three days across daemon, store, extension, app and
 - Unit tests: the timeline and split (`model::focus`), the engine carrying each window's split, migration 3's backfill, and the rollups at all three resolutions with pruning.
 - Peer-to-peer integration test: `SetFocus` and `EndFocus` from a caller that isn't the Shell get `AccessDenied` and leave focus unknown; `GetFocus` round-trips.
 - On a private bus with the new daemon: `SetFocus` was refused before the test process owned `org.gnome.Shell`, accepted after, and refused from another process of the same user. Focused time per window matched the schedule to the tick (15 s, then 136 ms for a report just after a tick).
-- Still to do: the on-machine test above, with the new extension in the real session (needs a re-login).
+- On the machine (2026-10-10, AC, dev daemon and extension in the real GNOME 50 session): two test apps with the same steady load (a thread busy 10 ms of every 20 ms, about half a core each), each in its own `app-gnome-…` scope with a desktop entry. Focus alternated every 60 s for 10 minutes, five times each way, by reopening the app's window (GNOME doesn't let an app without user input take focus with `present()`, but a new window gets it). All ten switches reached the daemon.
+
+  | App | Energy | In use | Background | Focused | In-use share | Focused share |
+  |---|---|---|---|---|---|---|
+  | A | 168.1 J | 79.8 J | 88.3 J | 280 s | 47.5% | 47.9% |
+  | B | 168.1 J | 88.3 J | 79.8 J | 304 s | 52.5% | 52.0% |
+
+  Each app's in-use share matched its focused share within 0.6 points (criterion: 5); nothing was unknown, and in use plus background equals each app's usage total.
