@@ -23,7 +23,7 @@ use drainscope_dbus::monitor::{BUS_NAME, OBJECT_PATH};
 use drainscope_model::{
     BatteryHealth, FocusLog, MODEL_VERSION, PowerSource, RaplDomain, RateTracker, Resolver, health,
 };
-use drainscope_store::{PowerEvent, PowerEventKind, Store, WindowRecord};
+use drainscope_store::{PowerEvent, PowerEventKind, Store, StoreError, WindowRecord};
 use drainscope_sys::sleep::{PrepareForSleep, PrepareForSleepStream};
 use drainscope_sys::{
     Login1ManagerProxy, SysRoot, read_batteries, read_mem_sleep, read_wakeup_irq,
@@ -71,6 +71,8 @@ struct Daemon {
     last_prune: Option<Instant>,
     /// From the latest snapshot; saved with the calibration.
     health: Vec<BatteryHealth>,
+    /// Whether the last write to the history failed (e.g. a full disk), to log only changes.
+    store_failing: bool,
 }
 
 impl Daemon {
@@ -79,6 +81,27 @@ impl Daemon {
             .store
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Reports a history write: failures (a full disk, an I/O error) are logged when they start
+    /// and when writes work again, not on every tick, and never stop measuring or `Tick`.
+    fn stored<T>(&mut self, what: &str, result: Result<T, StoreError>) -> Option<T> {
+        match result {
+            Ok(value) => {
+                if std::mem::take(&mut self.store_failing) {
+                    tracing::info!("writing the history works again");
+                }
+                Some(value)
+            }
+            Err(err) => {
+                if std::mem::replace(&mut self.store_failing, true) {
+                    tracing::debug!(%err, what, "writing the history failed");
+                } else {
+                    tracing::warn!(%err, what, "writing the history failed; measuring goes on, and the missing time stays unrecorded");
+                }
+                None
+            }
+        }
     }
 
     fn focus_log(&self) -> MutexGuard<'_, FocusLog> {
@@ -119,7 +142,8 @@ impl Daemon {
         self.health = health(&collected.snapshot.batteries);
         if let Some(event) = self.power.update(&level, wall_ms) {
             tracing::info!(kind = ?event.kind, "power source changed");
-            self.store().record_power_event(&event)?;
+            let result = self.store().record_power_event(&event);
+            self.stored("power event", result);
         }
 
         let generation = rapl.as_ref().map(|r| r.generation);
@@ -185,15 +209,22 @@ impl Daemon {
             self.finish_tick(outcome).await?;
         }
 
+        self.housekeeping(wall_ms);
+        Ok(())
+    }
+
+    /// Saves calibration and prunes old history when they're due.
+    fn housekeeping(&mut self, wall_ms: i64) {
         if self.last_save.elapsed() >= SAVE_EVERY {
             self.save_state();
         }
         if self.last_prune.is_none_or(|at| at.elapsed() >= PRUNE_EVERY) {
-            let stats = self.store().prune(wall_ms)?;
-            tracing::debug!(?stats, "pruned history");
+            let result = self.store().prune(wall_ms);
+            if let Some(stats) = self.stored("pruning", result) {
+                tracing::debug!(?stats, "pruned history");
+            }
             self.last_prune = Some(Instant::now());
         }
-        Ok(())
     }
 
     fn update_live_state(
@@ -234,15 +265,16 @@ impl Daemon {
             .then(|| merge_traffic(&self.received.rates(), &self.sent.rates()));
     }
 
-    async fn finish_tick(&self, outcome: TickOutcome) -> anyhow::Result<()> {
+    async fn finish_tick(&mut self, outcome: TickOutcome) -> anyhow::Result<()> {
         if let Some(finished) = &outcome.finished {
-            self.store().record_window(&WindowRecord {
+            let result = self.store().record_window(&WindowRecord {
                 start_ms: finished.start_ms,
                 end_ms: finished.end_ms,
                 window: &finished.window,
                 model_version: MODEL_VERSION,
                 focus: &finished.focus,
-            })?;
+            });
+            self.stored("window", result);
         }
         let usage = outcome
             .live
@@ -473,6 +505,7 @@ async fn main() -> anyhow::Result<()> {
         last_save: Instant::now(),
         health: Vec::new(),
         last_prune: None,
+        store_failing: false,
     };
     daemon.take_inhibitor().await;
     let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
