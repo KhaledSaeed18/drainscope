@@ -71,6 +71,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 Released after the maintainer's own testing, together with any other fixes found by then.
 
 - App: follows the daemon's bus name. It shows "isn't running" as soon as the daemon stops (it used to keep showing stale numbers with no sign, since it only refreshed on `Tick`), and its data again as soon as the daemon is back, instead of at the daemon's first tick (up to 30 s). Watching doesn't start the daemon, so `systemctl --user stop` sticks. The banner is hidden while the daemon isn't running.
+- Foreground/background without RAPL (VMs, some ARM laptops, no sampler, or the sampler refusing): apps' energy, shared out by CPU time when a window closes, was all counted as background. The focus split is now taken tick by tick as fractions (of energy with RAPL, of CPU time without) and applied to each app's final energy.
 - App: lists update in place instead of being rebuilt on every refresh; the usage list no longer disappears for a moment every few seconds, shifting everything below it.
 - App and CLI: no "0.000 Wh over 0 s" in-use/background split for apps whose focus is all unknown (all history right after upgrading to 0.1.4).
 - Daemon: a history that can't be written (full disk, I/O error) no longer stops `Tick` and live views; failures are logged when they start and end, not every tick.

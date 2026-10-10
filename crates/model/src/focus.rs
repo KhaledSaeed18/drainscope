@@ -1,7 +1,7 @@
 //! Foreground and background energy per app (ADR 0011).
 //!
 //! The Shell extension reports which app has focus; [`FocusLog`] keeps those changes on the
-//! `CLOCK_MONOTONIC` timeline, and [`split`] divides each app's energy in a tick into the part
+//! `CLOCK_MONOTONIC` timeline, and [`FocusWindow`] divides each app's energy in a window into the part
 //! spent while one of its windows had focus (foreground), the part while focus wasn't known,
 //! and the rest (background). Attribution itself is unchanged: this only classifies energy
 //! already charged to an app.
@@ -121,43 +121,140 @@ impl FocusSplit {
     }
 }
 
-/// Splits each app's energy in a tick of length `duration` by focus, assuming energy evenly
-/// spread over the tick. Apps that had focus but no energy still get their focused time.
-#[must_use]
-pub fn split(
-    ledger: &Ledger,
-    spans: &FocusSpans,
+/// How much of an app's activity happened with focus, and with focus unknown.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct Shares {
+    total: f64,
+    foreground: f64,
+    unknown: f64,
+}
+
+impl Shares {
+    fn add(&mut self, weight: f64, focused: f64, unknown: f64) {
+        self.total += weight;
+        self.foreground += weight * focused;
+        self.unknown += weight * unknown;
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct AppFocus {
+    /// Weighted by the app's energy in each tick.
+    energy: Shares,
+    /// Weighted by its CPU time in each tick: how a window without RAPL shares the battery's
+    /// energy out when it closes.
+    cpu: Shares,
+    focused: Duration,
+}
+
+/// Focus over a window, tick by tick, applied to apps' energy once the window closes.
+///
+/// A window's final energy per app isn't always the sum of its ticks: without RAPL, the battery's
+/// energy is shared out by CPU time at close. So each tick records what fraction of each app's
+/// activity (its energy, and its CPU time) fell while it had focus or while focus was unknown,
+/// and [`Self::finish`] applies those fractions to the final energy. Energy within a tick is
+/// assumed even over it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FocusWindow {
+    apps: BTreeMap<String, AppFocus>,
     duration: Duration,
-) -> BTreeMap<ConsumerKey, FocusSplit> {
-    let seconds = duration.as_secs_f64();
-    let mut out = BTreeMap::new();
-    if seconds <= 0.0 {
-        return out;
-    }
-    let unknown = (spans.unknown.as_secs_f64() / seconds).min(1.0);
-    for (key, energy) in ledger {
-        let ConsumerKey::App(id) = key else {
-            continue;
+    unknown: Duration,
+}
+
+impl FocusWindow {
+    /// Adds one tick of length `duration`: its energy ledger, CPU time by consumer, and focus.
+    pub fn add_tick(
+        &mut self,
+        ledger: &Ledger,
+        cpu_usec: &BTreeMap<ConsumerKey, u64>,
+        spans: &FocusSpans,
+        duration: Duration,
+    ) {
+        let seconds = duration.as_secs_f64();
+        if seconds <= 0.0 {
+            return;
+        }
+        let unknown = (spans.unknown.as_secs_f64() / seconds).min(1.0);
+        let focused = |id: &str| {
+            spans
+                .focused
+                .get(id)
+                .map_or(0.0, |d| (d.as_secs_f64() / seconds).min(1.0))
         };
-        let focused = spans.focused.get(id).copied().unwrap_or_default();
-        let joules = energy.total().0;
-        out.insert(
-            key.clone(),
-            FocusSplit {
-                foreground_j: joules * (focused.as_secs_f64() / seconds).min(1.0),
-                unknown_j: joules * unknown,
-                focused,
-            },
-        );
+        for (key, energy) in ledger {
+            if let ConsumerKey::App(id) = key {
+                let shares = &mut self.apps.entry(id.clone()).or_default().energy;
+                shares.add(energy.total().0, focused(id), unknown);
+            }
+        }
+        for (key, usec) in cpu_usec {
+            if let ConsumerKey::App(id) = key {
+                #[allow(clippy::cast_precision_loss)] // CPU microseconds per tick, far below 2^52
+                let usec = *usec as f64;
+                let shares = &mut self.apps.entry(id.clone()).or_default().cpu;
+                shares.add(usec, focused(id), unknown);
+            }
+        }
+        for (id, time) in &spans.focused {
+            self.apps.entry(id.clone()).or_default().focused += *time;
+        }
+        self.duration += duration;
+        self.unknown += spans.unknown.min(duration);
     }
-    for (id, focused) in &spans.focused {
-        out.entry(ConsumerKey::App(id.clone()))
-            .or_insert(FocusSplit {
-                focused: *focused,
-                ..FocusSplit::default()
-            });
+
+    /// Each app's energy in the closed window's `ledger`, split by focus, plus the apps that
+    /// had focus without using energy (time only).
+    #[must_use]
+    pub fn finish(self, ledger: &Ledger) -> BTreeMap<ConsumerKey, FocusSplit> {
+        let window = self.duration.as_secs_f64();
+        let mut out = BTreeMap::new();
+        for (key, energy) in ledger {
+            let ConsumerKey::App(id) = key else {
+                continue;
+            };
+            let app = self.apps.get(id).cloned().unwrap_or_default();
+            // The weights that match how the energy was assigned; by time if there were none.
+            let (focused, unknown) = [app.energy, app.cpu]
+                .into_iter()
+                .find(|shares| shares.total > 0.0)
+                .map_or_else(
+                    || {
+                        if window > 0.0 {
+                            (
+                                app.focused.as_secs_f64() / window,
+                                self.unknown.as_secs_f64() / window,
+                            )
+                        } else {
+                            (0.0, 1.0)
+                        }
+                    },
+                    |shares| {
+                        (
+                            shares.foreground / shares.total,
+                            shares.unknown / shares.total,
+                        )
+                    },
+                );
+            let joules = energy.total().0;
+            out.insert(
+                key.clone(),
+                FocusSplit {
+                    foreground_j: joules * focused.clamp(0.0, 1.0),
+                    unknown_j: joules * unknown.clamp(0.0, 1.0),
+                    focused: app.focused,
+                },
+            );
+        }
+        for (id, app) in self.apps {
+            if !app.focused.is_zero() {
+                out.entry(ConsumerKey::App(id)).or_insert(FocusSplit {
+                    focused: app.focused,
+                    ..FocusSplit::default()
+                });
+            }
+        }
+        out
     }
-    out
 }
 
 #[cfg(test)]
@@ -216,23 +313,32 @@ mod tests {
         assert_eq!(log.current(), &app("editor"));
     }
 
+    fn joules(j: f64) -> EnergySplit {
+        EnergySplit {
+            cpu: Joules(j),
+            ..EnergySplit::default()
+        }
+    }
+
     #[test]
     fn splits_app_energy_by_focused_time() {
         let mut log = FocusLog::default();
         log.set(Duration::ZERO, app("org.mozilla.firefox"));
         log.set(3 * S, FocusState::Unknown);
         log.set(4 * S, app("org.gnome.TextEditor"));
-        let spans = log.spans(Duration::ZERO, 5 * S);
-        let joules = |j: f64| EnergySplit {
-            cpu: Joules(j),
-            ..EnergySplit::default()
-        };
         let ledger = Ledger::from([
             (ConsumerKey::App("org.mozilla.firefox".into()), joules(10.0)),
             (ConsumerKey::App("org.gnome.Software".into()), joules(5.0)),
             (ConsumerKey::Kernel, joules(7.0)),
         ]);
-        let out = split(&ledger, &spans, 5 * S);
+        let mut window = FocusWindow::default();
+        window.add_tick(
+            &ledger,
+            &BTreeMap::new(),
+            &log.spans(Duration::ZERO, 5 * S),
+            5 * S,
+        );
+        let out = window.finish(&ledger);
         let firefox = out[&ConsumerKey::App("org.mozilla.firefox".into())];
         assert!((firefox.foreground_j - 6.0).abs() < 1e-9); // 3 of 5 s
         assert!((firefox.unknown_j - 2.0).abs() < 1e-9); // 1 of 5 s unknown
@@ -242,5 +348,65 @@ mod tests {
         let editor = out[&ConsumerKey::App("org.gnome.TextEditor".into())];
         assert_eq!((editor.foreground_j, editor.focused), (0.0, S));
         assert!(!out.contains_key(&ConsumerKey::Kernel));
+    }
+
+    #[test]
+    fn energy_assigned_at_close_follows_cpu_time() {
+        // Without RAPL, ticks carry no energy; the window's battery energy is shared by CPU
+        // time at close. Firefox ran 3 s with focus and 1 s without.
+        let firefox = ConsumerKey::App("org.mozilla.firefox".into());
+        let mut log = FocusLog::default();
+        log.set(Duration::ZERO, app("org.mozilla.firefox"));
+        log.set(5 * S, FocusState::Nothing);
+        let mut window = FocusWindow::default();
+        let cpu = |usec| BTreeMap::from([(firefox.clone(), usec)]);
+        window.add_tick(
+            &Ledger::new(),
+            &cpu(3_000_000),
+            &log.spans(Duration::ZERO, 5 * S),
+            5 * S,
+        );
+        window.add_tick(
+            &Ledger::new(),
+            &cpu(1_000_000),
+            &log.spans(5 * S, 10 * S),
+            5 * S,
+        );
+        let closed = Ledger::from([(firefox.clone(), joules(40.0))]);
+        let out = window.finish(&closed);
+        assert!(
+            (out[&firefox].foreground_j - 30.0).abs() < 1e-9,
+            "{:?}",
+            out[&firefox]
+        );
+        assert!(out[&firefox].unknown_j.abs() < 1e-12);
+        assert_eq!(out[&firefox].focused, 5 * S);
+    }
+
+    proptest::proptest! {
+        /// Foreground and unknown never exceed an app's energy, whatever the weights.
+        #[test]
+        fn splits_stay_within_the_energy(
+            ticks in proptest::collection::vec((0.0f64..20.0, 0u64..5_000_000, 0u64..6, 0u64..6), 1..8),
+            closed_j in 0.0f64..200.0,
+        ) {
+            let firefox = ConsumerKey::App("org.mozilla.firefox".into());
+            let mut window = FocusWindow::default();
+            for (energy, usec, focused_s, unknown_s) in ticks {
+                let mut spans = FocusSpans::default();
+                spans.focused.insert("org.mozilla.firefox".into(), Duration::from_secs(focused_s.min(5)));
+                spans.unknown = Duration::from_secs(unknown_s.min(5 - focused_s.min(5)));
+                window.add_tick(
+                    &Ledger::from([(firefox.clone(), joules(energy))]),
+                    &BTreeMap::from([(firefox.clone(), usec)]),
+                    &spans,
+                    5 * S,
+                );
+            }
+            let out = window.finish(&Ledger::from([(firefox.clone(), joules(closed_j))]));
+            let split = out[&firefox];
+            proptest::prop_assert!(split.foreground_j >= 0.0 && split.unknown_j >= 0.0);
+            proptest::prop_assert!(split.foreground_j + split.unknown_j <= closed_j + 1e-9);
+        }
     }
 }

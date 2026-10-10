@@ -7,10 +7,9 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use drainscope_model::focus::split as focus_split;
 use drainscope_model::{
     Activity, CgroupPath, ClosedWindow, ConsumerKey, FloorEstimator, FocusLog, FocusSplit,
-    PowerSource, PsysCheck, PsysVerdict, Resolver, Snapshot, Watts, Window, attribute,
+    FocusWindow, PowerSource, PsysCheck, PsysVerdict, Resolver, Snapshot, Watts, Window, attribute,
     deltas_by_consumer, diff,
 };
 
@@ -78,8 +77,8 @@ pub struct Engine {
     previous: Option<Reading>,
     window: Window,
     window_start_ms: Option<i64>,
-    /// The open window's apps split by focus, tick by tick.
-    window_focus: BTreeMap<ConsumerKey, FocusSplit>,
+    /// Focus over the open window, applied to apps' energy when it closes.
+    window_focus: FocusWindow,
     floors: BTreeMap<PowerSource, FloorEstimator>,
     psys: PsysCheck,
 }
@@ -96,7 +95,7 @@ impl Engine {
             previous: None,
             window: Window::default(),
             window_start_ms: None,
-            window_focus: BTreeMap::new(),
+            window_focus: FocusWindow::default(),
             floors,
             psys,
         }
@@ -152,19 +151,24 @@ impl Engine {
         let spans = reading
             .focus
             .spans(previous.snapshot.taken_at, reading.snapshot.taken_at);
-        for (key, split) in focus_split(&tick.ledger, &spans, delta.duration) {
-            self.window_focus.entry(key).or_default().add(&split);
-        }
+        self.window_focus.add_tick(
+            &tick.ledger,
+            &tick.activity.cpu_usec,
+            &spans,
+            delta.duration,
+        );
         self.window_start_ms.get_or_insert(previous.wall_ms);
         self.window.push(tick, delta.battery);
 
         let finished = if self.window.is_ready() {
             let start_ms = self.window_start_ms.take().unwrap_or(previous.wall_ms);
+            let window = std::mem::take(&mut self.window).close(&floor);
+            let focus = std::mem::take(&mut self.window_focus).finish(&window.ledger);
             Some(FinishedWindow {
-                window: std::mem::take(&mut self.window).close(&floor),
+                window,
                 start_ms,
                 end_ms: reading.wall_ms.max(start_ms + 1),
-                focus: std::mem::take(&mut self.window_focus),
+                focus,
             })
         } else {
             None
@@ -184,7 +188,7 @@ impl Engine {
         self.previous = None;
         self.window = Window::default();
         self.window_start_ms = None;
-        self.window_focus.clear();
+        self.window_focus = FocusWindow::default();
     }
 
     #[must_use]
@@ -395,6 +399,55 @@ mod tests {
                 .keys()
                 .all(|k| matches!(k, ConsumerKey::App(_)))
         );
+    }
+
+    #[test]
+    fn battery_only_windows_split_the_energy_shared_out_at_close() {
+        use drainscope_model::FocusState;
+        use drainscope_model::snapshot::{BatteryReading, BatteryStatus};
+        // No RAPL: apps get the battery's energy by CPU time only when the window closes.
+        let battery_only = |t: u64| {
+            let mut r = reading(t, 1, 0);
+            r.snapshot.rapl.clear();
+            r.snapshot.batteries.push(BatteryReading {
+                name: "BAT0".into(),
+                status: BatteryStatus::Discharging,
+                power: Some(Watts(10.0)),
+                energy: Some(drainscope_model::Joules(
+                    100_000.0 - 10.0 * f64::from(u32::try_from(t).unwrap()),
+                )),
+                energy_full: None,
+                energy_full_design: None,
+                cycle_count: None,
+            });
+            r
+        };
+        let firefox = ConsumerKey::App("org.mozilla.firefox".into());
+        let mut log = FocusLog::default();
+        log.set(
+            Duration::ZERO,
+            FocusState::App("org.mozilla.firefox".into()),
+        );
+        log.set(Duration::from_secs(5), FocusState::Nothing);
+        let mut engine = engine();
+        let mut finished = None;
+        for t in 0..=10 {
+            let mut r = battery_only(t);
+            r.focus = log.clone();
+            if let Some(outcome) = engine.tick(r) {
+                finished = finished.or(outcome.finished);
+            }
+        }
+        let window = finished.unwrap();
+        assert_eq!(window.window.measurement, Measurement::BatteryOnly);
+        let energy = window.window.ledger[&firefox].total().0;
+        assert!(energy > 0.0);
+        let focus = window.focus[&firefox];
+        assert!(
+            (focus.foreground_j - energy / 2.0).abs() < 1e-6,
+            "{focus:?} of {energy} J"
+        );
+        assert!(focus.unknown_j.abs() < 1e-9, "{focus:?}");
     }
 
     #[test]
