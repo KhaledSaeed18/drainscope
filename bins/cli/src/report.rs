@@ -239,6 +239,7 @@ pub fn render_summary(
     on_battery: bool,
     since: Option<Duration>,
     battery_percent: f64,
+    measured: Option<Duration>,
     rows: &[SummaryRow],
 ) -> String {
     let Some(since) = since else {
@@ -250,11 +251,21 @@ pub fn render_summary(
         .to_owned();
     };
     let mut out = if on_battery {
-        format!(
-            "On battery for {}: {} of the battery used.\n\n",
+        let mut out = format!(
+            "On battery for {}: {} of the battery used.\n",
             duration(since),
             percent(battery_percent)
-        )
+        );
+        // The battery's drop includes time the daemon wasn't running; the list doesn't.
+        if let Some(measured) = measured.filter(|m| m.as_secs_f64() < since.as_secs_f64() * 0.95) {
+            let _ = writeln!(
+                out,
+                "drainscope measured {} of that time; the consumers below add up to what it measured.",
+                duration(measured)
+            );
+        }
+        out.push('\n');
+        out
     } else {
         format!(
             "On AC power. The last discharge, which started {} ago, used {} of the battery.\n\n",
@@ -500,11 +511,21 @@ pub async fn summary(bus: &zbus::Connection, format: Format) -> anyhow::Result<(
             of_active,
         })
         .collect();
+    // Time measured on battery since the unplug; daemons before GetCoverage don't say.
+    let measured = if since > 0 && on_battery {
+        monitor
+            .get_coverage(since, now_secs() + 1, "battery")
+            .await
+            .ok()
+            .map(Duration::from_secs)
+    } else {
+        None
+    };
     // 0 means the daemon has never seen an unplug.
     let since = (since > 0).then(|| seconds(now_secs() - since));
     print!(
         "{}",
-        render_summary(on_battery, since, battery_percent, &rows)
+        render_summary(on_battery, since, battery_percent, measured, &rows)
     );
     Ok(())
 }
@@ -947,7 +968,13 @@ mod tests {
             },
         ];
         assert_eq!(
-            render_summary(true, Some(Duration::from_secs(4320)), 4.2, &rows),
+            render_summary(
+                true,
+                Some(Duration::from_secs(4320)),
+                4.2,
+                Some(Duration::from_secs(4300)),
+                &rows
+            ),
             "On battery for 1 h 12 min: 4% of the battery used.\n\
              \n\
              Consumer           Battery  Of active use   Energy\n\
@@ -959,16 +986,34 @@ mod tests {
              services caused.\n"
         );
         assert_eq!(
-            render_summary(false, Some(Duration::from_secs(60)), 0.0, &[]),
+            render_summary(false, Some(Duration::from_secs(60)), 0.0, None, &[]),
             "On AC power. The last discharge, which started 1 min ago, used 0% of the battery.\n\n\
              Nothing recorded on battery yet.\n"
         );
     }
 
     #[test]
+    fn summary_says_how_much_of_the_discharge_was_measured() {
+        let rendered = render_summary(
+            true,
+            Some(Duration::from_secs(3 * 3600)),
+            36.0,
+            Some(Duration::from_secs(2 * 3600 + 21 * 60)),
+            &[],
+        );
+        assert!(
+            rendered.starts_with(
+                "On battery for 3 h: 36% of the battery used.\n\
+                 drainscope measured 2 h 21 min of that time; the consumers below add up to what it measured.\n\n"
+            ),
+            "{rendered}"
+        );
+    }
+
+    #[test]
     fn summary_without_any_discharge_says_so() {
         assert_eq!(
-            render_summary(false, None, 0.0, &[]),
+            render_summary(false, None, 0.0, None, &[]),
             "On AC power. No discharge recorded yet: unplug the charger to start measuring.\n"
         );
     }
