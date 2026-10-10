@@ -138,8 +138,8 @@ describe('buildSleep', () => {
       now,
     );
     expect(entries).toEqual([
-      { title: 'Slept 10 min, lost ?', subtitle: '3 h 43 min ago · ? Wh · ?%/h' },
-      { title: 'Slept 8 h, lost 4%', subtitle: '9 h ago · 1.60 Wh · 0.5%/h · deep · woke: Lid (PNP0C0D:00)' },
+      { key: '20000', title: 'Slept 10 min, lost ?', subtitle: '3 h 43 min ago · ? Wh · ?%/h' },
+      { key: '1000', title: 'Slept 8 h, lost 4%', subtitle: '9 h ago · 1.60 Wh · 0.5%/h · deep · woke: Lid (PNP0C0D:00)' },
     ]);
   });
 });
@@ -180,8 +180,15 @@ describe('buildWakeups', () => {
       return;
     }
     expect(buildWakeups(decoded.value, 5, appNames)).toEqual([
-      { consumer: { kind: 'app', name: 'org.mozilla.firefox' }, label: 'Firefox', rate: '41/s', fraction: 1 },
       {
+        key: 'app:org.mozilla.firefox',
+        consumer: { kind: 'app', name: 'org.mozilla.firefox' },
+        label: 'Firefox',
+        rate: '41/s',
+        fraction: 1,
+      },
+      {
+        key: 'unit:NetworkManager.service',
         consumer: { kind: 'unit', name: 'NetworkManager.service' },
         label: 'System: NetworkManager',
         rate: '2.5/s',
@@ -203,6 +210,7 @@ describe('buildNetwork', () => {
     const entries = buildNetwork(decoded.value, 1, appNames);
     expect(entries).toEqual([
       {
+        key: 'app:org.mozilla.firefox',
         consumer: { kind: 'app', name: 'org.mozilla.firefox' },
         label: 'Firefox',
         traffic: '↓ 1.5 MB/s · ↑ 41.0 kB/s',

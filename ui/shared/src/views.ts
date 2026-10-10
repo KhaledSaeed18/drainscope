@@ -181,6 +181,8 @@ export function buildUsage(
 }
 
 export interface SleepEntry {
+  /** Stable across refreshes: the session's start (Unix seconds). */
+  key: string;
   title: string;
   subtitle: string;
 }
@@ -201,6 +203,7 @@ export function buildSleep(sessions: readonly SleepSession[], nowSeconds: number
       const mode = session.mode === '' ? '' : ` · ${session.mode}`;
       const woke = session.wakeReason === '' ? '' : ` · woke: ${session.wakeReason}`;
       return {
+        key: String(session.start),
         title: `Slept ${formatDuration(slept)}, lost ${lost}`,
         subtitle: `${formatDuration(nowSeconds - session.start)} ago · ${energy} · ${rate}${mode}${woke}`,
       };
@@ -283,6 +286,8 @@ export function buildHealth(readings: readonly HealthReading[]): HealthEntry[] {
 }
 
 export interface WakeupEntry {
+  /** The consumer key, stable across refreshes. */
+  key: string;
   consumer: Consumer;
   label: string;
   /** e.g. `41/s`, `2.5/s`. */
@@ -304,6 +309,7 @@ export function buildWakeups(
   return wakeups.rates.slice(0, limit).map(({ key, perSecond }) => {
     const consumer = parseConsumer(key);
     return {
+      key,
       consumer,
       label: describeConsumer(consumer, appName),
       rate: perSecond >= 10 ? `${perSecond.toFixed(0)}/s` : `${perSecond.toFixed(1)}/s`,
@@ -313,6 +319,8 @@ export function buildWakeups(
 }
 
 export interface NetworkEntry {
+  /** The consumer key, stable across refreshes. */
+  key: string;
   consumer: Consumer;
   label: string;
   /** e.g. `↓ 1.5 MB/s · ↑ 41.0 kB/s`. */
@@ -334,6 +342,7 @@ export function buildNetwork(
   return network.rates.slice(0, limit).map(({ key, received, sent }) => {
     const consumer = parseConsumer(key);
     return {
+      key,
       consumer,
       label: describeConsumer(consumer, appName),
       traffic: `↓ ${formatByteRate(received)} · ↑ ${formatByteRate(sent)}`,

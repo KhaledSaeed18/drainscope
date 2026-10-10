@@ -17,14 +17,19 @@ import {
   type Range,
   type Summary,
   timelineBuckets,
+  type HealthEntry,
+  type NetworkEntry,
+  type SleepEntry,
+  type UsageEntry,
   type UsageRow,
+  type WakeupEntry,
 } from '@drainscope/shared';
 
 import { appName, consumerIcon } from './apps';
 import { axisStart, legend, TimelineChart } from './chart';
 import type { MonitorClient } from './client';
 import { detailPage } from './detail';
-import { dataRow } from './rows';
+import { type BoundRow, dataRow, RowList } from './rows';
 
 const SLEEP_HISTORY_SECONDS = 30 * 86_400;
 const WAKEUP_ROWS = 5;
@@ -38,11 +43,14 @@ function nowSeconds(): number {
   return Math.floor(GLib.get_real_time() / 1_000_000);
 }
 
-function removeAll(group: Adw.PreferencesGroup, rows: Gtk.Widget[]): void {
-  for (const row of rows) {
-    group.remove(row);
-  }
-  rows.length = 0;
+/** A right-aligned value above a bar, as a row suffix. */
+function valueBar(): { box: Gtk.Box; label: Gtk.Label; bar: Gtk.ProgressBar } {
+  const box = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, valign: Gtk.Align.CENTER, spacing: 4 });
+  const label = new Gtk.Label({ xalign: 1, css_classes: ['numeric'] });
+  const bar = new Gtk.ProgressBar({ width_request: 80 });
+  box.append(label);
+  box.append(bar);
+  return { box, label, bar };
 }
 
 /** Shows `Monitor1` history: usage per consumer or kind over a range, and sleep sessions. */
@@ -68,24 +76,45 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private readonly legendSlot = new Gtk.Box();
   /** Range and time of the last timeline load. */
   private timelineLoaded: { range: Range; at: number } | undefined;
-  private readonly usageGroup = new Adw.PreferencesGroup();
-  private readonly usageRows: Gtk.Widget[] = [];
+  private readonly usageGroup = new Adw.PreferencesGroup({ title: 'Usage' });
+  private readonly usageRows = new RowList<UsageEntry>(
+    // Group rows (by kind, or the folded tail) have no consumer; their keys can equal a
+    // consumer's (`devices`), and they show a different icon.
+    (entry) => `${entry.consumer === undefined ? 'group' : 'consumer'}/${entry.key}`,
+    (entry) => this.usageRow(entry),
+  );
   private readonly wakeupsGroup = new Adw.PreferencesGroup({
     title: 'Waking the processor',
     description: 'Times per second over the last minute. Frequent wakeups drain the battery even when little else happens.',
     visible: false,
   });
-  private readonly wakeupRows: Gtk.Widget[] = [];
+  private readonly wakeupRows = new RowList<WakeupEntry>(
+    (entry) => entry.key,
+    (entry) => this.wakeupRow(entry),
+  );
   private readonly networkGroup = new Adw.PreferencesGroup({
     title: 'Network',
     description: 'Average over the last minute. Network traffic keeps the Wi-Fi radio awake.',
     visible: false,
   });
-  private readonly networkRows: Gtk.Widget[] = [];
+  private readonly networkRows = new RowList<NetworkEntry>(
+    (entry) => entry.key,
+    (entry) => this.networkRow(entry),
+  );
   private readonly sleepGroup = new Adw.PreferencesGroup({ title: 'Sleep' });
-  private readonly sleepRows: Gtk.Widget[] = [];
+  private readonly sleepRows = new RowList<SleepEntry>(
+    (entry) => entry.key,
+    (entry) => {
+      const row = dataRow(entry.title, entry.subtitle);
+      row.add_prefix(new Gtk.Image({ icon_name: 'weather-clear-night-symbolic' }));
+      return { row, update: (e) => { row.set_title(e.title); row.set_subtitle(e.subtitle); } };
+    },
+  );
   private readonly healthGroup = new Adw.PreferencesGroup({ title: 'Battery health' });
-  private readonly healthRows: Gtk.Widget[] = [];
+  private readonly healthRows = new RowList<HealthEntry>(
+    (entry) => entry.battery,
+    () => this.healthRow(),
+  );
   private healthLoadedAt: number | undefined;
 
   constructor(application: Adw.Application, client: MonitorClient) {
@@ -118,6 +147,12 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     timeline.append(axis);
     timeline.append(this.legendSlot);
     this.timelineGroup.add(timeline);
+
+    this.usageGroup.add(this.usageRows.widget);
+    this.wakeupsGroup.add(this.wakeupRows.widget);
+    this.networkGroup.add(this.networkRows.widget);
+    this.sleepGroup.add(this.sleepRows.widget);
+    this.healthGroup.add(this.healthRows.widget);
 
     const page = new Adw.PreferencesPage();
     page.add(this.timelineGroup);
@@ -246,22 +281,21 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
 
   private async loadUsage(summary: Summary, now: number): Promise<void> {
     const query = rangeQuery(this.range, now, summary.sinceUnplug);
-    removeAll(this.usageGroup, this.usageRows);
-    this.usageGroup.set_title('Usage');
     if (query === undefined) {
       this.usageGroup.set_description('The charger hasn’t been unplugged since drainscope started.');
+      this.usageRows.set([]);
       return;
     }
     const groupBy = this.byKind ? 'kind' : 'consumer';
+    // The current rows stay until the replies arrive, then update in place.
     const [usage, coverage, focus] = await Promise.all([
       this.client.usage(query.since, query.until, groupBy, query.source),
       this.client.coverage(query.since, query.until, query.source),
       this.client.focus(query.since, query.until, query.source),
     ]);
-    // A newer refresh may have started rendering; drop rows added meanwhile.
-    removeAll(this.usageGroup, this.usageRows);
     if (!usage.ok) {
       this.usageGroup.set_description(GLib.markup_escape_text(usage.error, -1));
+      this.usageRows.set([]);
       return;
     }
     const span = query.until - query.since;
@@ -270,55 +304,77 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     // Daemons older than GetFocus: no foreground/background split.
     const model = buildUsage(usage.value, span, measured, this.byKind, appName, focus.ok ? focus.value : []);
     this.usageGroup.set_description(model.entries.length === 0 ? 'Nothing measured in this range yet.' : model.footer);
-    for (const entry of model.entries) {
-      const background = entry.focus?.mostlyBackground === true ? ' · mostly in the background' : '';
-      const row = dataRow(entry.label, `${entry.energy} · ${entry.average}${background}`, true);
+    this.usageRows.set(model.entries);
+  }
+
+  private usageRow(entry: UsageEntry): BoundRow<UsageEntry> {
+    let current = entry;
+    const row = dataRow(entry.label, '', true);
+    row.connect('activated', () => {
       const rangeLabel = RANGES.find((r) => r.id === this.range)?.label ?? '';
-      row.connect('activated', () => {
-        this.navigation.push(detailPage(entry, rangeLabel));
-      });
-      row.add_prefix(new Gtk.Image({ gicon: consumerIcon(entry.consumer), pixel_size: 32 }));
-      const share = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, valign: Gtk.Align.CENTER, spacing: 4 });
-      share.append(new Gtk.Label({ label: entry.share, xalign: 1, css_classes: ['numeric'] }));
-      share.append(new Gtk.ProgressBar({ fraction: entry.fraction, width_request: 80 }));
-      row.add_suffix(share);
-      row.add_suffix(new Gtk.Image({ icon_name: 'go-next-symbolic' }));
-      this.usageGroup.add(row);
-      this.usageRows.push(row);
-    }
+      this.navigation.push(detailPage(current, rangeLabel));
+    });
+    row.add_prefix(new Gtk.Image({ gicon: consumerIcon(entry.consumer), pixel_size: 32 }));
+    const share = valueBar();
+    row.add_suffix(share.box);
+    row.add_suffix(new Gtk.Image({ icon_name: 'go-next-symbolic' }));
+    return {
+      row,
+      update: (e) => {
+        current = e;
+        const background = e.focus?.mostlyBackground === true ? ' · mostly in the background' : '';
+        row.set_title(e.label);
+        row.set_subtitle(`${e.energy} · ${e.average}${background}`);
+        share.label.set_label(e.share);
+        share.bar.set_fraction(e.fraction);
+      },
+    };
   }
 
   private async loadWakeups(): Promise<void> {
     const wakeups = await this.client.wakeups();
-    removeAll(this.wakeupsGroup, this.wakeupRows);
     // Hidden without the probe, or with a daemon too old to ask.
     const entries = wakeups.ok ? buildWakeups(wakeups.value, WAKEUP_ROWS, appName) : undefined;
     this.wakeupsGroup.set_visible(entries !== undefined && entries.length > 0);
-    for (const entry of entries ?? []) {
-      const row = dataRow(entry.label);
-      row.add_prefix(new Gtk.Image({ gicon: consumerIcon(entry.consumer), pixel_size: 32 }));
-      const rate = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, valign: Gtk.Align.CENTER, spacing: 4 });
-      rate.append(new Gtk.Label({ label: entry.rate, xalign: 1, css_classes: ['numeric'] }));
-      rate.append(new Gtk.ProgressBar({ fraction: entry.fraction, width_request: 80 }));
-      row.add_suffix(rate);
-      this.wakeupsGroup.add(row);
-      this.wakeupRows.push(row);
-    }
+    this.wakeupRows.set(entries ?? []);
+  }
+
+  private wakeupRow(entry: WakeupEntry): BoundRow<WakeupEntry> {
+    const row = dataRow(entry.label);
+    row.add_prefix(new Gtk.Image({ gicon: consumerIcon(entry.consumer), pixel_size: 32 }));
+    const rate = valueBar();
+    row.add_suffix(rate.box);
+    return {
+      row,
+      update: (e) => {
+        row.set_title(e.label);
+        rate.label.set_label(e.rate);
+        rate.bar.set_fraction(e.fraction);
+      },
+    };
   }
 
   private async loadNetwork(): Promise<void> {
     const network = await this.client.network();
-    removeAll(this.networkGroup, this.networkRows);
     // Hidden without the probe's network counting, or with a daemon too old to ask.
     const entries = network.ok ? buildNetwork(network.value, WAKEUP_ROWS, appName) : undefined;
     this.networkGroup.set_visible(entries !== undefined && entries.length > 0);
-    for (const entry of entries ?? []) {
-      const row = dataRow(entry.label, entry.traffic);
-      row.add_prefix(new Gtk.Image({ gicon: consumerIcon(entry.consumer), pixel_size: 32 }));
-      row.add_suffix(new Gtk.ProgressBar({ fraction: entry.fraction, width_request: 80, valign: Gtk.Align.CENTER }));
-      this.networkGroup.add(row);
-      this.networkRows.push(row);
-    }
+    this.networkRows.set(entries ?? []);
+  }
+
+  private networkRow(entry: NetworkEntry): BoundRow<NetworkEntry> {
+    const row = dataRow(entry.label, entry.traffic);
+    row.add_prefix(new Gtk.Image({ gicon: consumerIcon(entry.consumer), pixel_size: 32 }));
+    const bar = new Gtk.ProgressBar({ width_request: 80, valign: Gtk.Align.CENTER });
+    row.add_suffix(bar);
+    return {
+      row,
+      update: (e) => {
+        row.set_title(e.label);
+        row.set_subtitle(e.traffic);
+        bar.set_fraction(e.fraction);
+      },
+    };
   }
 
   private async loadHealth(now: number): Promise<void> {
@@ -327,9 +383,9 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     }
     this.healthLoadedAt = now;
     const readings = await this.client.batteryHealth(now - HEALTH_HISTORY_SECONDS);
-    removeAll(this.healthGroup, this.healthRows);
     if (!readings.ok) {
       this.healthGroup.set_description(GLib.markup_escape_text(readings.error, -1));
+      this.healthRows.set([]);
       this.healthLoadedAt = undefined;
       return;
     }
@@ -337,33 +393,34 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     this.healthGroup.set_description(
       entries.length === 0 ? 'Recorded once a day; the first reading appears within minutes.' : '',
     );
-    for (const entry of entries) {
-      const row = dataRow(`${entry.battery}: ${entry.title}`, entry.subtitle);
-      row.add_prefix(new Gtk.Image({ icon_name: 'battery-level-100-symbolic' }));
-      if (entry.fraction !== undefined) {
-        row.add_suffix(
-          new Gtk.ProgressBar({ fraction: Math.min(1, entry.fraction), width_request: 80, valign: Gtk.Align.CENTER }),
-        );
-      }
-      this.healthGroup.add(row);
-      this.healthRows.push(row);
-    }
+    this.healthRows.set(entries);
+  }
+
+  private healthRow(): BoundRow<HealthEntry> {
+    const row = dataRow('');
+    row.add_prefix(new Gtk.Image({ icon_name: 'battery-level-100-symbolic' }));
+    const bar = new Gtk.ProgressBar({ width_request: 80, valign: Gtk.Align.CENTER });
+    row.add_suffix(bar);
+    return {
+      row,
+      update: (e) => {
+        row.set_title(`${e.battery}: ${e.title}`);
+        row.set_subtitle(e.subtitle);
+        bar.set_visible(e.fraction !== undefined);
+        bar.set_fraction(Math.min(1, e.fraction ?? 0));
+      },
+    };
   }
 
   private async loadSleep(now: number): Promise<void> {
     const sessions = await this.client.sleepSessions(now - SLEEP_HISTORY_SECONDS);
-    removeAll(this.sleepGroup, this.sleepRows);
     if (!sessions.ok) {
       this.sleepGroup.set_description(GLib.markup_escape_text(sessions.error, -1));
+      this.sleepRows.set([]);
       return;
     }
     const entries = buildSleep(sessions.value, now);
     this.sleepGroup.set_description(entries.length === 0 ? 'No suspends in the last 30 days.' : '');
-    for (const entry of entries) {
-      const row = dataRow(entry.title, entry.subtitle);
-      row.add_prefix(new Gtk.Image({ icon_name: 'weather-clear-night-symbolic' }));
-      this.sleepGroup.add(row);
-      this.sleepRows.push(row);
-    }
+    this.sleepRows.set(entries);
   }
 }
