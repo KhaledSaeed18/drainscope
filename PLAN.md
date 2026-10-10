@@ -3,7 +3,7 @@
 > Per-app battery and energy usage for the Linux desktop.
 > "Firefox used 14% of your battery since you unplugged." Windows, macOS and Android have had this for years; Linux has not.
 
-Status: **v0.1.3 released** (2026-10-10; GitHub and COPR). M0–M2 are done; M3–M5 are done apart from the items in [ROADMAP.md](ROADMAP.md), which tracks status and what's next. This file keeps the architecture, the privilege model and the original milestone scopes.
+Status: **v0.1.4 released** (2026-10-10; GitHub and COPR). M0–M2 are done; M3–M5 are done apart from the items in [ROADMAP.md](ROADMAP.md), which tracks status and what's next. This file keeps the architecture, the privilege model and the original milestone scopes.
 
 The selected Energy shares brand identity is maintained in [branding/](branding/README.md). Its application/package integration and Linux verification are tracked in [docs/branding-handoff.md](docs/branding-handoff.md).
 
@@ -334,7 +334,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 | Milestone | Scope |
 |---|---|
 | **M2 — GNOME Shell extension** (done) | Quick-settings section "Battery usage since unplug" (top 5 + "Open drainscope"); live refresh via `Tick`; app names and icons via `Shell.AppSystem`; GNOME 50 and 51 ESM; strict TS with validated GVariant decoders; EGO-compliant (no work outside `enable`, full cleanup in `disable`). |
-| **M3 — Desktop app + sleep and health** (done; foreground vs background in ADR 0011, unreleased) | libadwaita app: since-unplug / 24 h / 7 d views, stacked timeline, per-app detail (CPU vs GPU, foreground vs background), sleep sessions with wake reason, battery health chart (`energy_full` vs design, cycle count). |
+| **M3 — Desktop app + sleep and health** (done; foreground vs background in v0.1.4, ADR 0011) | libadwaita app: since-unplug / 24 h / 7 d views, stacked timeline, per-app detail (CPU vs GPU, foreground vs background), sleep sessions with wake reason, battery health chart (`energy_full` vs design, cycle count). |
 | **M4 — eBPF precision** (done for wakeups, network bytes and models v2 and v3; ADRs 0006–0008; exit capture remains) | Per-app wakeups (timer/sched tracepoints) to find idle-drain culprits; capture short-lived processes at exit; per-cgroup network bytes (cgroup_skb) for a Wi-Fi share of "devices"; model v2 weighting CPU time by per-CPU frequency. eBPF runs in a sibling of the sampler (`drainscope-probe`) and exports only aggregated per-cgroup counters. As built, model v2 charges network-softirq time to apps by bytes; frequency weighting was not needed on the measured hardware. |
 | **M5 — Hardening and distribution** (SELinux, packaging, GitHub releases and COPR done; EGO in review and Flatpak pending, see [docs/distribution.md](docs/distribution.md)) | SELinux policy modules for the sampler and the probe; COPR stable channel; EGO publication; Flatpak for the app; AMD support (no `psys`, different domains) tested on a donor machine or in CI with fixtures; docs site and a write-up of the model and validation. |
 | **Later ideas** | Backlight-weighted display share; per-app notifications ("Slack has used 8% in the background"); export to CSV/JSON; Prometheus textfile output for homelab users; KDE Plasma widget (the D-Bus API makes it a pure UI addition). |
@@ -361,7 +361,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 
 | Artifact | Contents | Channel |
 |---|---|---|
-| `drainscope` RPM | daemon, CLI, user unit, Monitor1 activation file, D-Bus interface XML | GitHub Releases (v0.1.3); COPR (`khaledsaeed18/drainscope`, Fedora 44, 45, rawhide) |
+| `drainscope` RPM | daemon, CLI, user unit, Monitor1 activation file, D-Bus interface XML | GitHub Releases (v0.1.4); COPR (`khaledsaeed18/drainscope`, Fedora 44, 45, rawhide) |
 | `drainscope-sampler` RPM | sampler binary in `/usr/libexec`, system unit, sysusers.d entry, D-Bus system policy + activation file, polkit policy | same; recommended by `drainscope` |
 | `drainscope-probe` RPM | eBPF probe in `/usr/libexec`, system unit, sysusers.d entry, D-Bus policy + activation file, polkit policy | same; recommended by `drainscope` |
 | `drainscope-selinux` RPM (noarch) | policy modules for the sampler and the probe | same; pulled in by the sampler and probe on SELinux systems |

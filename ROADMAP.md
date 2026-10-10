@@ -4,6 +4,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Released
 
+**v0.1.4** (2026-10-10): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.4) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Each app's energy split into while in use and in the background (ADR 0011): the extension reports the focused app, Monitor1 `SetFocus`/`EndFocus`/`GetFocus`, migration 3, the app's Use section, `report` columns and export fields.
+
 **v0.1.3** (2026-10-10): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.3) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Model v3 charges network interrupt threads to apps (ADR 0008); the daemon ticks every 15 s while no view is open, 0.28% of one CPU idle on battery instead of 0.8–1.0%; Probe1 `ReadAll`; the extension no longer wakes GNOME Shell every 5 s; CSV/JSON export; "short-lived" labels.
 
 **v0.1.2** (2026-10-07): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.2) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). New app icon and a symbolic icon; the extension tile uses the drainscope symbolic icon; the daemon stops when its session bus closes.
@@ -34,6 +36,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] libadwaita app: since unplugged / hour / 24 h / 7 days, stacked timeline, per-consumer breakdown, folded tail.
 - [x] Sleep sessions with wake reasons (wakeup sources and IRQ), `Monitor1.GetSleepHistory`.
 - [x] Battery health recorded daily (migration 2), `Monitor1.GetBatteryHealth`, `drainscope health`.
+- [x] Foreground and background energy per app (ADR 0011, v0.1.4): the extension reports the focused app's ID (`SetFocus`/`EndFocus`, accepted only from the Shell's process), the daemon splits each app's energy by focused time (migration 3; earlier history unknown), `GetFocus`; the app's detail page and usage list, `report` columns and exports show it. Validated: with focus alternated between two equal loads for 10 minutes, each app's in-use share matched its focused share within 0.6 points.
 
 ### M4 — eBPF precision (ADR 0006, ADR 0007)
 - [x] `drainscope-probe`: own system user, `CAP_BPF` + `CAP_PERFMON` + `CAP_NET_ADMIN` (empty network namespace), exposure 0.7.
@@ -47,8 +50,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] SELinux modules for the sampler and the probe, enforcing, no denials; `drainscope-selinux` package.
 - [x] RPM spec with seven packages; `cargo xtask dist` builds the tarball, SRPM, RPMs and extension zip.
 - [x] AMD support from fixtures and docs (ADR 0005); `doctor` explains GPU and RAPL support.
-- [x] GitHub releases v0.1.0 to v0.1.3.
-- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.3 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
+- [x] GitHub releases v0.1.0 to v0.1.4.
+- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.4 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (v0.1.2).
 - [x] Daemon self-cost, first pass (v0.1.3): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
@@ -65,10 +68,9 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Next (in priority order)
 
-1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Foreground and background energy per app** ([ADR 0011](docs/adr/0011-foreground-background.md); M3's last item): implemented on main, unreleased. The Shell extension reports the focused app (`SetFocus`/`EndFocus`, accepted only from the Shell's process); the daemon splits each app's energy into in use, background and unknown (migration 3, `GetFocus`); the app's detail page, the usage list, `report` and the exports show it. Validated on the machine (2026-10-10): with focus alternated between two equal loads for 10 minutes, each app's in-use share matched its focused share within 0.6 points. Remaining: a 0.1.4 release and a new extensions.gnome.org upload.
-3. **Model v4: charge the cost of waking the machine** ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work. The first replay of option A (split the overhead by idle exits) only helped the 250 Hz timer: median 12% under both v3 and A, against a 60% goal. Next: a second run on the home network with the harness's fixed exit totals, then refine A or try B/C.
-4. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
+1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)). Answer the reviewers; once approved, upload the v0.1.4 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
+2. **Model v4: charge the cost of waking the machine** ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work. The first replay of option A (split the overhead by idle exits) only helped the 250 Hz timer: median 12% under both v3 and A, against a 60% goal. Next: a second run on the home network with the harness's fixed exit totals, then refine A or try B/C.
+3. **Suspend test on real hardware** (suspend is masked on the dev machine): verify sleep sessions and wake reasons end to end.
 
 ## Later
 
