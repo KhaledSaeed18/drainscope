@@ -4,6 +4,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Released
 
+**v0.1.5** (2026-10-10): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.5) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Stabilization: no flickering lists; "% used" is the batteries' real drop; the app follows the daemon stopping and restarting; the daemon keeps measuring on a full disk, recovers from an unreadable database and stops cleanly on a newer one; correct state from start-up; wake reasons only when reliable; foreground/background without RAPL; upgrades restart the daemon; history queries 4–5× faster (the daemon's cost with the app open: 7% → 1.45% of one CPU); clearer CLI errors and names.
+
 **v0.1.4** (2026-10-10): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.4) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Each app's energy split into while in use and in the background (ADR 0011): the extension reports the focused app, Monitor1 `SetFocus`/`EndFocus`/`GetFocus`, migration 3, the app's Use section, `report` columns and export fields.
 
 **v0.1.3** (2026-10-10): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.3) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Model v3 charges network interrupt threads to apps (ADR 0008); the daemon ticks every 15 s while no view is open, 0.28% of one CPU idle on battery instead of 0.8–1.0%; Probe1 `ReadAll`; the extension no longer wakes GNOME Shell every 5 s; CSV/JSON export; "short-lived" labels.
@@ -50,8 +52,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] SELinux modules for the sampler and the probe, enforcing, no denials; `drainscope-selinux` package.
 - [x] RPM spec with seven packages; `cargo xtask dist` builds the tarball, SRPM, RPMs and extension zip.
 - [x] AMD support from fixtures and docs (ADR 0005); `doctor` explains GPU and RAPL support.
-- [x] GitHub releases v0.1.0 to v0.1.4.
-- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.4 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
+- [x] GitHub releases v0.1.0 to v0.1.5.
+- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.5 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (v0.1.2).
 - [x] Daemon self-cost, first pass (v0.1.3): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
@@ -66,30 +68,15 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] Icons checked in the real session after upgrading to v0.1.2 (app grid, dash, Alt+Tab, Quick Settings tile; light and dark).
 - [x] Product screenshots, light and dark, with illustrative data: README hero, feature cards, window cutouts, AppStream screenshots ([branding/screenshots](branding/screenshots/README.md)). Reproducible with `branding/screenshots/tools/capture.sh`: a demo Monitor1 service and a headless GNOME Shell on scratch directories.
 
-## Unreleased (for 0.1.5)
+## Unreleased
 
-Released after the maintainer's own testing, together with any other fixes found by then.
-
-- App: follows the daemon's bus name. It shows "isn't running" as soon as the daemon stops (it used to keep showing stale numbers with no sign, since it only refreshed on `Tick`), and its data again as soon as the daemon is back, instead of at the daemon's first tick (up to 30 s). Watching doesn't start the daemon, so `systemctl --user stop` sticks. The banner is hidden while the daemon isn't running.
-- Foreground/background without RAPL (VMs, some ARM laptops, no sampler, or the sampler refusing): apps' energy, shared out by CPU time when a window closes, was all counted as background. The focus split is now taken tick by tick as fractions (of energy with RAPL, of CPU time without) and applied to each app's final energy.
-- App: lists update in place instead of being rebuilt on every refresh; the usage list no longer disappears for a moment every few seconds, shifting everything below it.
-- App and CLI: no "0.000 Wh over 0 s" in-use/background split for apps whose focus is all unknown (all history right after upgrading to 0.1.4).
-- Daemon: a history that can't be written (full disk, I/O error) no longer stops `Tick` and live views; failures are logged when they start and end, not every tick.
-- Daemon: an unreadable database is kept aside (`drainscope.db.unreadable-<time>`) and a new history starts; a database from a newer drainscope stops the daemon with status 4, which the unit doesn't restart on (both used to restart every 10 s forever).
-- CLI: when the daemon fails to start, `doctor` and the other commands point to its log instead of saying to enable it.
-- Wake reasons: shown only when reliable. After `deep` (S3) sleep the kernel's wakeup IRQ isn't the cause (the dev machine always reported the touchpad, for power-button and lid wakes alike), and wakeup sources' `wakeup_count` never rises under systemd; the IRQ is now used only after `s2idle`, and otherwise the reason is unknown ("?").
-- "% used" (CLI, app banner, extension tile) is what the batteries lost since unplugging, including time the daemon wasn't running, instead of only the measured energy (dev machine: 24% shown against a 35% drop). The CLI says how much of the discharge was measured when it wasn't nearly all.
-- Daemon: right after it starts (e.g. at login, when the extension first asks), it reports the batteries' real state instead of "plugged in, 0% used" until its first tick, up to a minute in the extension.
-- Packaging: upgrades restart running user daemons (`%systemd_user_postun_with_restart`); until now the old daemon kept running until the next login. To verify on the 0.1.5 upgrade: the daemon's start time changes during `dnf upgrade`.
-- Faster history queries: ranges are answered from the coarsest exact rollups (last 24 hours 175 → 38 ms, 7 days 94 → 39 ms, including the D-Bus call), with unchanged results. With the app open on the last 24 hours, the daemon uses 1.45% of one CPU instead of 7.05%.
-- CLI: `doctor` writes battery states as words ("not charging" instead of `NotCharging`).
-- CLI: `report --by kind` names kinds as the app does (Terminals, Your services…) instead of `term`, `user-unit`.
+Fixes collect here and ship after the maintainer's own testing.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
 No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–6 are done and no known bugs remain.
 
-1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.4 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
+1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.5 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
 2. **Soak test:** two days of normal use on the dev machine with 0.1.4: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log.
 3. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once.
 4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test).
