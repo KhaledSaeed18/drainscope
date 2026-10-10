@@ -10,7 +10,7 @@ use futures_util::StreamExt;
 
 use crate::export::{self, Format, known};
 use crate::format::{byte_rate, duration, energy, percent, table, table_aligned, truncate, watts};
-use crate::names::Names;
+use crate::names::{Names, kind_label};
 
 const LABEL_WIDTH: usize = 40;
 
@@ -555,7 +555,7 @@ pub async fn usage(
                     let app_focus = focus.get(&key).copied();
                     export::UsageRow {
                         label: if by_kind {
-                            key.clone()
+                            kind_label(&key)
                         } else {
                             names.label(&key)
                         },
@@ -581,7 +581,11 @@ pub async fn usage(
         .into_iter()
         .map(|(key, _, joules, ..)| Row {
             focus: focus.get(&key).copied(),
-            label: if by_kind { key } else { names.label(&key) },
+            label: if by_kind {
+                kind_label(&key)
+            } else {
+                names.label(&key)
+            },
             joules,
         })
         .collect();

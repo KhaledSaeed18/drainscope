@@ -73,6 +73,30 @@ impl Names {
 
 /// Processes whose cgroup came and went between two measurements, by the slice they ran in
 /// (ADR 0010). Matches the app's and extension's labels.
+/// A consumer kind's name, as `report --by kind` shows it (the same as the app's).
+#[must_use]
+pub fn kind_label(kind: &str) -> String {
+    match kind {
+        "app" => "Apps",
+        "term" => "Terminals",
+        "session" => "Login sessions",
+        "shell" => "GNOME Shell",
+        "unit" => "System services",
+        "user-unit" => "Your services",
+        "container" => "Containers",
+        "other-users" => "Other users",
+        "root" => "Root",
+        "kernel" => "Kernel",
+        "exited" => "Short-lived processes",
+        "idle" => "Idle",
+        "platform" => "Chipset & platform",
+        "devices" => "Display & devices",
+        "drainscope" => "drainscope",
+        other => other,
+    }
+    .to_owned()
+}
+
 fn short_lived(slice: &str) -> String {
     // Slice names are case-sensitive: `system-<name>.slice` holds a template's services.
     let system_template = slice
@@ -118,6 +142,13 @@ mod tests {
         let entry = "[Desktop Entry]\nName[de]=Feuerfuchs\nName=Firefox\nExec=firefox\n\n[Desktop Action new]\nName=New Window\n";
         assert_eq!(desktop_entry_name(entry).as_deref(), Some("Firefox"));
         assert_eq!(desktop_entry_name("[Desktop Action x]\nName=Nope\n"), None);
+    }
+
+    #[test]
+    fn names_kinds_like_the_app() {
+        assert_eq!(kind_label("term"), "Terminals");
+        assert_eq!(kind_label("user-unit"), "Your services");
+        assert_eq!(kind_label("something-new"), "something-new");
     }
 
     #[test]
