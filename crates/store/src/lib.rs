@@ -37,6 +37,18 @@ pub enum StoreError {
     Corrupt(String),
 }
 
+impl StoreError {
+    /// Whether SQLite can't read the file at all: not a database, or damaged.
+    #[must_use]
+    pub fn is_unreadable(&self) -> bool {
+        matches!(
+            self,
+            Self::Sqlite(rusqlite::Error::SqliteFailure(err, _))
+                if matches!(err.code, rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt)
+        )
+    }
+}
+
 /// The usage database. One connection, owned by the daemon.
 #[derive(Debug)]
 pub struct Store {
@@ -100,5 +112,23 @@ mod tests {
         assert_eq!(mode, 0o600);
         // Reopening an existing database works and keeps the schema.
         Store::open(&path).unwrap();
+    }
+
+    #[test]
+    fn tells_unreadable_files_from_newer_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let garbage = dir.path().join("garbage.db");
+        fs::write(&garbage, [0x5a_u8; 8192]).unwrap();
+        assert!(Store::open(&garbage).unwrap_err().is_unreadable());
+
+        let newer = dir.path().join("newer.db");
+        drop(Store::open(&newer).unwrap());
+        Connection::open(&newer)
+            .unwrap()
+            .pragma_update(None, "user_version", 99)
+            .unwrap();
+        let err = Store::open(&newer).unwrap_err();
+        assert!(matches!(err, StoreError::TooNew { found: 99, .. }));
+        assert!(!err.is_unreadable());
     }
 }

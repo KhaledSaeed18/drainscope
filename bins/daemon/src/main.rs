@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use drainscope_daemon::collector::{Collector, monotonic_now, wall_now_ms};
+use drainscope_daemon::database::{self, EXIT_DATABASE_TOO_NEW, Opened};
 use drainscope_daemon::engine::{Engine, NetworkCounters, Reading, TickOutcome};
 use drainscope_daemon::lock::{EXIT_ALREADY_RUNNING, lock_database};
 use drainscope_daemon::monitor::{Monitor, Shared, Status, follow_shell};
@@ -439,7 +440,16 @@ async fn main() -> anyhow::Result<()> {
         tracing::error!(database = %path.display(), "another drainscope daemon is using the database");
         std::process::exit(EXIT_ALREADY_RUNNING);
     };
-    let store = Store::open(&path).with_context(|| format!("opening {}", path.display()))?;
+    let stamp = (wall_now_ms() / 1000).to_string();
+    let store = match database::open(&path, &stamp)
+        .with_context(|| format!("opening {}", path.display()))?
+    {
+        Opened::Ready { store, .. } => store,
+        Opened::TooNew(err) => {
+            tracing::error!(%err, database = %path.display(), "the history is from a newer drainscope: install that version again, or move the database away to start a new history");
+            std::process::exit(EXIT_DATABASE_TOO_NEW);
+        }
+    };
     let floors = BTreeMap::from([
         (
             PowerSource::Battery,

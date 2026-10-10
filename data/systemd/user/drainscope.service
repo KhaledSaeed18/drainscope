@@ -13,8 +13,9 @@ BusName=io.github.khaledsaeed18.Drainscope.Monitor
 ExecStart=/usr/bin/drainscope-daemon
 Restart=on-failure
 RestartSec=10s
-# Another daemon already holds the database lock (drainscope_daemon::lock).
-RestartPreventExitStatus=3
+# 3: another daemon already holds the database lock (drainscope_daemon::lock).
+# 4: the database is from a newer drainscope (drainscope_daemon::database).
+RestartPreventExitStatus=3 4
 
 # Measuring must never compete with the user's own work.
 Nice=10
