@@ -4,7 +4,7 @@
 %global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
-Version:        0.1.4
+Version:        0.1.5
 Release:        1%{?dist}
 Summary:        Per-app battery and energy usage for the Linux desktop
 
@@ -242,6 +242,16 @@ fi
 %{_datadir}/icons/hicolor/symbolic/apps/%{app_id}-symbolic.svg
 
 %changelog
+* Sat Oct 10 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.5-1
+- "% used" is what the batteries lost since unplugging, including unmeasured time
+- App: lists update in place (no flicker); follows the daemon stopping and restarting
+- Daemon: keeps measuring when the history can't be written; recovers from an
+  unreadable database; stops cleanly on a database from a newer version
+- Daemon: correct battery state from start-up; wake reasons only when reliable
+- Faster history queries from the coarsest exact rollups
+- CLI: clearer daemon errors, kind names, battery states; says how much was measured
+- Packaging: restart running user daemons after an upgrade
+
 * Sat Oct 10 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.4-1
 - Each app's energy is split into while in use and in the background (ADR 0011)
 - GNOME Shell extension: report the focused app to the daemon (app ID only)

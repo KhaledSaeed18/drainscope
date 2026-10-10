@@ -58,6 +58,11 @@
     <color type="primary" scheme_preference="dark">#15282f</color>
   </branding>
   <releases>
+    <release version="0.1.5" date="2026-10-10">
+      <description>
+        <p>A steadier, more accurate release: the usage list no longer flickers, the battery used since unplugging matches what the batteries report, the app notices when the daemon stops or restarts, and history loads several times faster.</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-10-10">
       <description>
         <p>See how much of each app's energy it used while you were using it, and how much in the background. Needs the GNOME Shell extension, which reports only which app has focus.</p>
