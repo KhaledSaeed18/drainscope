@@ -97,6 +97,62 @@ fn bucket(ts_ms: i64, width_ms: i64) -> i64 {
     ts_ms - ts_ms.rem_euclid(width_ms)
 }
 
+fn bucket_up(ts_ms: i64, width_ms: i64) -> i64 {
+    let down = bucket(ts_ms, width_ms);
+    if down == ts_ms { down } else { down + width_ms }
+}
+
+/// The pieces answering a query at `granularity` from the coarsest tables, with the same
+/// result: within raw retention, exactly `[since, until)`; at minute resolution, the whole
+/// minute buckets overlapping it (both ends rounded out to minutes, so no raw piece); at hour
+/// resolution, the hour table alone.
+fn pieces(granularity: Granularity, since_ms: i64, until_ms: i64) -> Vec<(Granularity, i64, i64)> {
+    match granularity {
+        Granularity::Raw => exact_pieces(since_ms, until_ms),
+        Granularity::Minute => {
+            exact_pieces(bucket(since_ms, MINUTE_MS), bucket_up(until_ms, MINUTE_MS))
+        }
+        Granularity::Hour => vec![(Granularity::Hour, since_ms, until_ms)],
+    }
+}
+
+/// `[since, until)` split into pieces each answered exactly by one table: raw windows for the
+/// partial minutes at the ends, minute buckets up to the hour boundaries, hour buckets in
+/// between. Rollups hold exactly the windows starting in their bucket, so the pieces sum to
+/// the raw query over far fewer rows (about 80 times fewer per day on the dev machine).
+fn exact_pieces(since_ms: i64, until_ms: i64) -> Vec<(Granularity, i64, i64)> {
+    let (m1, m2) = (bucket_up(since_ms, MINUTE_MS), bucket(until_ms, MINUTE_MS));
+    if m1 >= m2 {
+        return vec![(Granularity::Raw, since_ms, until_ms)];
+    }
+    let (h1, h2) = (bucket_up(m1, HOUR_MS), bucket(m2, HOUR_MS));
+    let middle = if h1 < h2 {
+        vec![
+            (Granularity::Minute, m1, h1),
+            (Granularity::Hour, h1, h2),
+            (Granularity::Minute, h2, m2),
+        ]
+    } else {
+        vec![(Granularity::Minute, m1, m2)]
+    };
+    std::iter::once((Granularity::Raw, since_ms, m1))
+        .chain(middle)
+        .chain(std::iter::once((Granularity::Raw, m2, until_ms)))
+        .filter(|(_, from, to)| from < to)
+        .collect()
+}
+
+/// Largest first, then by key.
+fn sort_usage(usage: &mut [UsageRow]) {
+    usage.sort_by(|a, b| {
+        b.split
+            .total()
+            .0
+            .total_cmp(&a.split.total().0)
+            .then_with(|| a.key.cmp(&b.key))
+    });
+}
+
 /// The id for `key`, inserting it if new. New ids are reported through `created` and cached
 /// by the caller only after the transaction commits.
 fn consumer_id(
@@ -216,12 +272,22 @@ impl Store {
         filter: SourceFilter,
         now_ms: i64,
     ) -> Result<Vec<UsageRow>, StoreError> {
-        self.usage_at(
-            Granularity::for_range(since_ms, now_ms),
-            since_ms,
-            until_ms,
-            filter,
-        )
+        let mut sums: HashMap<ConsumerKey, EnergySplit> = HashMap::new();
+        let granularity = Granularity::for_range(since_ms, now_ms);
+        for (granularity, from, to) in pieces(granularity, since_ms, until_ms) {
+            for row in self.usage_at(granularity, from, to, filter)? {
+                let sum = sums.entry(row.key).or_default();
+                sum.cpu = Joules(sum.cpu.0 + row.split.cpu.0);
+                sum.gpu = Joules(sum.gpu.0 + row.split.gpu.0);
+                sum.other = Joules(sum.other.0 + row.split.other.0);
+            }
+        }
+        let mut usage: Vec<UsageRow> = sums
+            .into_iter()
+            .map(|(key, split)| UsageRow { key, split })
+            .collect();
+        sort_usage(&mut usage);
+        Ok(usage)
     }
 
     /// Like [`Self::usage`], at a chosen resolution.
@@ -279,13 +345,7 @@ impl Store {
                 .map_err(|err| StoreError::Corrupt(format!("consumer key: {err}")))?;
             usage.push(UsageRow { key, split });
         }
-        usage.sort_by(|a, b| {
-            b.split
-                .total()
-                .0
-                .total_cmp(&a.split.total().0)
-                .then_with(|| a.key.cmp(&b.key))
-        });
+        sort_usage(&mut usage);
         Ok(usage)
     }
 
@@ -302,7 +362,40 @@ impl Store {
         filter: SourceFilter,
         now_ms: i64,
     ) -> Result<Vec<FocusRow>, StoreError> {
-        let (sql, since) = match Granularity::for_range(since_ms, now_ms) {
+        let mut sums: HashMap<String, FocusRow> = HashMap::new();
+        let granularity = Granularity::for_range(since_ms, now_ms);
+        for (granularity, from, to) in pieces(granularity, since_ms, until_ms) {
+            for row in self.focus_at(granularity, from, to, filter)? {
+                match sums.entry(row.key.to_string()) {
+                    std::collections::hash_map::Entry::Occupied(mut sum) => {
+                        let sum = sum.get_mut();
+                        sum.foreground_j += row.foreground_j;
+                        sum.unknown_j += row.unknown_j;
+                        sum.focused_ms += row.focused_ms;
+                    }
+                    std::collections::hash_map::Entry::Vacant(slot) => {
+                        slot.insert(row);
+                    }
+                }
+            }
+        }
+        let mut focus: Vec<(String, FocusRow)> = sums.into_iter().collect();
+        focus.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(focus.into_iter().map(|(_, row)| row).collect())
+    }
+
+    /// Like [`Self::focus`], at a chosen resolution.
+    ///
+    /// # Errors
+    /// SQLite errors, or a stored key that no longer parses.
+    pub fn focus_at(
+        &self,
+        granularity: Granularity,
+        since_ms: i64,
+        until_ms: i64,
+        filter: SourceFilter,
+    ) -> Result<Vec<FocusRow>, StoreError> {
+        let (sql, since) = match granularity {
             Granularity::Raw => (
                 "SELECT c.key, SUM(f.foreground_j), SUM(f.unknown_j), SUM(f.focused_ms)
                  FROM focus_raw f
@@ -721,7 +814,102 @@ mod tests {
         );
     }
 
+    #[test]
+    fn exact_pieces_cover_the_range_with_the_coarsest_tables() {
+        let h = T0 - T0.rem_euclid(HOUR_MS);
+        // 10:00:07 to 13:30:20 → raw, minute to 11:00, hours to 13:00, minutes, raw.
+        assert_eq!(
+            exact_pieces(h + 7_000, h + 3 * HOUR_MS + 30 * MINUTE_MS + 20_000),
+            vec![
+                (Granularity::Raw, h + 7_000, h + MINUTE_MS),
+                (Granularity::Minute, h + MINUTE_MS, h + HOUR_MS),
+                (Granularity::Hour, h + HOUR_MS, h + 3 * HOUR_MS),
+                (
+                    Granularity::Minute,
+                    h + 3 * HOUR_MS,
+                    h + 3 * HOUR_MS + 30 * MINUTE_MS
+                ),
+                (
+                    Granularity::Raw,
+                    h + 3 * HOUR_MS + 30 * MINUTE_MS,
+                    h + 3 * HOUR_MS + 30 * MINUTE_MS + 20_000
+                ),
+            ]
+        );
+        // Within one minute: raw only. Aligned: rollups only.
+        assert_eq!(
+            exact_pieces(h + 1_000, h + 50_000),
+            vec![(Granularity::Raw, h + 1_000, h + 50_000)]
+        );
+        assert_eq!(
+            exact_pieces(h, h + 2 * HOUR_MS),
+            vec![(Granularity::Hour, h, h + 2 * HOUR_MS)]
+        );
+    }
+
     proptest! {
+        /// Queries within raw retention, answered from pieces, equal the raw data exactly.
+        #[test]
+        fn exact_queries_equal_raw_sums(
+            windows in proptest::collection::vec((0i64..3 * 3600, 0usize..4, 0.0f64..10.0, any::<bool>()), 1..80),
+            since_s in 0i64..3 * 3600,
+            length_s in 1i64..3 * 3600,
+        ) {
+            let keys = [firefox(), ConsumerKey::App("org.gnome.TextEditor".into()), ConsumerKey::Kernel, ConsumerKey::Devices];
+            let base = T0 - T0.rem_euclid(HOUR_MS);
+            let mut store = Store::open_in_memory().unwrap();
+            for (second, consumer, joules, on_battery) in &windows {
+                let measurement = if *on_battery { Measurement::Battery } else { Measurement::Rapl };
+                let key = keys[*consumer].clone();
+                let focus = BTreeMap::from([(key.clone(), split(joules / 2.0, joules / 4.0, 3))]);
+                record_focused(&mut store, base + second * 1000, &window(measurement, &[(key, *joules, 0.0)]), &focus);
+            }
+            let (since, until) = (base + since_s * 1000, base + (since_s + length_s) * 1000);
+            let now = base + 4 * HOUR_MS;
+            for filter in [SourceFilter::Any, SourceFilter::Only(PowerSource::Battery)] {
+                let raw = store.usage_at(Granularity::Raw, since, until, filter).unwrap();
+                let exact = store.usage(since, until, filter, now).unwrap();
+                prop_assert_eq!(raw.len(), exact.len());
+                for row in &raw {
+                    let other = exact.iter().find(|r| r.key == row.key).unwrap();
+                    prop_assert!((row.split.total().0 - other.split.total().0).abs() < 1e-9);
+                }
+                let raw_focus = store.focus_at(Granularity::Raw, since, until, filter).unwrap();
+                let exact_focus = store.focus(since, until, filter, now).unwrap();
+                prop_assert_eq!(raw_focus.len(), exact_focus.len());
+                for (a, b) in raw_focus.iter().zip(&exact_focus) {
+                    prop_assert_eq!(&a.key, &b.key);
+                    prop_assert!((a.foreground_j - b.foreground_j).abs() < 1e-9);
+                    prop_assert!((a.unknown_j - b.unknown_j).abs() < 1e-9);
+                    prop_assert_eq!(a.focused_ms, b.focused_ms);
+                }
+            }
+        }
+
+        /// Older ranges, answered from minute and hour pieces, equal the minute table alone.
+        #[test]
+        fn minute_resolution_queries_are_unchanged(
+            windows in proptest::collection::vec((0i64..3 * 3600, 0usize..3, 0.0f64..10.0), 1..60),
+            since_s in 0i64..3 * 3600,
+            length_s in 1i64..3 * 3600,
+        ) {
+            let keys = [firefox(), ConsumerKey::Kernel, ConsumerKey::Devices];
+            let base = T0 - T0.rem_euclid(HOUR_MS);
+            let mut store = Store::open_in_memory().unwrap();
+            for (second, consumer, joules) in &windows {
+                record(&mut store, base + second * 1000, &window(Measurement::Battery, &[(keys[*consumer].clone(), *joules, 0.0)]));
+            }
+            let (since, until) = (base + since_s * 1000, base + (since_s + length_s) * 1000);
+            let now = base + 10 * DAY_MS;
+            let minute = store.usage_at(Granularity::Minute, since, until, SourceFilter::Any).unwrap();
+            let split = store.usage(since, until, SourceFilter::Any, now).unwrap();
+            prop_assert_eq!(minute.len(), split.len());
+            for row in &minute {
+                let other = split.iter().find(|r| r.key == row.key).unwrap();
+                prop_assert!((row.split.total().0 - other.split.total().0).abs() < 1e-9);
+            }
+        }
+
         /// Minute and hour rollups always sum to the raw data, per consumer and source.
         #[test]
         fn rollups_equal_raw_sums(
