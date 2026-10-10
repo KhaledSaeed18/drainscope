@@ -9,6 +9,7 @@ use drainscope_dbus::monitor::Monitor1Proxy;
 use drainscope_dbus::probe::{Probe1Proxy, ProbeError};
 use drainscope_dbus::sampler::{Sampler1Proxy, SamplerError};
 use drainscope_model::CgroupPath;
+use drainscope_model::snapshot::BatteryStatus;
 use drainscope_sys::{
     DrmScanner, EngineTime, SysRoot, gpu_drivers, irq_threads, network_irqs, read_batteries,
     read_cpu_usage,
@@ -71,12 +72,22 @@ fn cgroups(root: &SysRoot) -> Check {
     }
 }
 
+fn status_words(status: BatteryStatus) -> &'static str {
+    match status {
+        BatteryStatus::Charging => "charging",
+        BatteryStatus::Discharging => "discharging",
+        BatteryStatus::NotCharging => "not charging",
+        BatteryStatus::Full => "full",
+        BatteryStatus::Unknown => "status unknown",
+    }
+}
+
 fn batteries(root: &SysRoot) -> Check {
     match read_batteries(root) {
         Ok(batteries) if !batteries.is_empty() => {
             let list: Vec<String> = batteries
                 .iter()
-                .map(|b| format!("{} ({:?})", b.name, b.status))
+                .map(|b| format!("{} ({})", b.name, status_words(b.status)))
                 .collect();
             check(Level::Ok, format!("batteries: {}", list.join(", ")), None)
         }
@@ -362,6 +373,12 @@ pub async fn run() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn battery_status_reads_as_words() {
+        assert_eq!(status_words(BatteryStatus::NotCharging), "not charging");
+        assert_eq!(status_words(BatteryStatus::Discharging), "discharging");
+    }
 
     #[test]
     fn tells_a_missing_daemon_from_one_that_fails_to_start() {
