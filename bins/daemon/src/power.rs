@@ -120,8 +120,8 @@ impl SleepTracker {
             end_ms: wall_ms.max(before.wall_ms),
             wh_lost,
             percent_lost,
+            wake_reason: wake_reason(&before.wakeups, wakeups, irq, before.mem_sleep.as_deref()),
             mem_sleep: before.mem_sleep,
-            wake_reason: wake_reason(&before.wakeups, wakeups, irq),
         })
     }
 }

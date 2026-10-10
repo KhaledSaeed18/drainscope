@@ -33,7 +33,7 @@ GNOME Shell                  <1%             9%   0.12 Wh
 - `drainscope` — battery used since unplugged, by consumer
 - `drainscope report --since 24h [--by kind] [--source battery|ac]` — energy over a period, with each app's share while in use and in the background (needs the GNOME Shell extension)
 - `drainscope top` — live power per consumer
-- `drainscope sleep` — battery lost while suspended, and what woke the machine
+- `drainscope sleep` — battery lost while suspended, and what woke the machine where the kernel can tell (after `s2idle` sleep, or from wakeup sources that count)
 - `drainscope wakeups` — which apps keep waking the processor from idle (needs the optional eBPF probe)
 - `drainscope network` — network traffic by app, excluding loopback (needs the optional eBPF probe)
 - `drainscope health` — battery wear: full-charge capacity against design, and charge cycles

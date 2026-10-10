@@ -48,12 +48,23 @@ fn describe(name: &str) -> String {
 /// At most this many sources are named when several fired.
 const MAX_SOURCES: usize = 2;
 
-/// The sources whose wakeup count rose during sleep (most first), else the wakeup IRQ.
+/// Why the machine woke, or `None` when that can't be told reliably.
+///
+/// - The sources whose `wakeup_count` rose during sleep, most first. The kernel only counts
+///   these when user space uses `/sys/power/wakeup_count`, which systemd's suspend doesn't.
+/// - Else the wakeup IRQ, but only after `s2idle` (`mem_sleep`): there the kernel clears it at
+///   suspend and it is the interrupt that woke the system. After `deep` (S3) the firmware
+///   wakes the machine and the IRQ is just the first wake-enabled interrupt after resume, often
+///   left over from an earlier sleep (dev machine: the touchpad, for power-button and lid wakes
+///   alike).
+/// - Else `None`. `event_count` doesn't help: firmware reports events such as a lid
+///   notification on every resume.
 #[must_use]
 pub fn wake_reason(
     before: &WakeupSources,
     after: &WakeupSources,
     irq: Option<&WakeupIrq>,
+    mem_sleep: Option<&str>,
 ) -> Option<String> {
     let mut fired: Vec<(u64, &str)> = after
         .iter()
@@ -75,10 +86,11 @@ pub fn wake_reason(
         names.truncate(MAX_SOURCES);
         return Some(names.join(", "));
     }
-    irq.map(|irq| match label(&irq.action) {
-        Some(label) => format!("{label} (IRQ {})", irq.irq),
-        None => format!("IRQ {} ({})", irq.irq, irq.action),
-    })
+    irq.filter(|_| mem_sleep == Some("s2idle"))
+        .map(|irq| match label(&irq.action) {
+            Some(label) => format!("{label} (IRQ {})", irq.irq),
+            None => format!("IRQ {} ({})", irq.irq, irq.action),
+        })
 }
 
 #[cfg(test)]
@@ -113,7 +125,7 @@ mod tests {
             ("wakeup3", "XHC", 3),
         ]);
         assert_eq!(
-            wake_reason(&before, &after, None).as_deref(),
+            wake_reason(&before, &after, None, Some("deep")).as_deref(),
             Some("XHC, Lid (PNP0C0D:00)")
         );
     }
@@ -123,7 +135,7 @@ mod tests {
         let before = sources(&[("wakeup1", "PNP0C0D:00", 0), ("wakeup2", "PNP0C0D:00", 0)]);
         let after = sources(&[("wakeup1", "PNP0C0D:00", 1), ("wakeup2", "PNP0C0D:00", 1)]);
         assert_eq!(
-            wake_reason(&before, &after, None).as_deref(),
+            wake_reason(&before, &after, None, Some("deep")).as_deref(),
             Some("Lid (PNP0C0D:00)")
         );
     }
@@ -139,22 +151,39 @@ mod tests {
             irq: 9,
             action: "acpi".into(),
         };
+        let s2idle = Some("s2idle");
         assert_eq!(
-            wake_reason(&none, &none, Some(&keyboard)).as_deref(),
+            wake_reason(&none, &none, Some(&keyboard), s2idle).as_deref(),
             Some("Keyboard or touchpad (IRQ 1)")
         );
         assert_eq!(
-            wake_reason(&none, &none, Some(&acpi)).as_deref(),
+            wake_reason(&none, &none, Some(&acpi), s2idle).as_deref(),
             Some("IRQ 9 (acpi)")
         );
-        assert_eq!(wake_reason(&none, &none, None), None);
+        assert_eq!(wake_reason(&none, &none, None, s2idle), None);
+    }
+
+    #[test]
+    fn after_deep_sleep_the_irq_is_no_evidence() {
+        // Dev machine, S3: woken by the power button and by the lid, the IRQ read 51 (the
+        // touchpad) both times, as it had before the sleep.
+        let none = WakeupSources::new();
+        let touchpad = WakeupIrq {
+            irq: 51,
+            action: "ELAN0618:00".into(),
+        };
+        assert_eq!(
+            wake_reason(&none, &none, Some(&touchpad), Some("deep")),
+            None
+        );
+        assert_eq!(wake_reason(&none, &none, Some(&touchpad), None), None);
     }
 
     #[test]
     fn new_sources_count_from_zero() {
         let after = sources(&[("wakeup9", "ACPI0003:00", 1)]);
         assert_eq!(
-            wake_reason(&WakeupSources::new(), &after, None).as_deref(),
+            wake_reason(&WakeupSources::new(), &after, None, Some("deep")).as_deref(),
             Some("Charger (ACPI0003:00)")
         );
     }

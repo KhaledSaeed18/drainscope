@@ -34,7 +34,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ### M3 — Desktop app, sleep and health
 - [x] libadwaita app: since unplugged / hour / 24 h / 7 days, stacked timeline, per-consumer breakdown, folded tail.
-- [x] Sleep sessions with wake reasons (wakeup sources and IRQ), `Monitor1.GetSleepHistory`.
+- [x] Sleep sessions with wake reasons (wakeup sources and IRQ), `Monitor1.GetSleepHistory`. Verified on real hardware on 2026-10-10 (five suspends to `deep`): suspend and resume recorded with the battery's energy before the machine slept (the delay inhibitor works), losses and rates match the kernel's sleep times, and no window spans a sleep. Wake reasons turned out unreliable after `deep` sleep (see Unreleased).
 - [x] Battery health recorded daily (migration 2), `Monitor1.GetBatteryHealth`, `drainscope health`.
 - [x] Foreground and background energy per app (ADR 0011, v0.1.4): the extension reports the focused app's ID (`SetFocus`/`EndFocus`, accepted only from the Shell's process), the daemon splits each app's energy by focused time (migration 3; earlier history unknown), `GetFocus`; the app's detail page and usage list, `report` columns and exports show it. Validated: with focus alternated between two equal loads for 10 minutes, each app's in-use share matched its focused share within 0.6 points.
 
@@ -76,6 +76,7 @@ Released after the maintainer's own testing, together with any other fixes found
 - Daemon: a history that can't be written (full disk, I/O error) no longer stops `Tick` and live views; failures are logged when they start and end, not every tick.
 - Daemon: an unreadable database is kept aside (`drainscope.db.unreadable-<time>`) and a new history starts; a database from a newer drainscope stops the daemon with status 4, which the unit doesn't restart on (both used to restart every 10 s forever).
 - CLI: when the daemon fails to start, `doctor` and the other commands point to its log instead of saying to enable it.
+- Wake reasons: shown only when reliable. After `deep` (S3) sleep the kernel's wakeup IRQ isn't the cause (the dev machine always reported the touchpad, for power-button and lid wakes alike), and wakeup sources' `wakeup_count` never rises under systemd; the IRQ is now used only after `s2idle`, and otherwise the reason is unknown ("?").
 - "% used" (CLI, app banner, extension tile) is what the batteries lost since unplugging, including time the daemon wasn't running, instead of only the measured energy (dev machine: 24% shown against a 35% drop). The CLI says how much of the discharge was measured when it wasn't nearly all.
 - Daemon: right after it starts (e.g. at login, when the extension first asks), it reports the batteries' real state instead of "plugged in, 0% used" until its first tick, up to a minute in the extension.
 - Packaging: upgrades restart running user daemons (`%systemd_user_postun_with_restart`); until now the old daemon kept running until the next login. To verify on the 0.1.5 upgrade: the daemon's start time changes during `dnf upgrade`.
@@ -85,15 +86,14 @@ Released after the maintainer's own testing, together with any other fixes found
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
-No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–7 are done and no known bugs remain.
+No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–6 are done and no known bugs remain.
 
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.4 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Suspend test on real hardware** (suspend is masked on the dev machine; needs the maintainer): sleep sessions, battery lost and wake reasons end to end. Shipped since 0.1.0 but only unit-tested.
-3. **Soak test:** two days of normal use on the dev machine with 0.1.4: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log.
-4. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once.
-5. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test).
-6. **Optimization:** measure the 0.1.4 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow.
-7. **User docs:** README install and usage checked against 0.1.4 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
+2. **Soak test:** two days of normal use on the dev machine with 0.1.4: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log.
+3. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once.
+4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test).
+5. **Optimization:** measure the 0.1.4 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow.
+6. **User docs:** README install and usage checked against 0.1.4 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
 
 ## After 1.0
 
