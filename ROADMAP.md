@@ -72,6 +72,10 @@ Released after the maintainer's own testing, together with any other fixes found
 
 - App: lists update in place instead of being rebuilt on every refresh; the usage list no longer disappears for a moment every few seconds, shifting everything below it.
 - App and CLI: no "0.000 Wh over 0 s" in-use/background split for apps whose focus is all unknown (all history right after upgrading to 0.1.4).
+- Daemon: a history that can't be written (full disk, I/O error) no longer stops `Tick` and live views; failures are logged when they start and end, not every tick.
+- Daemon: an unreadable database is kept aside (`drainscope.db.unreadable-<time>`) and a new history starts; a database from a newer drainscope stops the daemon with status 4, which the unit doesn't restart on (both used to restart every 10 s forever).
+- CLI: when the daemon fails to start, `doctor` and the other commands point to its log instead of saying to enable it.
+- Faster history queries: ranges are answered from the coarsest exact rollups (last 24 hours 175 → 38 ms, 7 days 94 → 39 ms, including the D-Bus call), with unchanged results.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
