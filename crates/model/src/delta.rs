@@ -42,9 +42,9 @@ pub struct OwnTime {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BatteryDelta {
-    /// Mean of the start and end discharge power, summed over discharging batteries.
+    /// Mean of the start and end discharge power, summed over batteries discharging at either end.
     pub mean_power: Watts,
-    /// Drop in remaining energy, summed over discharging batteries, when reported.
+    /// Drop in remaining energy, summed over batteries discharging at either end, when reported.
     pub energy_drop: Option<Joules>,
 }
 
@@ -177,27 +177,37 @@ fn gpu_delta(
     out
 }
 
+/// The interval counts as discharging when some battery discharges at the start and some
+/// (not necessarily the same) at the end, so a handoff between two batteries is still one.
 fn battery_delta(prev: &[BatteryReading], next: &[BatteryReading]) -> Option<BatteryDelta> {
+    let discharging = |b: &BatteryReading| b.status == BatteryStatus::Discharging;
+    let power = |b: &BatteryReading| {
+        if discharging(b) {
+            b.power.map(|p| p.0)
+        } else {
+            Some(0.0)
+        }
+    };
     let mut mean_power = 0.0;
     let mut energy_drop: Option<f64> = None;
-    let mut any = false;
+    let mut discharging_before = false;
+    let mut discharging_after = false;
     for after in next {
         let Some(before) = prev.iter().find(|b| b.name == after.name) else {
             continue;
         };
-        let discharging = |b: &BatteryReading| b.status == BatteryStatus::Discharging;
-        if !(discharging(before) && discharging(after)) {
-            continue;
+        discharging_before |= discharging(before);
+        discharging_after |= discharging(after);
+        if let (Some(p0), Some(p1)) = (power(before), power(after)) {
+            mean_power += f64::midpoint(p0, p1);
         }
-        any = true;
-        if let (Some(p0), Some(p1)) = (before.power, after.power) {
-            mean_power += f64::midpoint(p0.0, p1.0);
-        }
-        if let (Some(e0), Some(e1)) = (before.energy, after.energy) {
+        if (discharging(before) || discharging(after))
+            && let (Some(e0), Some(e1)) = (before.energy, after.energy)
+        {
             *energy_drop.get_or_insert(0.0) += e0.0 - e1.0;
         }
     }
-    any.then_some(BatteryDelta {
+    (discharging_before && discharging_after).then_some(BatteryDelta {
         mean_power: Watts(mean_power),
         energy_drop: energy_drop.map(Joules),
     })
@@ -391,6 +401,28 @@ mod tests {
         let delta = battery_delta(&prev, &next).unwrap();
         assert_eq!(delta.mean_power, Watts(5.5));
         assert_eq!(delta.energy_drop, Some(Joules(12.0)));
+    }
+
+    #[test]
+    fn a_handoff_between_batteries_is_still_a_discharge() {
+        use BatteryStatus::{Discharging, NotCharging};
+        let prev = [
+            battery("BAT0", NotCharging, 0.0, 90_000.0),
+            battery("BAT1", Discharging, 6.0, 11_000.0),
+        ];
+        let next = [
+            battery("BAT0", Discharging, 8.0, 89_990.0),
+            battery("BAT1", NotCharging, 0.0, 10_990.0),
+        ];
+        let delta = battery_delta(&prev, &next).unwrap();
+        assert_eq!(delta.mean_power, Watts(7.0));
+    }
+
+    #[test]
+    fn plugging_in_is_not_a_handoff() {
+        let prev = [battery("BAT0", BatteryStatus::Discharging, 6.0, 100.0)];
+        let next = [battery("BAT0", BatteryStatus::Charging, 10.0, 101.0)];
+        assert_eq!(battery_delta(&prev, &next), None);
     }
 
     #[test]
