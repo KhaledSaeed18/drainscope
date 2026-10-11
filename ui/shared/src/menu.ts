@@ -3,6 +3,7 @@
 import { describeConsumer, isAttributable, parseConsumer, type Consumer } from './consumers';
 import type { Summary } from './monitor';
 import { formatDuration, formatEnergy, formatPercent } from './units';
+import { daemonProblem } from './views';
 
 export interface MenuRow {
   consumer: Consumer;
@@ -60,4 +61,22 @@ export function buildMenu(
     headline,
     rows,
   };
+}
+
+/** What the Quick Settings tile shows when the daemon can't answer (`reason`: the error). */
+export interface MenuProblem {
+  /** Short, for the tile's subtitle. */
+  subtitle: string;
+  /** For the menu header, e.g. `Start it with: systemctl --user enable --now drainscope.service`. */
+  headline: string;
+}
+
+export function menuProblem(reason: string): MenuProblem {
+  const problem = daemonProblem(reason);
+  if (problem.title === daemonProblem('org.freedesktop.DBus.Error.ServiceUnknown').title) {
+    return { subtitle: 'Not running', headline: `${problem.action}: ${problem.command}` };
+  }
+  const subtitle =
+    problem.title === daemonProblem('org.freedesktop.DBus.Error.Failed').title ? 'Can’t read history' : 'Not answering';
+  return { subtitle, headline: `${problem.action} ${problem.command}` };
 }

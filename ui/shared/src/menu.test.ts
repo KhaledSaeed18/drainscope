@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { describeConsumer, iconName, parseConsumer } from './consumers';
-import { buildMenu, MENU_ROWS } from './menu';
+import { buildMenu, MENU_ROWS, menuProblem } from './menu';
 import { decodeSummary, type Summary } from './monitor';
 import { formatDuration, formatEnergy, formatPercent } from './units';
 
@@ -106,5 +106,32 @@ describe('buildMenu', () => {
     const menu = buildMenu({ onBattery: false, sinceUnplug: 0, batteryPercent: 0, top: [] }, appNames, now);
     expect(menu.subtitle).toBe('Unplug to measure');
     expect(menu.rows).toEqual([]);
+  });
+});
+
+describe('menuProblem', () => {
+  it('says not running when nothing owns the name', () => {
+    const expected = {
+      subtitle: 'Not running',
+      headline: 'Start it with: systemctl --user enable --now drainscope.service',
+    };
+    expect(menuProblem('GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name is not activatable')).toEqual(
+      expected,
+    );
+    expect(menuProblem('GDBus.Error:org.freedesktop.DBus.Error.NameHasNoOwner: Could not activate')).toEqual(expected);
+  });
+
+  it('points at the log when the history query failed', () => {
+    expect(menuProblem('GDBus.Error:org.freedesktop.DBus.Error.Failed: reading usage history failed')).toEqual({
+      subtitle: 'Can’t read history',
+      headline: 'Its log says why: journalctl --user -u drainscope.service -n 20',
+    });
+  });
+
+  it('points at the log when the daemon does not answer', () => {
+    expect(menuProblem('Gio.IOErrorEnum: Timeout was reached')).toEqual({
+      subtitle: 'Not answering',
+      headline: 'Its log says why: journalctl --user -u drainscope.service -n 20',
+    });
   });
 });

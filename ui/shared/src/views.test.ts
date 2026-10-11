@@ -239,6 +239,9 @@ describe('daemonProblem', () => {
     expect(
       daemonProblem('GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name is not activatable').title,
     ).toBe('drainscope isn’t running');
+    expect(
+      daemonProblem('GDBus.Error:org.freedesktop.DBus.Error.NameHasNoOwner: Could not activate remote peer').title,
+    ).toBe('drainscope isn’t running');
     // Running, but its history query failed.
     expect(daemonProblem('GDBus.Error:org.freedesktop.DBus.Error.Failed: reading usage history failed')).toEqual({
       title: 'drainscope couldn’t read its history',

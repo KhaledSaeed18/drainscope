@@ -14,7 +14,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { QuickMenuToggle, SystemIndicator } from 'resource:///org/gnome/shell/ui/quickSettings.js';
 
-import { buildMenu, iconName, type MenuModel, type MenuRow } from '@drainscope/shared';
+import { buildMenu, iconName, menuProblem, type MenuModel, type MenuRow } from '@drainscope/shared';
 
 import { appIcon, appName } from './apps';
 import { MonitorClient } from './client';
@@ -65,15 +65,12 @@ const UsageToggle = GObject.registerClass(
       }
     }
 
-    showUnavailable(): void {
+    showUnavailable(reason: string): void {
+      const problem = menuProblem(reason);
       this.onBattery = false;
       this.checked = false;
-      this.subtitle = 'Daemon not running';
-      this.menu.setHeader(
-        this.gicon,
-        TITLE,
-        'Start it with: systemctl --user enable --now drainscope.service',
-      );
+      this.subtitle = problem.subtitle;
+      this.menu.setHeader(this.gicon, TITLE, problem.headline);
       this.rows.removeAll();
     }
   },
@@ -188,7 +185,7 @@ export default class DrainscopeExtension extends Extension {
         return;
       }
       if (result.kind === 'unavailable') {
-        toggle.showUnavailable();
+        toggle.showUnavailable(result.reason);
         return;
       }
       const nowSeconds = GLib.DateTime.new_now_utc().to_unix();

@@ -6,7 +6,7 @@ export {
   type Consumer,
   type ConsumerKind,
 } from './consumers';
-export { buildMenu, MENU_ROWS, type MenuModel, type MenuRow } from './menu';
+export { buildMenu, menuProblem, MENU_ROWS, type MenuModel, type MenuProblem, type MenuRow } from './menu';
 export {
   COVERAGE_SIGNATURE,
   decodeCoverage,
