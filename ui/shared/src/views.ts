@@ -262,6 +262,36 @@ export function dischargeKey(range: Range, sinceUnplug: number): number {
   return range === 'unplug' ? sinceUnplug : 0;
 }
 
+/**
+ * How long a range's usage list may be reused on ticks, in seconds: the 7-day view is
+ * answered from minute rollups (its coverage query costs ~15 ms), and its totals barely move.
+ */
+export function usageMaxAgeSeconds(range: Range): number {
+  return range === 'week' ? 60 : 0;
+}
+
+/** What a usage load showed, and when (Unix seconds). */
+export interface UsageStamp {
+  range: Range;
+  byKind: boolean;
+  discharge: number;
+  at: number;
+}
+
+/** Whether `loaded` still answers a load of `next` at `now`. */
+export function usageIsFresh(
+  loaded: UsageStamp | undefined,
+  next: { range: Range; byKind: boolean; discharge: number },
+  now: number,
+): boolean {
+  return (
+    loaded?.range === next.range &&
+    loaded.byKind === next.byKind &&
+    loaded.discharge === next.discharge &&
+    now - loaded.at < usageMaxAgeSeconds(next.range)
+  );
+}
+
 /** The history window's banner: the current or last discharge. */
 export function bannerTitle(summary: Summary, nowSeconds: number): string {
   // batteryPercent is the share of the battery used since unplugging, not its level.

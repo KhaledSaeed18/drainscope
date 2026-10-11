@@ -58,6 +58,8 @@ export {
   RANGES,
   rangeQuery,
   USAGE_LIMIT,
+  usageIsFresh,
+  usageMaxAgeSeconds,
   type Range,
   type DaemonProblem,
   type EnergyPart,
@@ -67,6 +69,7 @@ export {
   type SleepEntry,
   type UsageEntry,
   type UsageModel,
+  type UsageStamp,
   type WakeupEntry,
 } from './views';
 export {

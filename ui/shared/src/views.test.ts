@@ -20,6 +20,8 @@ import {
   daemonProblem,
   dischargeKey,
   rangeQuery,
+  usageIsFresh,
+  usageMaxAgeSeconds,
 } from './views';
 
 const appNames = (id: string): string | undefined => (id === 'org.mozilla.firefox' ? 'Firefox' : undefined);
@@ -178,6 +180,37 @@ describe('dischargeKey', () => {
   it('only the unplug range depends on the discharge', () => {
     expect(dischargeKey('unplug', 4000)).toBe(4000);
     expect(dischargeKey('week', 4000)).toBe(0);
+  });
+});
+
+describe('usageIsFresh', () => {
+  const key = { range: 'week', byKind: false, discharge: 0 } as const;
+  const stamp = { ...key, at: 1000 };
+
+  it('has a max age only for the week', () => {
+    expect(usageMaxAgeSeconds('week')).toBe(60);
+    expect(usageMaxAgeSeconds('day')).toBe(0);
+  });
+
+  it('is never fresh without a previous load', () => {
+    expect(usageIsFresh(undefined, key, 1000)).toBe(false);
+  });
+
+  it('reuses a week load for under a minute', () => {
+    expect(usageIsFresh(stamp, key, 1059)).toBe(true);
+    expect(usageIsFresh(stamp, key, 1060)).toBe(false);
+  });
+
+  it('reloads when the grouping, range or discharge differs', () => {
+    expect(usageIsFresh(stamp, { ...key, byKind: true }, 1001)).toBe(false);
+    expect(usageIsFresh({ ...stamp, range: 'day' }, key, 1001)).toBe(false);
+    expect(usageIsFresh(stamp, { ...key, discharge: 5 }, 1001)).toBe(false);
+  });
+
+  it('reloads the other ranges every tick', () => {
+    for (const range of ['day', 'hour', 'unplug'] as const) {
+      expect(usageIsFresh({ ...key, range, at: 1000 }, { ...key, range }, 1001)).toBe(false);
+    }
   });
 });
 
