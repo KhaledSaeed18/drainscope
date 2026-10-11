@@ -6,6 +6,7 @@
 //! after [`HOUR_RETENTION_MS`]. Queries read the finest resolution still covering their range.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use drainscope_model::{ClosedWindow, ConsumerKey, EnergySplit, FocusSplit, Joules, PowerSource};
 use rusqlite::{Transaction, params};
@@ -142,6 +143,23 @@ fn exact_pieces(since_ms: i64, until_ms: i64) -> Vec<(Granularity, i64, i64)> {
         .collect()
 }
 
+/// A stored key, or `None` if it no longer parses. Such a row is skipped: one bad key
+/// must not fail every query over its range.
+fn parse_key(key: &str) -> Option<ConsumerKey> {
+    match key.parse() {
+        Ok(key) => Some(key),
+        Err(err) => {
+            static WARNED: AtomicBool = AtomicBool::new(false);
+            if WARNED.swap(true, Ordering::Relaxed) {
+                tracing::debug!(%err, "skipping a stored consumer key that doesn't parse");
+            } else {
+                tracing::warn!(%err, "skipping a stored consumer key that doesn't parse");
+            }
+            None
+        }
+    }
+}
+
 /// Largest first, then by key.
 fn sort_usage(usage: &mut [UsageRow]) {
     usage.sort_by(|a, b| {
@@ -264,7 +282,7 @@ impl Store {
     /// hour data include whole buckets overlapping the range's start.
     ///
     /// # Errors
-    /// SQLite errors, or a stored key that no longer parses.
+    /// SQLite errors.
     pub fn usage(
         &self,
         since_ms: i64,
@@ -291,9 +309,10 @@ impl Store {
     }
 
     /// Like [`Self::usage`], at a chosen resolution.
+    /// Rows whose stored key no longer parses are skipped.
     ///
     /// # Errors
-    /// SQLite errors, or a stored key that no longer parses.
+    /// SQLite errors.
     pub fn usage_at(
         &self,
         granularity: Granularity,
@@ -340,9 +359,9 @@ impl Store {
         let mut usage = Vec::new();
         for row in rows {
             let (key, split) = row?;
-            let key = key
-                .parse()
-                .map_err(|err| StoreError::Corrupt(format!("consumer key: {err}")))?;
+            let Some(key) = parse_key(&key) else {
+                continue;
+            };
             usage.push(UsageRow { key, split });
         }
         sort_usage(&mut usage);
@@ -354,7 +373,7 @@ impl Store {
     /// focus rows there have no known split.
     ///
     /// # Errors
-    /// SQLite errors, or a stored key that no longer parses.
+    /// SQLite errors.
     pub fn focus(
         &self,
         since_ms: i64,
@@ -385,9 +404,10 @@ impl Store {
     }
 
     /// Like [`Self::focus`], at a chosen resolution.
+    /// Rows whose stored key no longer parses are skipped.
     ///
     /// # Errors
-    /// SQLite errors, or a stored key that no longer parses.
+    /// SQLite errors.
     pub fn focus_at(
         &self,
         granularity: Granularity,
@@ -432,9 +452,9 @@ impl Store {
         let mut focus = Vec::new();
         for row in rows {
             let (key, foreground_j, unknown_j, focused_ms) = row?;
-            let key = key
-                .parse()
-                .map_err(|err| StoreError::Corrupt(format!("consumer key: {err}")))?;
+            let Some(key) = parse_key(&key) else {
+                continue;
+            };
             focus.push(FocusRow {
                 key,
                 foreground_j,
@@ -623,6 +643,63 @@ mod tests {
             .unwrap();
         let firefox_on_battery = battery.iter().find(|r| r.key == firefox()).unwrap();
         assert_eq!(firefox_on_battery.split.total(), Joules(4.0));
+    }
+
+    #[test]
+    fn a_key_that_does_not_parse_is_skipped() {
+        let mut store = Store::open_in_memory().unwrap();
+        // `term:` is what `Display` writes for this key, and `FromStr` rejects it.
+        record(
+            &mut store,
+            T0,
+            &window(
+                Measurement::Battery,
+                &[
+                    (firefox(), 3.0, 0.0),
+                    (ConsumerKey::Terminal(String::new()), 1.0, 0.0),
+                ],
+            ),
+        );
+        let rows = store
+            .usage(T0, T0 + 60_000, SourceFilter::Any, T0 + 60_000)
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].key, firefox());
+        assert_eq!(rows[0].split.total(), Joules(3.0));
+        for granularity in [Granularity::Minute, Granularity::Hour] {
+            let rows = store
+                .usage_at(granularity, T0 - HOUR_MS, T0 + HOUR_MS, SourceFilter::Any)
+                .unwrap();
+            assert_eq!(rows.len(), 1, "{granularity:?}");
+            assert_eq!(rows[0].key, firefox());
+        }
+    }
+
+    #[test]
+    fn a_focus_key_that_does_not_parse_is_skipped() {
+        let mut store = Store::open_in_memory().unwrap();
+        let focus = BTreeMap::from([
+            (firefox(), split(2.0, 0.5, 4)),
+            (ConsumerKey::App(String::new()), split(1.0, 0.0, 2)),
+        ]);
+        record_focused(
+            &mut store,
+            T0,
+            &window(Measurement::Battery, &[(firefox(), 3.0, 0.0)]),
+            &focus,
+        );
+        let rows = store
+            .focus(T0, T0 + 60_000, SourceFilter::Any, T0 + 60_000)
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].key, firefox());
+        for granularity in [Granularity::Minute, Granularity::Hour] {
+            let rows = store
+                .focus_at(granularity, T0 - HOUR_MS, T0 + HOUR_MS, SourceFilter::Any)
+                .unwrap();
+            assert_eq!(rows.len(), 1, "{granularity:?}");
+            assert_eq!(rows[0].key, firefox());
+        }
     }
 
     #[test]
