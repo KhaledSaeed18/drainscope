@@ -112,7 +112,6 @@ drainscope/
 ├── docs/
 │   ├── adr/                   # architecture decision records
 │   ├── attribution-model.md
-│   ├── privilege-model.md
 │   └── validation.md          # published error bars
 ├── PLAN.md
 └── CLAUDE.md
@@ -259,23 +258,26 @@ psys_check     (at_least_package, below_package)                               -
 | Component | Runs as | Privileges | Why |
 |---|---|---|---|
 | `drainscope-sampler` | dedicated system user `drainscope-sampler` from sysusers.d (ADR 0003) | `AmbientCapabilities=CAP_DAC_READ_SEARCH` + `CapabilityBoundingSet=CAP_DAC_READ_SEARCH` | `energy_uj` is `0400 root` because of CVE-2020-8694 (Platypus). Bypassing read DAC is the minimum privilege that can read it. **Not root.** |
+| `drainscope-probe` | dedicated system user `drainscope-probe` from sysusers.d (ADR 0006) | `AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN` + the same bounding set, `PrivateNetwork=yes` | loading eBPF programs (`CAP_BPF`), attaching them to tracepoints (`CAP_PERFMON`) and to the root cgroup's packet hooks (`CAP_NET_ADMIN`). Only per-cgroup totals leave it. **Not root.** |
 | `drainscope-daemon` | the user, `systemd --user` | none | cgroup files, `/proc/<own pids>`, DRM fdinfo of own processes and power_supply sysfs are all user-readable (verified on this machine) |
 | CLI, extension, app | the user | none | only talk to Monitor1 |
 
 Sampler hardening (enforced in CI by `systemd-analyze security --offline=yes`, exposure score target ≤ 2.0):
 `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp`, `PrivateDevices`, `PrivateNetwork=yes`, `IPAddressDeny=any`, `NoNewPrivileges=yes`, `RestrictAddressFamilies=AF_UNIX`, `SystemCallFilter=@system-service`, `SystemCallArchitectures=native`, `MemoryDenyWriteExecute`, `LockPersonality`, `RestrictNamespaces`, `ProtectKernelTunables` (sysfs stays readable), `ProtectKernelModules`, `ProtectProc=invisible`, `UMask=0077`, `ReadOnlyPaths=/sys/class/powercap /sys/devices/virtual/powercap`.
+The probe's unit uses the same sandbox (`systemd-analyze security` 0.7), and also allows the `bpf()` system call (`SystemCallFilter=bpf`).
 
 The user daemon's unit (`data/systemd/user/drainscope.service`) uses only hardening that works in a user manager without user namespaces: `NoNewPrivileges`, seccomp (`SystemCallFilter=@system-service`), `RestrictAddressFamilies=AF_UNIX`, `MemoryDenyWriteExecute`, `LockPersonality`, `RestrictRealtime`, `UMask=0077`, plus low `Nice`/`CPUWeight`. Its `systemd-analyze security` score (6.5) reflects the missing mount-namespace options, which would imply `PrivateUsers=` and hide the user's other processes' `/proc/<pid>/fd`, breaking GPU attribution. The daemon holds no privileges either way. `RestartPreventExitStatus=3` stops systemd from restarting a daemon that found the database lock taken. The daemon also stops (status 0, state saved) when its session bus closes, so one D-Bus-activated outside systemd, e.g. under `dbus-run-session`, doesn't outlive its session.
 
 Activation: D-Bus-activated (`Type=dbus`, `BusName=`), exits after 60 s without callers. It costs nothing when unused and never needs `systemctl enable`.
 
 Access control:
-- **D-Bus policy:** any local user may call `Sampler1`, but every call is authorized via **polkit** action `io.github.khaledsaeed18.Drainscope.read-energy` (`allow_active=yes`, `allow_inactive=no`, `allow_any=no`). Only the user at the physical seat can sample, which keeps SSH users and other sessions out of the side channel. Authorization is cached per sender unique name.
-- **Side-channel mitigation:** per-user (UID) minimum interval of 1000 ms, so reconnecting doesn't reset it, and readings quantized to 10 mJ (≈ 0.1% error at 1 s / 10 W). This is far coarser than the sampling rates the Platypus attack needs. The threat model is documented in `docs/privilege-model.md`.
+- **D-Bus policy:** any local user may call `Sampler1`, but every call is authorized via **polkit** action `io.github.khaledsaeed18.Drainscope.read-energy` (`allow_active=yes`, `allow_inactive=no`, `allow_any=no`). Only the user at the physical seat can sample, which keeps SSH users and other sessions out of the side channel. An approval is cached per sender unique name for 60 s; a refused user is refused for 5 s without asking polkit again.
+- **Probe1:** polkit action `io.github.khaledsaeed18.Drainscope.read-activity`, same defaults as `read-energy`, its own per-user rate limit. A caller gets counters for its own `user-<uid>.slice` and for everything outside `user.slice` (system services, machines), never other users' slices (ADR 0006).
+- **Side-channel mitigation:** per-user (UID) minimum interval of 1000 ms, so reconnecting doesn't reset it, and readings quantized to 10 mJ (≈ 0.1% error at 1 s / 10 W). This is far coarser than the sampling rates the Platypus attack needs. The reasoning is in [ADR 0003](docs/adr/0003-static-sampler-user.md) (sampler) and [ADR 0006](docs/adr/0006-ebpf-probe-service.md) (probe).
 
 SELinux: the sampler initially runs as `unconfined_service_t` (default for `bin_t` services). M5 adds a confined `drainscope_sampler_t` policy module allowing only powercap sysfs reads and D-Bus.
 
-Data privacy: all data is local, per user, `0600`. No network in any component (`IPAddressDeny=any` on the user unit too). Other users' activity is aggregated into `other-users` and never broken down.
+Data privacy: all data is local, per user, `0600`. No network in any component: every unit allows only `AF_UNIX` sockets, and the system units also run without a network (`PrivateNetwork=yes`, `IPAddressDeny=any`). Other users' activity is aggregated into `other-users` and never broken down.
 
 ---
 
