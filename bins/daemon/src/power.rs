@@ -126,6 +126,45 @@ impl SleepTracker {
     }
 }
 
+/// More energy than at the last unplug by this much means the batteries were charged while
+/// the daemon wasn't running (readings drift by far less while discharging).
+pub const CHARGED_AWAY_WH: f64 = 0.5;
+/// The same, in percentage points, for batteries that report only a percentage.
+pub const CHARGED_AWAY_PERCENT: f64 = 2.0;
+
+/// The unplug to record at start-up so "since unplugged" is right, if any: on battery, when
+/// no unplug was recorded since the last plug-in, or when the batteries hold clearly more
+/// than at the last unplug (charged while the machine was off or the daemon stopped).
+#[must_use]
+pub fn startup_unplug(
+    level: &BatteryLevel,
+    last_unplug: Option<&PowerEvent>,
+    last_plug: Option<&PowerEvent>,
+    wall_ms: i64,
+) -> Option<PowerEvent> {
+    if !level.on_battery {
+        return None;
+    }
+    let now_wh = level.energy.map(|j| j.0 / 3600.0);
+    let record = match last_unplug {
+        None => true,
+        Some(unplug) if last_plug.is_some_and(|plug| plug.ts_ms >= unplug.ts_ms) => true,
+        Some(unplug) => match (unplug.energy_wh, now_wh) {
+            (Some(was), Some(now)) => now > was + CHARGED_AWAY_WH,
+            _ => match (unplug.battery_percent, level.percent()) {
+                (Some(was), Some(now)) => now > was + CHARGED_AWAY_PERCENT,
+                _ => false,
+            },
+        },
+    };
+    record.then(|| PowerEvent {
+        ts_ms: wall_ms,
+        kind: PowerEventKind::Unplug,
+        battery_percent: level.percent(),
+        energy_wh: now_wh,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,6 +179,79 @@ mod tests {
             energy_full_design: None,
             cycle_count: None,
         }
+    }
+
+    fn event(kind: PowerEventKind, ts_ms: i64, wh: f64) -> PowerEvent {
+        PowerEvent {
+            ts_ms,
+            kind,
+            battery_percent: None,
+            energy_wh: Some(wh),
+        }
+    }
+
+    fn discharging(wh: f64) -> BatteryLevel {
+        BatteryLevel::of(&[battery("BAT0", BatteryStatus::Discharging, wh, 40.0)])
+    }
+
+    #[test]
+    fn startup_unplug_after_charging_while_off() {
+        let unplug = event(PowerEventKind::Unplug, 1000, 20.0);
+        let event = startup_unplug(&discharging(35.0), Some(&unplug), None, 5000).unwrap();
+        assert_eq!(event.kind, PowerEventKind::Unplug);
+        assert_eq!(event.energy_wh, Some(35.0));
+        assert_eq!(event.ts_ms, 5000);
+    }
+
+    #[test]
+    fn startup_keeps_the_discharge_that_is_still_going() {
+        let unplug = event(PowerEventKind::Unplug, 1000, 20.0);
+        assert_eq!(
+            startup_unplug(&discharging(19.0), Some(&unplug), None, 5000),
+            None
+        );
+    }
+
+    #[test]
+    fn startup_ignores_reading_noise() {
+        let unplug = event(PowerEventKind::Unplug, 1000, 20.0);
+        assert_eq!(
+            startup_unplug(&discharging(20.3), Some(&unplug), None, 5000),
+            None
+        );
+    }
+
+    #[test]
+    fn startup_records_the_first_unplug() {
+        assert!(startup_unplug(&discharging(20.0), None, None, 5000).is_some());
+    }
+
+    #[test]
+    fn startup_records_after_a_plug_in() {
+        let unplug = event(PowerEventKind::Unplug, 1000, 20.0);
+        let plug = event(PowerEventKind::Plug, 2000, 20.0);
+        assert!(startup_unplug(&discharging(19.0), Some(&unplug), Some(&plug), 5000).is_some());
+    }
+
+    #[test]
+    fn startup_on_ac_records_nothing() {
+        let charging = BatteryLevel::of(&[battery("BAT0", BatteryStatus::Charging, 20.0, 40.0)]);
+        assert_eq!(startup_unplug(&charging, None, None, 5000), None);
+    }
+
+    #[test]
+    fn startup_falls_back_to_percentages() {
+        let unplug = PowerEvent {
+            ts_ms: 1000,
+            kind: PowerEventKind::Unplug,
+            battery_percent: Some(50.0),
+            energy_wh: None,
+        };
+        assert!(startup_unplug(&discharging(32.0), Some(&unplug), None, 5000).is_some());
+        assert_eq!(
+            startup_unplug(&discharging(20.4), Some(&unplug), None, 5000),
+            None
+        );
     }
 
     #[test]

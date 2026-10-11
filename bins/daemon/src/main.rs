@@ -16,7 +16,7 @@ use drainscope_daemon::database::{self, EXIT_DATABASE_TOO_NEW, Opened};
 use drainscope_daemon::engine::{Engine, NetworkCounters, Reading, TickOutcome};
 use drainscope_daemon::lock::{EXIT_ALREADY_RUNNING, lock_database};
 use drainscope_daemon::monitor::{Monitor, Shared, Status, follow_shell};
-use drainscope_daemon::power::{BatteryLevel, PowerTracker, SleepTracker};
+use drainscope_daemon::power::{BatteryLevel, PowerTracker, SleepTracker, startup_unplug};
 use drainscope_daemon::probe::{ProbeClient, ProbeReadings};
 use drainscope_daemon::rapl::RaplClient;
 use drainscope_daemon::ticker::Ticker;
@@ -315,21 +315,14 @@ impl Daemon {
     }
 
     /// If the machine runs on battery but no unplug was recorded since the last plug-in (it
-    /// was unplugged while the daemon wasn't running), "since unplugged" starts now.
+    /// was unplugged while the daemon wasn't running), or the batteries hold clearly more than
+    /// at the last unplug (charged while the machine was off), "since unplugged" starts now.
     fn note_startup_power(&self, level: &BatteryLevel) -> Result<(), StoreError> {
-        if !level.on_battery {
-            return Ok(());
-        }
         let store = self.store();
         let unplug = store.last_power_event(PowerEventKind::Unplug)?;
         let plug = store.last_power_event(PowerEventKind::Plug)?;
-        let missing = match (unplug, plug) {
-            (None, _) => true,
-            (Some(unplug), Some(plug)) => plug.ts_ms >= unplug.ts_ms,
-            (Some(_), None) => false,
-        };
-        if missing {
-            store.record_power_event(&battery_event(PowerEventKind::Unplug, level))?;
+        if let Some(event) = startup_unplug(level, unplug.as_ref(), plug.as_ref(), wall_now_ms()) {
+            store.record_power_event(&event)?;
         }
         Ok(())
     }
