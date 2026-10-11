@@ -348,6 +348,8 @@ impl Daemon {
     }
 
     fn before_sleep(&mut self) {
+        // A tick may run after waking, before the resume is reported.
+        self.engine.suspend();
         let level = BatteryLevel::of(&read_batteries(&SysRoot::host()).unwrap_or_default());
         let mode = read_mem_sleep(&SysRoot::host()).ok().flatten();
         let wakeups = read_wakeup_sources(&SysRoot::host());

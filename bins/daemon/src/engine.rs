@@ -81,6 +81,9 @@ pub struct Engine {
     window_focus: FocusWindow,
     floors: BTreeMap<PowerSource, FloorEstimator>,
     psys: PsysCheck,
+    /// Between a suspend and the following [`Self::reset`]: readings are ignored, so no
+    /// interval spans the sleep.
+    paused: bool,
 }
 
 impl Engine {
@@ -98,12 +101,16 @@ impl Engine {
             window_focus: FocusWindow::default(),
             floors,
             psys,
+            paused: false,
         }
     }
 
     /// Processes a new reading. The first reading (and the first after [`Self::reset`]) only
     /// establishes a baseline.
     pub fn tick(&mut self, mut reading: Reading) -> Option<TickOutcome> {
+        if self.paused {
+            return None;
+        }
         let Some(mut previous) = self.previous.take() else {
             self.previous = Some(reading);
             return None;
@@ -189,6 +196,15 @@ impl Engine {
         self.window = Window::default();
         self.window_start_ms = None;
         self.window_focus = FocusWindow::default();
+        self.paused = false;
+    }
+
+    /// Stops attributing until [`Self::reset`]: called when the machine is about to sleep. A
+    /// tick can run after waking but before the resume is reported; it must not diff against
+    /// the reading from before the sleep.
+    pub fn suspend(&mut self) {
+        self.reset();
+        self.paused = true;
     }
 
     #[must_use]
@@ -458,5 +474,38 @@ mod tests {
         engine.reset();
         assert!(engine.tick(reading(100, 1, 9_000_000)).is_none());
         assert!(engine.tick(reading(102, 1, 15_000_000)).is_some());
+    }
+
+    #[test]
+    fn a_suspended_engine_ignores_readings_until_reset() {
+        let mut engine = engine();
+        engine.tick(reading(0, 1, 0));
+        assert!(engine.tick(reading(2, 1, 6_000_000)).is_some());
+        engine.suspend();
+        assert!(engine.tick(reading(4, 1, 12_000_000)).is_none());
+        assert!(engine.tick(reading(6, 1, 18_000_000)).is_none());
+        engine.reset();
+        assert!(engine.tick(reading(100, 1, 900_000_000)).is_none());
+        let outcome = engine.tick(reading(102, 1, 906_000_000)).unwrap();
+        assert_eq!(outcome.duration, std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn suspend_drops_the_open_window() {
+        let mut engine = engine();
+        engine.tick(reading(0, 1, 0));
+        engine.tick(reading(2, 1, 6_000_000));
+        engine.suspend();
+        engine.reset();
+        let mut finished = None;
+        for (n, secs) in (10..=22).step_by(2).enumerate() {
+            let uj = 6_000_000 * (n as u64 + 1);
+            if let Some(outcome) = engine.tick(reading(secs, 1, uj))
+                && finished.is_none()
+            {
+                finished = outcome.finished;
+            }
+        }
+        assert_eq!(finished.unwrap().start_ms, 10_000);
     }
 }
