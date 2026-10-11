@@ -14,7 +14,8 @@ use crate::units::Joules;
 /// Stored with every row so a future model never silently reinterprets history.
 /// 2: network-softirq time moves from Kernel to the consumers causing the traffic (ADR 0007).
 /// 3: so does the time of the network devices' threaded interrupt handlers (ADR 0008).
-pub const MODEL_VERSION: u32 = 3;
+/// 4: a window's battery energy is reconciled with RAPL only for the ticks that had RAPL, and a battery handoff counts as a discharge.
+pub const MODEL_VERSION: u32 = 4;
 
 /// One consumer's energy by cause.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

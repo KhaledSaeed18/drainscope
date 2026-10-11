@@ -52,6 +52,15 @@ No privileges are needed. Drivers that handle interrupts directly (the dev machi
 - Shares are proportional to CPU time, so low-utilization activity (network processing, timers) is charged less than its marginal cost. Each burst wakes the package from deep idle, which costs more per CPU-second than the average. Measured: downloads get about 20% of their RAPL increase under v2 (5% under v1), while large CPU loads get 79–90% (ADR 0007). v3 moves about 30% more network time; its measured effect is pending a battery run of `validate --activity`.
 - Hard-IRQ time of network devices (drivers without a handler thread) remains Kernel's: the kernel doesn't report it per interrupt.
 
+## Model v4
+
+v4 fixes two cases where the battery reconciliation of a window (at least 10 s) went wrong. Nothing changes for windows with RAPL on every tick that stay on one battery.
+
+- **Windows with ticks that have no RAPL.** When the sampler starts, stops, restarts or refuses a read inside a window, some ticks have no RAPL energy but all ticks have battery energy. v3 reconciled the whole battery energy against the partial RAPL total, so the gap ticks' entire battery energy went to Display & devices and nothing to the apps that ran. v4 reconciles only the battery energy of the ticks with RAPL against RAPL (the excess is Display & devices, as before). The battery energy of the ticks without RAPL is shared the battery-only way: the battery's idle floor first, then by the CPU time of those ticks.
+- **A handoff between two batteries.** Laptops with two batteries drain one, then switch to the other. The interval spanning the switch has no battery discharging at both ends, so v3 counted it as AC: the window became mixed, was stored as an AC window (missing from "since unplugged" and the other battery-only views), and the AC idle-floor estimator learned from a battery tick. v4 counts an interval as discharging when some battery discharges at its start and some battery (not necessarily the same one) at its end.
+
+Windows stored before v4 keep `model_version` 3.
+
 ## Validation
 
 - `cargo xtask validate`: CPU loads; results in [validation.md](validation.md).

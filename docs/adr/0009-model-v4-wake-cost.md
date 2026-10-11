@@ -1,4 +1,4 @@
-# 0009 — Model v4: charging the cost of waking the machine
+# 0009 — Model v5: charging the cost of waking the machine
 
 - Status: proposed (research; decision pending the data described below)
 - Date: 2026-10-09
@@ -38,4 +38,4 @@ From the battery run of ADR 0008's result, replaying option A offline (`testdata
 - **Downloads:** unchanged (12–16%). The downloading app wakes the CPU about twice a second; the interrupts are the kernel's.
 - **Median: 12% for both v3 and A**, far from the 60% criterion. Option A as specified isn't enough. A second run on the home network, with the fixed totals, should come before choosing between refining A, B and C, or a different split of the work term.
 
-Proposed success criteria for adopting a v4: timer and download loads charged at least 60% (median) of their RAPL increase; CPU loads stay at 79–100%; the energy split stays exact (property-tested); without the probe, identical to v3.
+Proposed success criteria for adopting a v5: timer and download loads charged at least 60% (median) of their RAPL increase; CPU loads stay at 79–100%; the energy split stays exact (property-tested); without the probe, identical to v3.
