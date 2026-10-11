@@ -4,7 +4,7 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail, ensure};
@@ -128,6 +128,22 @@ const SYSUSERS: [&str; 2] = [
     "/etc/sysusers.d/drainscope-probe.conf",
 ];
 
+/// A new directory under `parent` that only the current user can enter. `mkdir` fails if
+/// anything (a directory or a symlink planted by another user) already has the name, so a
+/// root build never runs in a directory someone else controls.
+fn private_dir(parent: &Path, prefix: &str) -> Result<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt as _;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let dir = parent.join(format!("{prefix}-{}-{nanos}", std::process::id()));
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&dir)
+        .with_context(|| format!("creating {}", dir.display()))?;
+    Ok(dir)
+}
+
 /// Builds and loads the privileged services' `SELinux` modules (data/selinux/), if `SELinux` is
 /// enabled and the policy development files are installed. Returns whether they were loaded.
 fn install_selinux(repo_root: &Path) -> Result<bool> {
@@ -138,12 +154,9 @@ fn install_selinux(repo_root: &Path) -> Result<bool> {
         println!("skipped the SELinux modules: install selinux-policy-devel to build them");
         return Ok(false);
     }
-    // Built outside the repo so no root-owned files end up in the user's tree.
-    let build = std::env::temp_dir().join("drainscope-selinux");
-    if build.exists() {
-        fs::remove_dir_all(&build)?;
-    }
-    fs::create_dir_all(&build)?;
+    // Built outside the repo so no root-owned files end up in the user's tree, in a fresh
+    // directory only root can enter: a fixed name in /tmp could be planted by another user.
+    let build = private_dir(&std::env::temp_dir(), "drainscope-selinux")?;
     for module in SELINUX_MODULES {
         for extension in ["te", "fc", "if"] {
             let name = format!("{module}.{extension}");
@@ -305,4 +318,32 @@ pub fn uninstall() -> Result<()> {
          your history in ~/.local/state/drainscope/."
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_dirs_are_new_and_closed() {
+        let parent = std::env::temp_dir();
+        let a = private_dir(&parent, "drainscope-test").unwrap();
+        let b = private_dir(&parent, "drainscope-test").unwrap();
+        assert_ne!(a, b);
+        assert_eq!(
+            fs::metadata(&a).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        fs::remove_dir(&a).unwrap();
+        fs::remove_dir(&b).unwrap();
+    }
+
+    #[test]
+    fn a_planted_path_is_refused() {
+        let parent = std::env::temp_dir();
+        let taken = private_dir(&parent, "drainscope-test").unwrap();
+        // Same name again: mkdir must refuse instead of reusing it.
+        assert!(fs::DirBuilder::new().create(&taken).is_err());
+        fs::remove_dir(&taken).unwrap();
+    }
 }
