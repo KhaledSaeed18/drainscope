@@ -1,10 +1,11 @@
 //! Deciding who may call a privileged service: a polkit action that allows active local
 //! sessions only (e.g. `io.github.khaledsaeed18.Drainscope.read-energy`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use zbus::zvariant::Value;
 
@@ -42,17 +43,50 @@ trait Authority {
     ) -> zbus::Result<(bool, bool, HashMap<String, String>)>;
 }
 
-/// Asks polkit, without interactive authentication. Positive answers are cached per unique
-/// bus name, which is never reused on a bus; denials are re-checked so a session becoming
-/// active is picked up.
+/// How long a polkit "yes" is reused for one bus name before asking again: a session that
+/// becomes inactive (e.g. after switching users) loses access within this time.
+pub const APPROVAL_TTL: Duration = Duration::from_secs(60);
+
+const MAX_CACHED: usize = 256;
+
+/// Polkit approvals by unique bus name, each with when it was given.
+#[derive(Debug, Default)]
+pub struct Approvals {
+    given: HashMap<String, Instant>,
+}
+
+impl Approvals {
+    /// Whether `caller` was approved less than [`APPROVAL_TTL`] before `now`.
+    #[must_use]
+    pub fn fresh(&self, caller: &str, now: Instant) -> bool {
+        self.given
+            .get(caller)
+            .is_some_and(|at| now.saturating_duration_since(*at) < APPROVAL_TTL)
+    }
+
+    /// Records an approval at `now`. When [`MAX_CACHED`] names are held, expired ones are
+    /// dropped first, then all of them if still full.
+    pub fn insert(&mut self, caller: &str, now: Instant) {
+        if self.given.len() >= MAX_CACHED && !self.given.contains_key(caller) {
+            self.given
+                .retain(|_, at| now.saturating_duration_since(*at) < APPROVAL_TTL);
+            if self.given.len() >= MAX_CACHED {
+                self.given.clear();
+            }
+        }
+        self.given.insert(caller.to_owned(), now);
+    }
+}
+
+/// Asks polkit, without interactive authentication. Positive answers are reused for
+/// [`APPROVAL_TTL`] per unique bus name, which is never reused on a bus; denials are always
+/// re-checked so a session becoming active is picked up.
 #[derive(Debug)]
 pub struct Polkit {
     authority: AuthorityProxy<'static>,
     action: &'static str,
-    allowed: Mutex<HashSet<String>>,
+    approvals: Mutex<Approvals>,
 }
-
-const MAX_CACHED: usize = 256;
 
 impl Polkit {
     /// # Errors
@@ -61,16 +95,16 @@ impl Polkit {
         Ok(Self {
             authority: AuthorityProxy::new(system_bus).await?,
             action,
-            allowed: Mutex::new(HashSet::new()),
+            approvals: Mutex::new(Approvals::default()),
         })
     }
 
     async fn check(&self, caller: &str) -> zbus::Result<bool> {
         let cached = self
-            .allowed
+            .approvals
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .contains(caller);
+            .fresh(caller, Instant::now());
         if cached {
             return Ok(true);
         }
@@ -83,11 +117,10 @@ impl Polkit {
             .check_authorization(&subject, self.action, HashMap::new(), 0, "")
             .await?;
         if authorized {
-            let mut allowed = self.allowed.lock().unwrap_or_else(PoisonError::into_inner);
-            if allowed.len() >= MAX_CACHED {
-                allowed.clear();
-            }
-            allowed.insert(caller.to_owned());
+            self.approvals
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(caller, Instant::now());
         }
         Ok(authorized)
     }
@@ -101,5 +134,39 @@ impl Authorizer for Polkit {
                 None => Ok(false),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approval_is_fresh_after_insert() {
+        let mut approvals = Approvals::default();
+        let now = Instant::now();
+        approvals.insert(":1.5", now);
+        assert!(approvals.fresh(":1.5", now));
+        assert!(!approvals.fresh(":1.6", now));
+    }
+
+    #[test]
+    fn approval_expires_after_ttl() {
+        let mut approvals = Approvals::default();
+        let now = Instant::now();
+        approvals.insert(":1.5", now);
+        assert!(approvals.fresh(":1.5", now + APPROVAL_TTL - Duration::from_millis(1)));
+        assert!(!approvals.fresh(":1.5", now + APPROVAL_TTL));
+    }
+
+    #[test]
+    fn approvals_are_bounded() {
+        let mut approvals = Approvals::default();
+        let now = Instant::now();
+        for i in 0..=MAX_CACHED {
+            approvals.insert(&format!(":1.{i}"), now);
+        }
+        assert!(approvals.given.len() <= MAX_CACHED);
+        assert!(approvals.fresh(&format!(":1.{MAX_CACHED}"), now));
     }
 }

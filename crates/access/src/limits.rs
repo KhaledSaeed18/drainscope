@@ -45,6 +45,46 @@ impl RateLimiter {
     }
 }
 
+/// How long a UID polkit refused is refused without asking polkit again.
+pub const DENIAL_WINDOW: Duration = Duration::from_secs(5);
+
+/// Users polkit refused recently. Their calls are refused at once until the window passes, so
+/// an unauthorized caller can't make every call cost a polkit check (reconnecting gives a new
+/// bus name, not a new UID).
+#[derive(Debug)]
+pub struct DenialGate {
+    window: Duration,
+    denied: HashMap<u32, Instant>,
+}
+
+impl DenialGate {
+    #[must_use]
+    pub fn new(window: Duration) -> Self {
+        Self {
+            window,
+            denied: HashMap::new(),
+        }
+    }
+
+    /// Whether `uid` was refused less than `window` before `now`.
+    #[must_use]
+    pub fn refused(&self, uid: u32, now: Instant) -> bool {
+        self.denied
+            .get(&uid)
+            .is_some_and(|at| now.saturating_duration_since(*at) < self.window)
+    }
+
+    /// Records that polkit refused `uid` at `now`.
+    pub fn deny(&mut self, uid: u32, now: Instant) {
+        if self.denied.len() >= MAX_TRACKED_CALLERS {
+            let window = self.window;
+            self.denied
+                .retain(|_, at| now.saturating_duration_since(*at) < window);
+        }
+        self.denied.insert(uid, now);
+    }
+}
+
 /// Rounds `value` down to a multiple of `quantum`.
 #[must_use]
 pub fn quantize(value: u64, quantum: u64) -> u64 {
@@ -85,6 +125,42 @@ mod tests {
         let later = start + Duration::from_secs(1);
         limiter.check(":2.0", later).unwrap();
         assert_eq!(limiter.last_call.len(), 1);
+    }
+
+    #[test]
+    fn refuses_within_the_window() {
+        let mut gate = DenialGate::new(Duration::from_secs(5));
+        let start = Instant::now();
+        gate.deny(1000, start);
+        assert!(gate.refused(1000, start));
+        assert!(gate.refused(1000, start + Duration::from_millis(4999)));
+    }
+
+    #[test]
+    fn stops_refusing_after_the_window() {
+        let mut gate = DenialGate::new(Duration::from_secs(5));
+        let start = Instant::now();
+        gate.deny(1000, start);
+        assert!(!gate.refused(1000, start + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn unknown_uids_are_never_refused() {
+        let mut gate = DenialGate::new(Duration::from_secs(5));
+        let start = Instant::now();
+        gate.deny(1000, start);
+        assert!(!gate.refused(1001, start));
+    }
+
+    #[test]
+    fn denial_gate_is_bounded() {
+        let mut gate = DenialGate::new(Duration::from_millis(10));
+        let start = Instant::now();
+        for uid in 0..u32::try_from(MAX_TRACKED_CALLERS).unwrap() {
+            gate.deny(uid, start);
+        }
+        gate.deny(99_999, start + Duration::from_secs(1));
+        assert_eq!(gate.denied.len(), 1);
     }
 
     #[test]

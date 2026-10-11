@@ -7,4 +7,4 @@ pub mod limits;
 
 pub use auth::{AuthFuture, Authorizer, Fixed, Polkit};
 pub use caller::caller_uid;
-pub use limits::{RateLimiter, quantize};
+pub use limits::{DENIAL_WINDOW, DenialGate, RateLimiter, quantize};
