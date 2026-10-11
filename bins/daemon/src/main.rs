@@ -316,7 +316,7 @@ impl Daemon {
 
     /// If the machine runs on battery but no unplug was recorded since the last plug-in (it
     /// was unplugged while the daemon wasn't running), "since unplugged" starts now.
-    fn note_startup_power(&self, level: &BatteryLevel) -> anyhow::Result<()> {
+    fn note_startup_power(&self, level: &BatteryLevel) -> Result<(), StoreError> {
         if !level.on_battery {
             return Ok(());
         }
@@ -451,15 +451,12 @@ async fn main() -> anyhow::Result<()> {
             std::process::exit(EXIT_DATABASE_TOO_NEW);
         }
     };
-    let floors = BTreeMap::from([
-        (
-            PowerSource::Battery,
-            store.load_floor(PowerSource::Battery)?,
-        ),
-        (PowerSource::Ac, store.load_floor(PowerSource::Ac)?),
-    ]);
-    let psys = store.load_psys_check()?;
-    let engine = Engine::new(rustix::process::getuid().as_raw(), floors, psys);
+    let calibration = database::load_calibration(&store);
+    let engine = Engine::new(
+        rustix::process::getuid().as_raw(),
+        calibration.floors,
+        calibration.psys,
+    );
     let shared = Shared::new(store);
     // Clients ask as soon as the name appears (the extension at login): answer with the
     // batteries' state now rather than "plugged in, capacity unknown" until the first tick.
@@ -523,7 +520,9 @@ async fn main() -> anyhow::Result<()> {
         store_failing: false,
     };
     daemon.take_inhibitor().await;
-    daemon.note_startup_power(&level)?;
+    // Like any other write: a full disk mustn't stop the daemon (and restart it forever).
+    let result = daemon.note_startup_power(&level);
+    daemon.stored("unplug at start-up", result);
     tracing::info!(database = %path.display(), "serving {BUS_NAME}");
     let (bus, focus_shared) = (daemon.session.clone(), Arc::clone(&daemon.shared));
     tokio::spawn(async move {

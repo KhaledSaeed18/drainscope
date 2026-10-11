@@ -2,10 +2,12 @@
 //! good (the data is valid for that version), and one SQLite can't read is set aside so a new
 //! history can start; restarting would otherwise fail the same way forever.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use drainscope_model::{FloorEstimator, PowerSource, PsysCheck};
 use drainscope_store::{Store, StoreError};
 
 /// Exit status for a database written by a newer drainscope; the systemd unit doesn't restart
@@ -45,6 +47,37 @@ pub fn open(path: &Path, stamp: &str) -> anyhow::Result<Opened> {
         }
         Err(err) => Err(err.into()),
     }
+}
+
+/// What earlier runs learned: idle floors per power source and the `psys` verdict.
+#[derive(Debug, Default)]
+pub struct Calibration {
+    pub floors: BTreeMap<PowerSource, FloorEstimator>,
+    pub psys: PsysCheck,
+}
+
+/// Loads what earlier runs learned. Calibration is relearned within minutes, so a part that
+/// can't be read (damaged, or written by another drainscope version) starts over instead of
+/// stopping the daemon, which would fail the same way on every restart.
+#[must_use]
+pub fn load_calibration(store: &Store) -> Calibration {
+    let mut floors = BTreeMap::new();
+    for source in [PowerSource::Battery, PowerSource::Ac] {
+        let floor = learned("idle floor", store.load_floor(source));
+        floors.insert(source, floor);
+    }
+    Calibration {
+        floors,
+        psys: learned("psys check", store.load_psys_check()),
+    }
+}
+
+/// `loaded`, or a fresh start if it couldn't be read.
+fn learned<T: Default>(what: &str, loaded: Result<T, StoreError>) -> T {
+    loaded.unwrap_or_else(|err| {
+        tracing::warn!(%err, what, "the stored calibration can't be read; learning it again");
+        T::default()
+    })
 }
 
 /// Renames the database and its WAL and shared-memory files, keeping SQLite's pairing of names
@@ -97,6 +130,18 @@ mod tests {
         assert!(matches!(open(&path, "x").unwrap(), Opened::TooNew(_)));
         assert!(path.exists());
         assert!(!dir.path().join("drainscope.db.unreadable-x").exists());
+    }
+
+    #[test]
+    fn calibration_that_cant_be_read_starts_over() {
+        let unreadable: Result<PsysCheck, _> =
+            Err(StoreError::Corrupt("histogram for package".into()));
+        assert_eq!(learned("psys check", unreadable), PsysCheck::default());
+
+        let store = Store::open_in_memory().unwrap();
+        let calibration = load_calibration(&store);
+        assert_eq!(calibration.floors.len(), 2);
+        assert_eq!(calibration.psys, PsysCheck::default());
     }
 
     /// Marks the database as written by a newer schema, without rusqlite: SQLite stores
