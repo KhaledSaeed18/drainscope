@@ -80,6 +80,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - App: says "isn't running" only when nothing can start drainscope; a failed history query or a daemon failing at start points to its log instead of telling to enable it. The CLI's hint for a failed query says the same.
 - Sampler and probe: a polkit approval is asked again after a minute (an inactive session's daemon kept reading after a user switch); a user polkit refused is refused for 5 s without asking polkit again, and refused calls no longer keep the services from exiting when idle.
 - Probe: lists cgroups only when a new one appears; after any counted cgroup was removed it listed all of cgroupfs on every read (twice per ReadAll).
+- Extension: says why the daemon can't answer (not running, history unreadable, not answering) instead of always "Daemon not running"; the extension and the app's refreshes no longer restart a daemon that was stopped (only opening the app starts it).
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
