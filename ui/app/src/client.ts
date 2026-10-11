@@ -88,6 +88,7 @@ export class MonitorClient {
     parameters: GLib.Variant | null,
     signature: string,
     decode: (value: unknown) => Decoded<T>,
+    autoStart = false,
   ): Promise<Result<T>> {
     try {
       const reply = await Gio.DBus.session.call(
@@ -97,7 +98,7 @@ export class MonitorClient {
         method,
         parameters,
         new GLib.VariantType(signature),
-        Gio.DBusCallFlags.NONE,
+        autoStart ? Gio.DBusCallFlags.NONE : Gio.DBusCallFlags.NO_AUTO_START,
         CALL_TIMEOUT_MS,
         this.cancellable,
       );
@@ -116,8 +117,8 @@ export class MonitorClient {
     }
   }
 
-  summary(): Promise<Result<Summary>> {
-    return this.call('GetSummary', null, SUMMARY_SIGNATURE, decodeSummary);
+  summary(autoStart = false): Promise<Result<Summary>> {
+    return this.call('GetSummary', null, SUMMARY_SIGNATURE, decodeSummary, autoStart);
   }
 
   usage(since: number, until: number, groupBy: 'consumer' | 'kind', source: string): Promise<Result<UsageRow[]>> {

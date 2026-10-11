@@ -65,6 +65,8 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private byKind = false;
   private refreshing = false;
   private pending = false;
+  /** Only the window's first load may start a stopped daemon. */
+  private started = false;
 
   private readonly navigation = new Adw.NavigationView();
   private readonly stack = new Gtk.Stack();
@@ -223,7 +225,8 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   }
 
   private async load(): Promise<void> {
-    const summary = await this.client.summary();
+    const summary = await this.client.summary(!this.started);
+    this.started = true;
     if (!summary.ok) {
       this.showNotRunning(summary.error);
       return;

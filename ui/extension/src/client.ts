@@ -28,7 +28,7 @@ export class MonitorClient {
         'GetSummary',
         null,
         new GLib.VariantType(SUMMARY_SIGNATURE),
-        Gio.DBusCallFlags.NONE,
+        Gio.DBusCallFlags.NO_AUTO_START,
         CALL_TIMEOUT_MS,
         this.cancellable,
       );
