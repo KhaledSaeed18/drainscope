@@ -4,6 +4,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Released
 
+**v0.1.6** (2026-10-12): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.6) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Stabilization, second pass: model v4 shares the energy of ticks without RAPL by CPU time (validated: 79–98% of isolated loads' active energy); the daemon starts without a writable history or a readable calibration, pauses attribution across suspend, restarts "since unplugged" after charging while off and measures sleep loss against the capacity before sleep; an unnamed consumer no longer breaks history queries; polkit approvals expire after a minute; the extension and app say why the daemon can't answer and no longer restart a stopped one; no stale rows in the app; the 7-day view reloads once a minute; the probe's privacy promise made exact (ADR 0006 addendum); release metadata checked in CI (`cargo xtask check-release`).
+
 **v0.1.5** (2026-10-10): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.5) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Stabilization: no flickering lists; "% used" is the batteries' real drop; the app follows the daemon stopping and restarting; the daemon keeps measuring on a full disk, recovers from an unreadable database and stops cleanly on a newer one; correct state from start-up; wake reasons only when reliable; foreground/background without RAPL; upgrades restart the daemon; history queries 4–5× faster (the daemon's cost with the app open: 7% → 1.45% of one CPU); clearer CLI errors and names.
 
 **v0.1.4** (2026-10-10): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.4) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Each app's energy split into while in use and in the background (ADR 0011): the extension reports the focused app, Monitor1 `SetFocus`/`EndFocus`/`GetFocus`, migration 3, the app's Use section, `report` columns and export fields.
@@ -36,7 +38,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ### M3 — Desktop app, sleep and health
 - [x] libadwaita app: since unplugged / hour / 24 h / 7 days, stacked timeline, per-consumer breakdown, folded tail.
-- [x] Sleep sessions with wake reasons (wakeup sources and IRQ), `Monitor1.GetSleepHistory`. Verified on real hardware on 2026-10-10 (five suspends to `deep`): suspend and resume recorded with the battery's energy before the machine slept (the delay inhibitor works), losses and rates match the kernel's sleep times, and no window spans a sleep. Wake reasons turned out unreliable after `deep` sleep (see Unreleased).
+- [x] Sleep sessions with wake reasons (wakeup sources and IRQ), `Monitor1.GetSleepHistory`. Verified on real hardware on 2026-10-10 (five suspends to `deep`): suspend and resume recorded with the battery's energy before the machine slept (the delay inhibitor works), losses and rates match the kernel's sleep times, and no window spans a sleep. Wake reasons turned out unreliable after `deep` sleep (fixed in v0.1.5). Checked again on 2026-10-12 with v0.1.6: three RTC-woken suspends recorded, wake reason unknown as intended.
 - [x] Battery health recorded daily (migration 2), `Monitor1.GetBatteryHealth`, `drainscope health`.
 - [x] Foreground and background energy per app (ADR 0011, v0.1.4): the extension reports the focused app's ID (`SetFocus`/`EndFocus`, accepted only from the Shell's process), the daemon splits each app's energy by focused time (migration 3; earlier history unknown), `GetFocus`; the app's detail page and usage list, `report` columns and exports show it. Validated: with focus alternated between two equal loads for 10 minutes, each app's in-use share matched its focused share within 0.6 points.
 
@@ -52,8 +54,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] SELinux modules for the sampler and the probe, enforcing, no denials; `drainscope-selinux` package.
 - [x] RPM spec with seven packages; `cargo xtask dist` builds the tarball, SRPM, RPMs and extension zip.
 - [x] AMD support from fixtures and docs (ADR 0005); `doctor` explains GPU and RAPL support.
-- [x] GitHub releases v0.1.0 to v0.1.5.
-- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.5 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
+- [x] GitHub releases v0.1.0 to v0.1.6.
+- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.6 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (v0.1.2).
 - [x] Daemon self-cost, first pass (v0.1.3): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
@@ -72,34 +74,16 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 Fixes collect here and ship after the maintainer's own testing.
 
-- Daemon: without a reachable probe, network counting is reported unavailable (`drainscope network` said "No network traffic measured yet", or kept showing the last rates after the probe stopped).
-- Daemon: starts even when the history can't be written (a full disk, starting on battery) or the stored calibration can't be read; both used to stop it and restart it every 10 s forever.
-- CLI: `drainscope top` updates every 5 s again; it didn't count as watching, so it followed the 15 s idle tick.
-- Daemon: "since unplugged" starts again after the batteries were charged while the machine was off or the daemon stopped (it kept the previous discharge, often showing 0% used).
-- CLI and app: a suspend while charging shows the charge gained ("charged", "+12.30 Wh"), not a negative loss.
-- App: says "isn't running" only when nothing can start drainscope; a failed history query or a daemon failing at start points to its log instead of telling to enable it. The CLI's hint for a failed query says the same.
-- Sampler and probe: a polkit approval is asked again after a minute (an inactive session's daemon kept reading after a user switch); a user polkit refused is refused for 5 s without asking polkit again, and refused calls no longer keep the services from exiting when idle.
-- Probe: lists cgroups only when a new one appears; after any counted cgroup was removed it listed all of cgroupfs on every read (twice per ReadAll).
-- Extension: says why the daemon can't answer (not running, history unreadable, not answering) instead of always "Daemon not running"; the extension and the app's refreshes no longer restart a daemon that was stopped (only opening the app starts it).
-- Daemon: a RAPL read refused by the sampler's per-user rate limit (e.g. while drainscope doctor runs) is retried once; it lost RAPL for two ticks.
-- Daemon: attribution pauses from suspend until resume; a tick right after waking, before the resume was reported, could measure across the sleep.
-- Model v4: in a window where some ticks had no RAPL (sampler starting, stopping or refusing), their battery energy is shared by CPU time instead of all going to Display & devices; a switch from one battery to the other no longer turns a battery window into an AC one. Validated on battery on 2026-10-11: isolated loads got 79–98% of their active energy (model v1 on 2026-10-05: 79–90%).
-- Daemon: a consumer with an empty name (a terminal whose process has no name, an `app--1.scope`) gets a placeholder name; a stored key that can't be read back is skipped instead of failing every history query over its range.
-- App: switching the range or grouping while a load is in flight no longer shows the old rows; the timeline follows a new unplug at once; the banner no longer shows "On battery for 20000 d" when no unplug was recorded.
-- App: the 7-day view reloads its usage once a minute instead of every 5 s (its coverage query took ~15 ms each time).
-- Docs: the probe's privacy promise is now exact: other users' own cgroups are never exposed, but a system service's network bytes include connections it accepted for anyone (e.g. sshd), which another user can see at one-minute resolution (ADR 0006 addendum).
-- Daemon: the battery lost while asleep is a percentage of the capacity before sleep; when the firmware re-learned the full-charge capacity at resume, a 27 s sleep could show 0.9% lost (120%/h) for 0.01 Wh.
-
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
 No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–6 are done and no known bugs remain.
 
-1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.5 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Soak test:** two days of normal use on the dev machine with 0.1.5: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log. Measured with `cargo xtask cost`.
+1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.6 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
+2. **Soak test:** two days of normal use on the dev machine with 0.1.6: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log. Measured with `cargo xtask cost`.
 3. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once.
-4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test). First pass done on 2026-10-11 (five fixes, see Unreleased).
-5. **Optimization:** measure the 0.1.5 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow. Query times with the `query_times` benchmark (crates/store/tests).
-6. **User docs:** README install and usage checked against 0.1.5 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
+4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test). First pass done on 2026-10-11 (five fixes, released in v0.1.6).
+5. **Optimization:** measure the 0.1.6 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow. Query times with the `query_times` benchmark (crates/store/tests).
+6. **User docs:** README install and usage checked against 0.1.6 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
 
 ## After 1.0
 
