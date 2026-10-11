@@ -4,7 +4,7 @@
 %global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
-Version:        0.1.5
+Version:        0.1.6
 Release:        1%{?dist}
 Summary:        Per-app battery and energy usage for the Linux desktop
 
@@ -244,6 +244,23 @@ fi
 %{_datadir}/icons/hicolor/symbolic/apps/%{app_id}-symbolic.svg
 
 %changelog
+* Mon Oct 12 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.6-1
+- Model v4: energy of ticks without RAPL is shared by CPU time; a switch between
+  batteries no longer counts as AC
+- Daemon: starts without a writable history or a readable calibration; retries a
+  rate-limited RAPL read; pauses attribution from suspend to resume
+- Daemon: "since unplugged" restarts after charging while off; sleep loss is measured
+  against the capacity before sleep; an unnamed consumer no longer breaks history
+- Sampler and probe: polkit approvals expire after a minute; refused callers are
+  refused for 5 s; the probe lists cgroups only when a new one appears
+- Extension and app: say why the daemon can't answer; their refreshes no longer
+  restart a stopped daemon
+- App: no stale rows after quick range or grouping changes; the 7-day view reloads
+  once a minute
+- CLI: top updates every 5 s; network counting is reported unavailable without the
+  probe; a suspend while charging shows the charge gained
+- Docs: what the probe shows of other users' traffic (ADR 0006 addendum)
+
 * Sat Oct 10 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.5-1
 - "% used" is what the batteries lost since unplugging, including unmeasured time
 - App: lists update in place (no flicker); follows the daemon stopping and restarting

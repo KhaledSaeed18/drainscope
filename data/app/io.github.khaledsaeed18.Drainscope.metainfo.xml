@@ -58,6 +58,11 @@
     <color type="primary" scheme_preference="dark">#15282f</color>
   </branding>
   <releases>
+    <release version="0.1.6" date="2026-10-12">
+      <description>
+        <p>A sturdier release: the daemon starts and keeps measuring when its history or calibration can't be used, attribution is more accurate when the energy counters are briefly missing, the app and the quick settings tile say why drainscope can't answer and no longer restart it after you stop it, and the 7-day view costs far less to keep open.</p>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-10-10">
       <description>
         <p>A steadier, more accurate release: the usage list no longer flickers, the battery used since unplugging matches what the batteries report, the app notices when the daemon stops or restarts, and history loads several times faster.</p>
