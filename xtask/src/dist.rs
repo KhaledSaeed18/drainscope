@@ -82,6 +82,10 @@ fn license_terms(expression: &str) -> Vec<String> {
         .collect()
 }
 
+/// C libraries compiled into the binaries by a crate, whose own license covers only the
+/// bindings: (crate name, what is bundled, SPDX license of the bundled code).
+const BUNDLED_C: &[(&str, &str, &str)] = &[("libsqlite3-sys", "SQLite", "blessing")];
+
 /// The SPDX expression for the shipped binaries and everything they link, plus the
 /// per-crate list for `LICENSE.dependencies`.
 fn licenses(repo: &Path) -> Result<(String, String)> {
@@ -104,6 +108,11 @@ fn licenses(repo: &Path) -> Result<(String, String)> {
         }
         terms.extend(license_terms(&license));
         crates.insert(format!("{package}: {}", license.trim()));
+        let name = package.split_whitespace().next().unwrap_or(package);
+        for (_, bundled, spdx) in BUNDLED_C.iter().filter(|(c, _, _)| *c == name) {
+            terms.insert((*spdx).to_owned());
+            crates.insert(format!("{bundled} (bundled by {package}): {spdx}"));
+        }
     }
     // GPL first (drainscope itself), then the dependencies.
     let gpl = "GPL-3.0-or-later";
