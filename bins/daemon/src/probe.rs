@@ -158,7 +158,9 @@ impl ProbeClient {
                     self.combined = false;
                 }
                 Err(err) => {
+                    // ReadAll answers for both: without it, traffic isn't known either.
                     self.wakeups.failed("wakeup counts", &err);
+                    self.network.failed("network traffic", &err);
                     return ProbeReadings::default();
                 }
             }
@@ -404,12 +406,20 @@ mod tests {
     async fn client_of(
         probe: impl zbus::object_server::Interface,
     ) -> (zbus::Connection, ProbeClient) {
+        client_at(OBJECT_PATH, probe).await
+    }
+
+    /// Like [`client_of`], with `probe` served at `path`.
+    async fn client_at(
+        path: &str,
+        probe: impl zbus::object_server::Interface,
+    ) -> (zbus::Connection, ProbeClient) {
         let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
         let server = Builder::unix_stream(server_end)
             .server(zbus::Guid::generate())
             .unwrap()
             .p2p()
-            .serve_at(OBJECT_PATH, probe)
+            .serve_at(path, probe)
             .unwrap()
             .build();
         let client = Builder::unix_stream(client_end).p2p().build();
@@ -441,6 +451,27 @@ mod tests {
         assert_eq!(client.read_all().await, expected());
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert!(client.available() && client.network_available());
+    }
+
+    /// Something else on the bus, not at the probe's path: like a probe that isn't installed,
+    /// every call fails with something other than `UnknownMethod`.
+    struct NoProbe;
+
+    #[zbus::interface(name = "org.example.NotTheProbe")]
+    impl NoProbe {
+        #[allow(clippy::unused_self)] // interface methods always take &self
+        fn ping(&self) {}
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_probe_counts_neither_wakeups_nor_traffic() {
+        let (_server, mut client) = client_at("/elsewhere", NoProbe).await;
+        assert_eq!(client.read_all().await, ProbeReadings::default());
+        assert!(!client.available());
+        assert!(
+            !client.network_available(),
+            "GetNetwork would say traffic is counted"
+        );
     }
 
     #[tokio::test]
