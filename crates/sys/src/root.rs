@@ -46,18 +46,30 @@ impl SysRoot {
 }
 
 /// Errors that mean "this thing no longer exists or isn't ours to read": a cgroup removed or
-/// a process that exited between listing and reading, or another user's process.
+/// a process that exited between listing and reading (ENOENT, ESRCH, and ENODEV from a
+/// removed cgroup's or device's file), or another user's process.
 #[must_use]
 pub fn is_gone(err: &io::Error) -> bool {
     matches!(
         err.kind(),
         io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
-    ) || err.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error())
+    ) || [rustix::io::Errno::SRCH, rustix::io::Errno::NODEV]
+        .iter()
+        .any(|errno| err.raw_os_error() == Some(errno.raw_os_error()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removed_kernfs_nodes_are_gone() {
+        // kernfs answers reads of a removed cgroup's or device's file with ENODEV.
+        let enodev = io::Error::from_raw_os_error(rustix::io::Errno::NODEV.raw_os_error());
+        assert!(is_gone(&enodev));
+        let eio = io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error());
+        assert!(!is_gone(&eio));
+    }
 
     #[test]
     fn resolves_relative_to_base() {
