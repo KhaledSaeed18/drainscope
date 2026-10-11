@@ -18,11 +18,13 @@ import {
   type Range,
   type Summary,
   timelineBuckets,
+  usageIsFresh,
   type HealthEntry,
   type NetworkEntry,
   type SleepEntry,
   type UsageEntry,
   type UsageRow,
+  type UsageStamp,
   type WakeupEntry,
 } from '@drainscope/shared';
 
@@ -79,6 +81,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private readonly legendSlot = new Gtk.Box();
   /** Range and time of the last timeline load. */
   private timelineLoaded: { range: Range; since: number; at: number } | undefined;
+  private usageLoaded: UsageStamp | undefined;
   private readonly usageGroup = new Adw.PreferencesGroup({ title: 'Usage' });
   private readonly usageRows = new RowList<UsageEntry>(
     // Group rows (by kind, or the folded tail) have no consumer; their keys can equal a
@@ -293,10 +296,15 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private async loadUsage(summary: Summary, now: number): Promise<void> {
     const range = this.range;
     const byKind = this.byKind;
+    const key = { range, byKind, discharge: dischargeKey(range, summary.sinceUnplug) };
+    if (usageIsFresh(this.usageLoaded, key, now)) {
+      return;
+    }
     const query = rangeQuery(range, now, summary.sinceUnplug);
     if (query === undefined) {
       this.usageGroup.set_description('The charger hasn’t been unplugged since drainscope started.');
       this.usageRows.set([]);
+      this.usageLoaded = undefined;
       return;
     }
     const groupBy = byKind ? 'kind' : 'consumer';
@@ -313,6 +321,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     if (!usage.ok) {
       this.usageGroup.set_description(GLib.markup_escape_text(usage.error, -1));
       this.usageRows.set([]);
+      this.usageLoaded = undefined;
       return;
     }
     const span = query.until - query.since;
@@ -322,6 +331,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     const model = buildUsage(usage.value, span, measured, byKind, appName, focus.ok ? focus.value : []);
     this.usageGroup.set_description(model.entries.length === 0 ? 'Nothing measured in this range yet.' : model.footer);
     this.usageRows.set(model.entries);
+    this.usageLoaded = { ...key, at: now };
   }
 
   private usageRow(entry: UsageEntry): BoundRow<UsageEntry> {
