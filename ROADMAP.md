@@ -78,6 +78,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - Daemon: a restarted service's wakeups and network traffic count again at once; its new cgroup's counters started at zero, which read as no activity until they passed the old totals (for a busy service, hours).
 - Daemon: a cgroup or battery removed while it was being read (ENODEV) is skipped; it failed the whole tick.
 - Daemon: starts when it can't subscribe to logind's suspend signal (only sleep tracking is lost); it exited and restarted every 10 s.
+- Batteries that report discharge as a negative current or power (many ARM laptops and Chromebooks) are measured; their draw read as 0 W.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 

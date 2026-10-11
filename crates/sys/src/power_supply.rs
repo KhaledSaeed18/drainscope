@@ -34,13 +34,16 @@ pub fn read_batteries(root: &SysRoot) -> Result<Vec<BatteryReading>, SysError> {
             continue;
         }
         // Numeric attributes are optional, and some drivers fail reads (ENODATA) instead
-        // of omitting them; either way the value is unknown.
+        // of omitting them; either way the value is unknown. `power_now` and `current_now`
+        // are signed in the ABI, and many fuel gauges report discharge as negative: only the
+        // magnitude is used (the status says which way the energy flows).
         let number = |name: &str| -> Option<u64> {
             fs::read_to_string(supply.join(name))
                 .ok()?
                 .trim()
-                .parse()
+                .parse::<i64>()
                 .ok()
+                .map(i64::unsigned_abs)
         };
         let status =
             text("status")?.map_or(BatteryStatus::Unknown, |s| BatteryStatus::from_sysfs(&s));
@@ -172,6 +175,36 @@ mod tests {
         let battery = &read_batteries(&root).unwrap()[0];
         assert_eq!(battery.power, Some(Watts(6.0))); // 0.5 A × 12 V
         assert!((battery.energy.unwrap().0 - 86_400.0).abs() < 1e-6); // 2 Ah × 12 V = 24 Wh
+    }
+
+    #[test]
+    fn negative_current_and_power_are_magnitudes() {
+        // Many non-ACPI fuel gauges report discharge as negative (signed in the ABI).
+        let dir = tempfile::tempdir().unwrap();
+        let root = SysRoot::at(dir.path());
+        supply(
+            &root,
+            "BAT0",
+            &[
+                ("type", "Battery"),
+                ("status", "Discharging"),
+                ("current_now", "-500000"),
+                ("voltage_now", "12000000"),
+                ("charge_now", "2000000"),
+            ],
+        );
+        supply(
+            &root,
+            "BAT1",
+            &[
+                ("type", "Battery"),
+                ("status", "Discharging"),
+                ("power_now", "-5561000"),
+            ],
+        );
+        let batteries = read_batteries(&root).unwrap();
+        assert_eq!(batteries[0].power, Some(Watts(6.0)));
+        assert_eq!(batteries[1].power, Some(Watts(5.561)));
     }
 
     #[test]
