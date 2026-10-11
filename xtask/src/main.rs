@@ -1,5 +1,6 @@
 //! Developer tooling for drainscope. Never shipped.
 
+mod cost;
 mod dist;
 mod install;
 mod record;
@@ -91,6 +92,16 @@ enum Command {
         #[arg(long)]
         to: f64,
     },
+    /// CPU and memory of drainscope's processes (daemon, sampler, probe, D-Bus brokers) over a
+    /// period, and the database's size; for the 1.0 soak test. Run as your normal user.
+    Cost {
+        /// How long to sample, in seconds (a soak test: 172800 for two days).
+        #[arg(long, default_value_t = 600)]
+        secs: u64,
+        /// Seconds between samples.
+        #[arg(long, default_value_t = 60)]
+        interval: u64,
+    },
 }
 
 fn repo_root() -> Result<&'static Path> {
@@ -147,5 +158,9 @@ fn main() -> Result<()> {
             };
             trim::run(repo_root()?, &options).map(|_| ())
         }
+        Command::Cost { secs, interval } => cost::run(&cost::Options {
+            secs,
+            interval_secs: interval,
+        }),
     }
 }
