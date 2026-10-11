@@ -25,6 +25,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - run: cargo xtask check-release
 
   sampler-sandbox:
     runs-on: ubuntu-latest
@@ -50,6 +51,20 @@ jobs:
       - name: The policy modules compile
         working-directory: data/selinux
         run: make -f /usr/share/selinux/devel/Makefile drainscope_sampler.pp drainscope_probe.pp
+
+  packaging:
+    runs-on: ubuntu-latest
+    # Fedora's own registry: Docker Hub's anonymous pull limit failed these runs.
+    container: registry.fedoraproject.org/fedora:44
+    steps:
+      - uses: actions/checkout@v5
+      - run: dnf install -y --setopt=install_weak_deps=False appstream desktop-file-utils rpm-build
+      - name: AppStream metainfo is valid
+        run: appstreamcli validate --no-net data/app/io.github.khaledsaeed18.Drainscope.metainfo.xml
+      - name: Desktop entry is valid
+        run: desktop-file-validate data/app/io.github.khaledsaeed18.Drainscope.desktop
+      - name: The spec parses
+        run: rpmspec -q --srpm packaging/drainscope.spec
 
   cargo-deny:
     runs-on: ubuntu-latest
