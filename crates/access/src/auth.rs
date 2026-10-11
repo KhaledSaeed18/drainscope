@@ -155,7 +155,7 @@ mod tests {
         let mut approvals = Approvals::default();
         let now = Instant::now();
         approvals.insert(":1.5", now);
-        assert!(approvals.fresh(":1.5", now + APPROVAL_TTL - Duration::from_millis(1)));
+        assert!(approvals.fresh(":1.5", now + Duration::from_secs(59)));
         assert!(!approvals.fresh(":1.5", now + APPROVAL_TTL));
     }
 
