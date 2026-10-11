@@ -6,6 +6,11 @@ Description=drainscope energy usage daemon
 Documentation=https://github.com/KhaledSaeed18/drainscope
 PartOf=graphical-session.target
 After=graphical-session.target
+# RestartSec=10s below never reaches systemd's default limit (5 starts in 10 s), so a daemon
+# failing at every start would restart forever. Give up after 5 failed starts in 2 minutes;
+# `systemctl --user reset-failed drainscope.service` or the next login starts it again.
+StartLimitIntervalSec=2min
+StartLimitBurst=5
 
 [Service]
 Type=dbus
