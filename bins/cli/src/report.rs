@@ -331,6 +331,18 @@ pub struct SleepRow {
     pub woke_by: String,
 }
 
+impl SleepRow {
+    /// The batteries gained charge (asleep on AC): a whole percent or more, or, with the
+    /// percentage unknown, 0.05 Wh. Smaller gains are measurement noise.
+    fn charged(&self) -> bool {
+        if self.percent_lost.is_finite() {
+            self.percent_lost <= -0.5
+        } else {
+            self.wh_lost <= -0.05
+        }
+    }
+}
+
 #[must_use]
 pub fn render_sleep(rows: &[SleepRow]) -> String {
     if rows.is_empty() {
@@ -339,20 +351,29 @@ pub fn render_sleep(rows: &[SleepRow]) -> String {
     let cells: Vec<Vec<String>> = rows
         .iter()
         .map(|row| {
+            let charged = row.charged();
             let hours = row.slept.as_secs_f64() / 3600.0;
-            let rate = if hours > 0.0 && row.percent_lost.is_finite() {
-                format!("{:.1}%/h", row.percent_lost / hours)
+            let rate = if charged {
+                "-".to_owned()
+            } else if hours > 0.0 && row.percent_lost.is_finite() {
+                format!("{:.1}%/h", row.percent_lost.max(0.0) / hours)
             } else {
                 "?".to_owned()
             };
             vec![
                 format!("{} ago", duration(row.ago)),
                 duration(row.slept),
-                percent(row.percent_lost),
-                if row.wh_lost.is_finite() {
-                    format!("{:.2} Wh", row.wh_lost)
+                if charged {
+                    "charged".to_owned()
                 } else {
+                    percent(row.percent_lost)
+                },
+                if !row.wh_lost.is_finite() {
                     "?".to_owned()
+                } else if charged {
+                    format!("+{:.2} Wh", -row.wh_lost)
+                } else {
+                    format!("{:.2} Wh", row.wh_lost.max(0.0))
                 },
                 rate,
                 if row.mode.is_empty() {
@@ -1041,6 +1062,26 @@ mod tests {
         assert_eq!(
             render_sleep(&[]),
             "No sleep sessions recorded in that period.\n"
+        );
+    }
+
+    #[test]
+    fn sleep_on_ac_shows_the_charge_gained_not_a_negative_loss() {
+        let row = |wh_lost, percent_lost| SleepRow {
+            ago: Duration::from_secs(9 * 3600),
+            slept: Duration::from_secs(8 * 3600),
+            wh_lost,
+            percent_lost,
+            mode: "deep".into(),
+            woke_by: String::new(),
+        };
+        assert_eq!(
+            render_sleep(&[row(-12.3, -31.0), row(-0.01, -0.02), row(-0.2, f64::NAN)]),
+            "Started  Slept     Lost     Energy    Rate  Mode  Woke by\n\
+             ─────────────────────────────────────────────────────────\n\
+             9 h ago    8 h  charged  +12.30 Wh       -  deep  ?\n\
+             9 h ago    8 h       0%    0.00 Wh  0.0%/h  deep  ?\n\
+             9 h ago    8 h  charged   +0.20 Wh       -  deep  ?\n"
         );
     }
 

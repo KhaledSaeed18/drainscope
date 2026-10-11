@@ -187,6 +187,14 @@ export interface SleepEntry {
   subtitle: string;
 }
 
+/**
+ * Whether the batteries gained charge while asleep (on AC): a whole percent or more, or, with
+ * the percentage unknown, 0.05 Wh. Smaller gains are measurement noise. Matches the CLI.
+ */
+function charged(session: SleepSession): boolean {
+  return Number.isFinite(session.percentLost) ? session.percentLost <= -0.5 : session.whLost <= -0.05;
+}
+
 /** One line per session, newest first. */
 export function buildSleep(sessions: readonly SleepSession[], nowSeconds: number): SleepEntry[] {
   return [...sessions]
@@ -194,18 +202,27 @@ export function buildSleep(sessions: readonly SleepSession[], nowSeconds: number
     .map((session) => {
       const slept = session.end - session.start;
       const hours = slept / 3600;
-      const lost = Number.isFinite(session.percentLost) ? formatPercent(session.percentLost) : '?';
-      const energy = Number.isFinite(session.whLost) ? `${session.whLost.toFixed(2)} Wh` : '? Wh';
-      const rate =
-        hours > 0 && Number.isFinite(session.percentLost)
-          ? `${(session.percentLost / hours).toFixed(1)}%/h`
-          : '?%/h';
       const mode = session.mode === '' ? '' : ` · ${session.mode}`;
       const woke = session.wakeReason === '' ? '' : ` · woke: ${session.wakeReason}`;
+      const ago = `${formatDuration(nowSeconds - session.start)} ago`;
+      if (charged(session)) {
+        const gained = Number.isFinite(session.whLost) ? `+${(-session.whLost).toFixed(2)} Wh` : '? Wh';
+        return {
+          key: String(session.start),
+          title: `Slept ${formatDuration(slept)}, charging`,
+          subtitle: `${ago} · ${gained}${mode}${woke}`,
+        };
+      }
+      const lost = Number.isFinite(session.percentLost) ? formatPercent(session.percentLost) : '?';
+      const energy = Number.isFinite(session.whLost) ? `${Math.max(0, session.whLost).toFixed(2)} Wh` : '? Wh';
+      const rate =
+        hours > 0 && Number.isFinite(session.percentLost)
+          ? `${(Math.max(0, session.percentLost) / hours).toFixed(1)}%/h`
+          : '?%/h';
       return {
         key: String(session.start),
         title: `Slept ${formatDuration(slept)}, lost ${lost}`,
-        subtitle: `${formatDuration(nowSeconds - session.start)} ago · ${energy} · ${rate}${mode}${woke}`,
+        subtitle: `${ago} · ${energy} · ${rate}${mode}${woke}`,
       };
     });
 }

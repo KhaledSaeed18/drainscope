@@ -142,6 +142,18 @@ describe('buildSleep', () => {
       { key: '1000', title: 'Slept 8 h, lost 4%', subtitle: '9 h ago · 1.60 Wh · 0.5%/h · deep · woke: Lid (PNP0C0D:00)' },
     ]);
   });
+
+  it('shows the charge gained on AC, not a negative loss', () => {
+    const night = { start: 1000, end: 1000 + 8 * 3600, mode: 'deep', wakeReason: '' };
+    const now = 1000 + 9 * 3600;
+    expect(buildSleep([{ ...night, whLost: -12.3, percentLost: -31 }], now)).toEqual([
+      { key: '1000', title: 'Slept 8 h, charging', subtitle: '9 h ago · +12.30 Wh · deep' },
+    ]);
+    // Noise around zero is no charge.
+    expect(buildSleep([{ ...night, whLost: -0.01, percentLost: -0.02 }], now)).toEqual([
+      { key: '1000', title: 'Slept 8 h, lost 0%', subtitle: '9 h ago · 0.00 Wh · 0.0%/h · deep' },
+    ]);
+  });
 });
 
 describe('rangeQuery', () => {
