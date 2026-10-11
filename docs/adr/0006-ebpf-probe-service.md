@@ -48,3 +48,15 @@ Option 2, with these limits:
 Approved by the maintainer: Probe1 gains `ReadAll`, additive within version 1. It returns what `ReadWakeups`, `ReadNetwork` and `ReadNetworkTime` return, from one reading of the counters, with a `network_available` flag instead of failing when network counting is missing. The daemon used three calls per tick, each waking the probe and the bus broker; now it uses one. It falls back to the three methods when an older probe answers `UnknownMethod` (e.g. still running across an upgrade) and tries again after the probe restarts. Same polkit action, same visibility rules, its own rate limit.
 
 Measured on 0.1.3 (2026-10-10), medians of 20 readings on one connection: the three calls cost 12 context switches in the probe, 18 in the system bus broker and 9 in the caller; `ReadAll` costs 4, 6 and 3. That is 20 fewer wakeups in the system services per tick: about 1.3 a second at the idle 15 s tick, 4 at the 5 s tick.
+
+## Addendum (2026-10-11): traffic that system services carry for other users
+
+A socket keeps the cgroup it was created in, and a connection a server accepts inherits the listener's. The probe counts bytes by socket cgroup (`bpf_skb_cgroup_id`), so a system service's network bytes include the connections it accepted on behalf of any user, even after the process handling one moved into that user's `session-N.scope`. Measured on 2026-10-11 (OpenSSH 10.2, Fedora 44): another user's 200 MB SSH transfer showed as `System: sshd` sending 3.2 MB/s (the minute's average) to the active local user, and `ss --cgroup` put the connection in `system.slice/sshd.service` while both `sshd-session` processes were in that user's session scope. Other users' own cgroups stay hidden as above; this is how their traffic can still reach a caller.
+
+Options considered:
+
+- **A. Document it.** The promise becomes: other users' own cgroups are never exposed, and system services' totals include traffic they carry for anyone (e.g. sshd). No cost. Exposure: the volume and timing of other users' traffic through such a service, at one-minute resolution, only on machines running one, and only to the active local user.
+- **B. Hide system services' network bytes while more than one user is logged in** (logind `ListUsers`). The probe gains a logind dependency, and on multi-user machines the network time of system services goes to Kernel.
+- **C. Aggregate system services' network bytes** into one total for callers (wakeups stay per service). Changes attribution for system units (a `MODEL_VERSION` bump and a validation run) and Probe1's behaviour.
+
+Decision (maintainer, 2026-10-11): **A** for 1.0. Laptops rarely run sshd, the reader must already be the active local user, and B and C cost attribution accuracy for every user. B stays the option if multi-user machines matter after 1.0. Revisit before any history of network bytes (ROADMAP "After 1.0"): a timeline would widen the exposure from one minute to the whole history.
