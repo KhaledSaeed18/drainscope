@@ -78,6 +78,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - Daemon: "since unplugged" starts again after the batteries were charged while the machine was off or the daemon stopped (it kept the previous discharge, often showing 0% used).
 - CLI and app: a suspend while charging shows the charge gained ("charged", "+12.30 Wh"), not a negative loss.
 - App: says "isn't running" only when nothing can start drainscope; a failed history query or a daemon failing at start points to its log instead of telling to enable it. The CLI's hint for a failed query says the same.
+- Sampler and probe: a polkit approval is asked again after a minute (an inactive session's daemon kept reading after a user switch); a user polkit refused is refused for 5 s without asking polkit again, and refused calls no longer keep the services from exiting when idle.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
