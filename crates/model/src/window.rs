@@ -82,13 +82,22 @@ pub struct Window {
     rapl: Joules,
     battery: BatteryState,
     cpu_usec: BTreeMap<ConsumerKey, u64>,
+    /// Ticks without RAPL (sampler missing, restarting or refusing): their battery energy is
+    /// shared like a battery-only window's. Duration of those ticks.
+    gap_duration: Duration,
+    /// CPU time of the ticks without RAPL.
+    gap_cpu_usec: BTreeMap<ConsumerKey, u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 enum BatteryState {
     #[default]
     Empty,
-    Discharging(Joules),
+    /// Battery energy of the ticks with RAPL and of the ticks without it.
+    Discharging {
+        with_rapl: Joules,
+        without_rapl: Joules,
+    },
     /// At least one tick wasn't discharging: no battery truth for this window.
     Mixed,
 }
@@ -111,14 +120,35 @@ impl Window {
         for (key, split) in &tick.ledger {
             self.ledger.entry(key.clone()).or_default().merge(split);
         }
+        let has_rapl = tick.measured.0 > 0.0;
+        if !has_rapl {
+            self.gap_duration += tick.duration;
+        }
         for (key, usec) in tick.activity.cpu_usec {
+            if !has_rapl {
+                *self.gap_cpu_usec.entry(key.clone()).or_default() += usec;
+            }
             *self.cpu_usec.entry(key).or_default() += usec;
         }
         let tick_battery = battery.map(|b| b.mean_power.for_duration(tick.duration));
+        let (mut with_rapl, mut without_rapl) = match self.battery {
+            BatteryState::Discharging {
+                with_rapl,
+                without_rapl,
+            } => (with_rapl, without_rapl),
+            _ => (Joules::ZERO, Joules::ZERO),
+        };
         self.battery = match (self.battery, tick_battery) {
-            (BatteryState::Empty, Some(energy)) => BatteryState::Discharging(energy),
-            (BatteryState::Discharging(sum), Some(energy)) => {
-                BatteryState::Discharging(sum + energy)
+            (BatteryState::Empty | BatteryState::Discharging { .. }, Some(energy)) => {
+                if has_rapl {
+                    with_rapl += energy;
+                } else {
+                    without_rapl += energy;
+                }
+                BatteryState::Discharging {
+                    with_rapl,
+                    without_rapl,
+                }
             }
             _ => BatteryState::Mixed,
         };
@@ -144,30 +174,41 @@ impl Window {
             rapl,
             battery,
             cpu_usec,
+            gap_duration,
+            gap_cpu_usec,
         } = self;
         let mut shortfall = Joules::ZERO;
         let (measured, measurement) = match battery {
-            BatteryState::Discharging(battery) if rapl.0 > 0.0 => {
-                let devices = battery - rapl;
-                if devices.0 >= 0.0 {
+            BatteryState::Discharging {
+                with_rapl,
+                without_rapl,
+            } if rapl.0 > 0.0 => {
+                let devices = with_rapl - rapl;
+                let mut measured = if devices.0 >= 0.0 {
                     credit(&mut ledger, ConsumerKey::Devices, Cause::Other, devices);
-                    (battery, Measurement::Battery)
+                    with_rapl
                 } else {
                     shortfall = Joules(-devices.0);
-                    (rapl, Measurement::Battery)
+                    rapl
+                };
+                if without_rapl.0 > 0.0 {
+                    share_battery_only(
+                        &mut ledger,
+                        without_rapl,
+                        floor,
+                        gap_duration,
+                        &gap_cpu_usec,
+                    );
+                    measured += without_rapl;
                 }
+                (measured, Measurement::Battery)
             }
-            BatteryState::Discharging(battery) => {
-                let battery = battery.non_negative();
-                let idle = Joules(
-                    floor
-                        .battery()
-                        .for_duration(duration)
-                        .0
-                        .clamp(0.0, battery.0),
-                );
-                credit(&mut ledger, ConsumerKey::Idle, Cause::Other, idle);
-                share(&mut ledger, battery - idle, &cpu_usec, Cause::Cpu);
+            BatteryState::Discharging {
+                with_rapl,
+                without_rapl,
+            } => {
+                let battery = (with_rapl + without_rapl).non_negative();
+                share_battery_only(&mut ledger, battery, floor, duration, &cpu_usec);
                 (battery, Measurement::BatteryOnly)
             }
             BatteryState::Empty | BatteryState::Mixed => (rapl, Measurement::Rapl),
@@ -180,6 +221,26 @@ impl Window {
             shortfall,
         }
     }
+}
+
+/// Shares battery energy that has no RAPL behind it: the idle floor first, then by CPU time.
+fn share_battery_only(
+    ledger: &mut Ledger,
+    battery: Joules,
+    floor: &IdleFloor,
+    duration: Duration,
+    cpu_usec: &BTreeMap<ConsumerKey, u64>,
+) {
+    let battery = battery.non_negative();
+    let idle = Joules(
+        floor
+            .battery()
+            .for_duration(duration)
+            .0
+            .clamp(0.0, battery.0),
+    );
+    credit(ledger, ConsumerKey::Idle, Cause::Other, idle);
+    share(ledger, battery - idle, cpu_usec, Cause::Cpu);
 }
 
 #[cfg(test)]
@@ -281,6 +342,38 @@ mod tests {
         assert!((closed.ledger[&ConsumerKey::App("b".into())].cpu.0 - 2.0).abs() < 1e-9);
     }
 
+    fn gap_window(floor: &IdleFloor) -> ClosedWindow {
+        let mut window = Window::default();
+        for _ in 0..4 {
+            window.push(tick(4.0, &[("a", 1)]), Some(discharging(4.0)));
+        }
+        window.push(tick(0.0, &[("a", 300), ("b", 100)]), Some(discharging(4.0)));
+        window.close(floor)
+    }
+
+    #[test]
+    fn a_tick_without_rapl_is_shared_not_charged_to_devices() {
+        let closed = gap_window(&IdleFloor::default());
+        assert_eq!(closed.measurement, Measurement::Battery);
+        assert!((closed.ledger[&ConsumerKey::Devices].other.0 - 16.0).abs() < 1e-9);
+        // The gap's 8 J is split 3:1 by the gap ticks' CPU time only.
+        assert!((closed.ledger[&ConsumerKey::App("a".into())].cpu.0 - 6.0).abs() < 1e-9);
+        assert!((closed.ledger[&ConsumerKey::App("b".into())].cpu.0 - 2.0).abs() < 1e-9);
+        assert!((closed.measured.0 - 40.0).abs() < 1e-9);
+        assert!((sum(&closed.ledger) - closed.measured.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_gap_ticks_idle_power_stays_idle() {
+        let closed = gap_window(&IdleFloor::default().with_battery(Watts(3.0)));
+        assert!((closed.ledger[&ConsumerKey::Idle].total().0 - 22.0).abs() < 1e-9);
+        assert!((closed.ledger[&ConsumerKey::App("a".into())].cpu.0 - 1.5).abs() < 1e-9);
+        assert!((closed.ledger[&ConsumerKey::App("b".into())].cpu.0 - 0.5).abs() < 1e-9);
+        assert!((closed.ledger[&ConsumerKey::Devices].other.0 - 16.0).abs() < 1e-9);
+        assert!((closed.measured.0 - 40.0).abs() < 1e-9);
+        assert!((sum(&closed.ledger) - closed.measured.0).abs() < 1e-9);
+    }
+
     proptest! {
         #[test]
         fn closed_windows_conserve_energy(
@@ -294,6 +387,17 @@ mod tests {
             let closed = window.close(&IdleFloor::default().with_battery(Watts(idle_battery)));
             prop_assert!((sum(&closed.ledger) - closed.measured.0).abs() <= 1e-9 * closed.measured.0.max(1.0));
             prop_assert!(closed.shortfall.0 >= 0.0);
+            if ticks.iter().all(|(_, w)| w.is_some()) {
+                let (battery_j, rapl_j) = ticks
+                    .iter()
+                    .filter(|(r, _)| *r > 0.0)
+                    .fold((0.0, 0.0), |(b, r), (rapl, w)| (b + w.unwrap_or(0.0) * 2.0, r + rapl));
+                let devices = closed
+                    .ledger
+                    .get(&ConsumerKey::Devices)
+                    .map_or(0.0, |s| s.total().0);
+                prop_assert!(devices <= (battery_j - rapl_j).max(0.0) + 1e-9);
+            }
         }
     }
 }
