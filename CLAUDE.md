@@ -75,9 +75,10 @@ Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the
 2. **Native interfaces only.** Product code never spawns processes to read system state (`upower`, `busctl`, `cat`, `ps`, `powertop`, `journalctl`…). Use sysfs/procfs/cgroupfs/D-Bus. Exceptions need an ADR in `docs/adr/`. `xtask` dev tooling may shell out.
 3. **Privileges.** Nothing runs as root.
    - The sampler runs as the `drainscope-sampler` system user (ADR 0003) with only `CAP_DAC_READ_SEARCH`. Every Sampler1 call is polkit-authorized, rate-limited and quantized.
-   - Never widen the sampler's capabilities, readable paths, D-Bus policy, or polkit defaults without an ADR and explicit approval from the maintainer.
+   - The probe runs as the `drainscope-probe` system user (ADR 0006) with only `CAP_BPF`, `CAP_PERFMON` and `CAP_NET_ADMIN`, in an empty network namespace. Every Probe1 call is polkit-authorized and rate-limited, and a caller never sees other users' `user-<uid>.slice` cgroups.
+   - Never widen the sampler's or the probe's capabilities, readable paths, D-Bus policy, or polkit defaults without an ADR and explicit approval from the maintainer.
    - The daemon, CLI and UI are fully unprivileged.
-   - No component opens network sockets; units set `IPAddressDeny=any`.
+   - No component opens network sockets: every unit sets `RestrictAddressFamilies=AF_UNIX`, and the system units also set `PrivateNetwork=yes` and `IPAddressDeny=any` (a user manager can't apply IP filters).
 4. **D-Bus contracts.** `data/dbus/*.xml` is authoritative. Interfaces are versioned (`…Sampler1`, `…Monitor1`); within a version, changes are additive only. Ask before changing any interface.
 5. **Model versioning.** Any change to attribution output bumps `MODEL_VERSION`, updates `docs/attribution-model.md`, and re-runs `xtask validate` (results go in `docs/validation.md`).
 
@@ -98,7 +99,7 @@ Before saying a task is done: run fmt, clippy (`-D warnings`), the tests for the
 - pnpm only. TypeScript is pinned to `~6.0` because typescript-eslint doesn't support TypeScript 7 yet (ADR 0002). Imports are extensionless (`moduleResolution: Bundler`). No DOM lib: GJS has no DOM.
 - TypeScript strict with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `useUnknownInCatchVariables`.
 - **No `any`. No `as` casts** (except `as const`). No non-null `!`. Enforced by typescript-eslint `strict-type-checked` + `stylistic-type-checked` and `consistent-type-assertions: never` (`ui/eslint.config.js`).
-- `GLib.Variant` data must go through the typed decoders in `ui/shared/src/dbus/decode.ts`, which check `get_type_string()` before unpacking and return `Result`-style values. Never use raw `deepUnpack()` results directly.
+- `GLib.Variant` replies are checked with `get_type_string()` against the expected signature in the GJS clients (`ui/app/src/client.ts`, `ui/extension/src/client.ts`), then go through the typed decoders in `ui/shared/src/monitor.ts` (`decode*`, returning `Decoded<T>`). Never use raw `deepUnpack()`/`recursiveUnpack()` results directly.
 - Keep logic in `ui/shared` (pure and Node-testable with vitest). GJS-specific glue in `extension/` and `app/` stays thin.
 - GNOME Shell extension rules: GNOME 50+ ESM (`gi://` imports, `resource:///org/gnome/shell/...`). `shell-version` lists only versions tested in a nested shell of that release (docs/distribution.md). Look up apps with `Shell.AppSystem` (cached, no I/O), and don't re-promisify what GNOME Shell already promisifies. Create nothing in the constructor; everything is created in `enable()` and destroyed or disconnected in `disable()`. All D-Bus calls are async and never block the Shell main loop. Output is unminified ESM (extensions.gnome.org review requirement).
 
