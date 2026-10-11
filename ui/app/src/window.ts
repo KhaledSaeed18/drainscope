@@ -291,19 +291,25 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   }
 
   private async loadUsage(summary: Summary, now: number): Promise<void> {
-    const query = rangeQuery(this.range, now, summary.sinceUnplug);
+    const range = this.range;
+    const byKind = this.byKind;
+    const query = rangeQuery(range, now, summary.sinceUnplug);
     if (query === undefined) {
       this.usageGroup.set_description('The charger hasn’t been unplugged since drainscope started.');
       this.usageRows.set([]);
       return;
     }
-    const groupBy = this.byKind ? 'kind' : 'consumer';
+    const groupBy = byKind ? 'kind' : 'consumer';
     // The current rows stay until the replies arrive, then update in place.
     const [usage, coverage, focus] = await Promise.all([
       this.client.usage(query.since, query.until, groupBy, query.source),
       this.client.coverage(query.since, query.until, query.source),
       this.client.focus(query.since, query.until, query.source),
     ]);
+    // The range or grouping changed while waiting: a refresh is already queued for it.
+    if (this.range !== range || this.byKind !== byKind) {
+      return;
+    }
     if (!usage.ok) {
       this.usageGroup.set_description(GLib.markup_escape_text(usage.error, -1));
       this.usageRows.set([]);
@@ -313,7 +319,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     // Daemons older than GetCoverage: average over the whole span.
     const measured = coverage.ok ? coverage.value : span;
     // Daemons older than GetFocus: no foreground/background split.
-    const model = buildUsage(usage.value, span, measured, this.byKind, appName, focus.ok ? focus.value : []);
+    const model = buildUsage(usage.value, span, measured, byKind, appName, focus.ok ? focus.value : []);
     this.usageGroup.set_description(model.entries.length === 0 ? 'Nothing measured in this range yet.' : model.footer);
     this.usageRows.set(model.entries);
   }
