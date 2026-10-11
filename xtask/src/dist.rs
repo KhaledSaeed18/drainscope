@@ -14,7 +14,13 @@ use std::process::Command;
 use anyhow::{Context, Result, bail, ensure};
 
 const SPEC: &str = "packaging/drainscope.spec";
-const SHIPPED: [&str; 3] = ["drainscope-daemon", "drainscope-sampler", "drainscope-cli"];
+/// The crates whose binaries the RPMs install.
+const SHIPPED: [&str; 4] = [
+    "drainscope-daemon",
+    "drainscope-sampler",
+    "drainscope-probe",
+    "drainscope-cli",
+];
 
 fn run(program: &str, args: &[&str], dir: &Path) -> Result<String> {
     let output = Command::new(program)
