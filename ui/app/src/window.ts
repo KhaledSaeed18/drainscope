@@ -12,6 +12,7 @@ import {
   buildUsage,
   buildWakeups,
   daemonProblem,
+  dischargeKey,
   RANGES,
   rangeQuery,
   type Range,
@@ -77,7 +78,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   private readonly axisEnd = new Gtk.Label({ xalign: 1, css_classes: ['caption', 'dim-label'] });
   private readonly legendSlot = new Gtk.Box();
   /** Range and time of the last timeline load. */
-  private timelineLoaded: { range: Range; at: number } | undefined;
+  private timelineLoaded: { range: Range; since: number; at: number } | undefined;
   private readonly usageGroup = new Adw.PreferencesGroup({ title: 'Usage' });
   private readonly usageRows = new RowList<UsageEntry>(
     // Group rows (by kind, or the folded tail) have no consumer; their keys can equal a
@@ -250,8 +251,9 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
 
   private async loadTimeline(summary: Summary, now: number): Promise<void> {
     const range = this.range;
+    const since = dischargeKey(range, summary.sinceUnplug);
     const loaded = this.timelineLoaded;
-    if (loaded?.range === range && now - loaded.at < TIMELINE_REFRESH_SECONDS) {
+    if (loaded?.range === range && loaded.since === since && now - loaded.at < TIMELINE_REFRESH_SECONDS) {
       return;
     }
     const query = rangeQuery(range, now, summary.sinceUnplug);
@@ -259,7 +261,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     if (query === undefined) {
       return;
     }
-    this.timelineLoaded = { range, at: now };
+    this.timelineLoaded = { range, since, at: now };
     const buckets = timelineBuckets(range, query.since, query.until);
     const replies = await Promise.all(
       buckets.map((bucket) => this.client.usage(bucket.since, bucket.until, 'kind', query.source)),

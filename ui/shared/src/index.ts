@@ -52,6 +52,7 @@ export {
   buildUsage,
   buildWakeups,
   daemonProblem,
+  dischargeKey,
   focusView,
   kindLabel,
   RANGES,

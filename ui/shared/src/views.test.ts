@@ -18,6 +18,7 @@ import {
   buildUsage,
   buildWakeups,
   daemonProblem,
+  dischargeKey,
   rangeQuery,
 } from './views';
 
@@ -170,6 +171,13 @@ describe('rangeQuery', () => {
     expect(rangeQuery('unplug', 5000, 4000)).toEqual({ since: 4000, until: 5000, source: 'battery' });
     expect(rangeQuery('unplug', 5000, 0)).toBeUndefined();
     expect(rangeQuery('hour', 5000, 4000)).toEqual({ since: 1400, until: 5000, source: 'any' });
+  });
+});
+
+describe('dischargeKey', () => {
+  it('only the unplug range depends on the discharge', () => {
+    expect(dischargeKey('unplug', 4000)).toBe(4000);
+    expect(dischargeKey('week', 4000)).toBe(0);
   });
 });
 

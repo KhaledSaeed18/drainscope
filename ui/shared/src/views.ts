@@ -257,6 +257,11 @@ export function rangeQuery(
   return { since: nowSeconds - RANGE_SECONDS[range], until: nowSeconds, source: 'any' };
 }
 
+/** Start of the discharge a view of `range` shows, or 0 if it doesn't depend on one. */
+export function dischargeKey(range: Range, sinceUnplug: number): number {
+  return range === 'unplug' ? sinceUnplug : 0;
+}
+
 /** The history window's banner: the current or last discharge. */
 export function bannerTitle(summary: Summary, nowSeconds: number): string {
   // batteryPercent is the share of the battery used since unplugging, not its level.
