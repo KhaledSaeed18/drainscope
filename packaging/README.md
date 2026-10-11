@@ -24,7 +24,7 @@ Accounts, keys and tokens for each channel (GitHub, COPR, extensions.gnome.org, 
 
 ## Releasing
 
-1. Bump `version` in the root `Cargo.toml`, `Version:` and `%changelog` in the spec, and `version-name` in `ui/extension/metadata.json`; commit.
+1. Bump `version` in the root `Cargo.toml`, `Version:` and `%changelog` in the spec, the new `<release>` entry in `data/app/io.github.khaledsaeed18.Drainscope.metainfo.xml`, and `version-name` in `ui/extension/metadata.json`; commit. Check with `cargo xtask check-release` (`dist` runs it too).
 2. `cargo xtask dist --rpm` and install the RPMs on a test machine
    (`sudo dnf install target/dist/rpmbuild/RPMS/*/*.rpm`; remove a development install first with `sudo target/release/xtask uninstall-dev`).
 3. Tag and publish the GitHub release with the tarball (the spec's `Source0` points there):

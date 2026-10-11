@@ -38,6 +38,7 @@ cargo xtask spike-attribute testdata/traces/<name>.jsonl.gz                     
 cargo xtask validate                           # accuracy harness, run on battery (M1)
 cargo xtask install-dev | uninstall-dev        # installs units/policy to /usr/local (sudo)
 cargo xtask dist [--rpm]                       # tarball (vendored), SRPM [+ RPMs], EGO zip → target/dist/
+cargo xtask check-release                      # versions in Cargo.toml, spec, metainfo, extension agree; License tag current (also run by dist and CI)
 cargo xtask cost --secs 172800 --interval 60          # soak test: CPU/memory of drainscope's processes, db growth
 cargo test -p drainscope-store --release --test query_times -- --ignored --nocapture   # history query timings
 copr-cli build drainscope target/dist/rpmbuild/SRPMS/drainscope-X.Y.Z-1.*.src.rpm   # publish to COPR
