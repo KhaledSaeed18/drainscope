@@ -14,6 +14,20 @@ use drainscope_model::snapshot::{EnergyCounter, RaplDomain};
 const REFUSED_BACKOFF: Duration = Duration::from_secs(300);
 /// Retry delay after other failures (sampler not installed, bus hiccups).
 const FAILURE_BACKOFF: Duration = Duration::from_secs(30);
+/// Longest wait for a rate-limited read: the sampler's limit is 1 s.
+const MAX_RETRY_WAIT: Duration = Duration::from_secs(1);
+
+/// How long the sampler asked to wait ("retry in 120 ms"), capped at [`MAX_RETRY_WAIT`];
+/// the cap when the message can't be read.
+fn retry_wait(message: &str) -> Duration {
+    message
+        .strip_prefix("retry in ")
+        .and_then(|rest| rest.strip_suffix(" ms"))
+        .and_then(|ms| ms.trim().parse::<u64>().ok())
+        .map_or(MAX_RETRY_WAIT, |ms| {
+            Duration::from_millis(ms).min(MAX_RETRY_WAIT)
+        })
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RaplReading {
@@ -80,7 +94,16 @@ impl RaplClient {
         if self.retry_at.is_some_and(|at| Instant::now() < at) {
             return None;
         }
-        match proxy.read_counters().await {
+        let reply = match proxy.read_counters().await {
+            // Another reader of this user (doctor, a second daemon) or a late tick used the
+            // sampler's per-user limit; it is under a second, so wait it out once.
+            Err(SamplerError::RateLimited(message)) => {
+                tokio::time::sleep(retry_wait(&message)).await;
+                proxy.read_counters().await
+            }
+            reply => reply,
+        };
+        match reply {
             Ok((_, generation, pairs)) => {
                 if let Some(problem) = self.problem.take() {
                     tracing::info!(previously = problem, "RAPL counters available");
@@ -91,7 +114,7 @@ impl RaplClient {
                     counters: counters_from_wire(&pairs),
                 })
             }
-            // Ticks are slower than the limit, so this is only clock jitter.
+            // Still limited after waiting: skip this tick.
             Err(SamplerError::RateLimited(_)) => None,
             Err(err) => {
                 let backoff = match err {
@@ -114,7 +137,79 @@ impl RaplClient {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use drainscope_dbus::sampler::{Counters, OBJECT_PATH};
+    use zbus::connection::Builder;
+
     use super::*;
+
+    #[test]
+    fn reads_the_wait_from_the_sampler() {
+        assert_eq!(retry_wait("retry in 120 ms"), Duration::from_millis(120));
+        assert_eq!(retry_wait("retry in 5000 ms"), Duration::from_secs(1));
+        assert_eq!(retry_wait("soon"), Duration::from_secs(1));
+    }
+
+    /// A sampler that refuses its first `limited_first` calls as rate-limited, counting calls.
+    struct FakeSampler {
+        calls: Arc<AtomicUsize>,
+        limited_first: usize,
+    }
+
+    #[zbus::interface(name = "io.github.khaledsaeed18.Drainscope.Sampler1")]
+    impl FakeSampler {
+        #[zbus(out_args("monotonic_ns", "generation", "counters"))]
+        fn read_counters(&self) -> Result<Counters, SamplerError> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) < self.limited_first {
+                return Err(SamplerError::RateLimited("retry in 10 ms".into()));
+            }
+            Ok((1, 7, vec![("package".into(), 5_000_000)]))
+        }
+    }
+
+    /// A client connected to a fake sampler over a peer-to-peer connection; keep the server alive.
+    async fn client_of(limited_first: usize) -> (zbus::Connection, RaplClient, Arc<AtomicUsize>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let fake = FakeSampler {
+            calls: calls.clone(),
+            limited_first,
+        };
+        let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
+        let server = Builder::unix_stream(server_end)
+            .server(zbus::Guid::generate())
+            .unwrap()
+            .p2p()
+            .serve_at(OBJECT_PATH, fake)
+            .unwrap()
+            .build();
+        let client = Builder::unix_stream(client_end).p2p().build();
+        let (server, client) = tokio::join!(server, client);
+        let client = client.unwrap();
+        (
+            server.unwrap(),
+            RaplClient::connect(Some(&client)).await,
+            calls,
+        )
+    }
+
+    #[tokio::test]
+    async fn a_rate_limited_read_is_retried_once() {
+        let (_server, mut client, calls) = client_of(1).await;
+        let reading = client.read().await.unwrap();
+        assert_eq!(reading.generation, 7);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(client.available());
+    }
+
+    #[tokio::test]
+    async fn still_limited_after_waiting_skips_the_tick() {
+        let (_server, mut client, calls) = client_of(2).await;
+        assert_eq!(client.read().await, None);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(client.available());
+    }
 
     #[test]
     fn parses_wire_counters_and_skips_unknown_domains() {
