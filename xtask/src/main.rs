@@ -58,6 +58,9 @@ enum Command {
         #[arg(long)]
         rpm: bool,
     },
+    /// Check that every place a release states its version agrees with Cargo.toml, and that
+    /// the spec's License tag matches the shipped crates. Run by dist and in CI.
+    CheckRelease,
     /// Install the sampler and its systemd, D-Bus, polkit and sysusers files for development
     /// (to /etc and /usr/local; needs root).
     InstallDev,
@@ -129,6 +132,9 @@ fn main() -> Result<()> {
         Command::SpikeAttribute { trace, top, model } => spike::run(&trace, top, model),
         Command::InstallDev => install::install(repo_root()?),
         Command::Dist { rpm } => dist::run_dist(repo_root()?, rpm),
+        Command::CheckRelease => {
+            dist::check_release(repo_root()?).map(|v| println!("release metadata agrees: {v}"))
+        }
         Command::Validate {
             idle,
             phase,

@@ -14,6 +14,8 @@ use std::process::Command;
 use anyhow::{Context, Result, bail, ensure};
 
 const SPEC: &str = "packaging/drainscope.spec";
+const METAINFO: &str = "data/app/io.github.khaledsaeed18.Drainscope.metainfo.xml";
+const EXTENSION_METADATA: &str = "ui/extension/metadata.json";
 /// The crates whose binaries the RPMs install.
 const SHIPPED: [&str; 4] = [
     "drainscope-daemon",
@@ -118,14 +120,72 @@ fn spec_license(repo: &Path) -> Result<String> {
         .context("no License: line in the spec")
 }
 
-pub fn run_dist(repo: &Path, binary_rpms: bool) -> Result<()> {
+/// The value of the spec's `Version:` line.
+fn spec_version(spec: &str) -> Result<String> {
+    spec.lines()
+        .find_map(|l| l.strip_prefix("Version:"))
+        .map(|v| v.trim().to_owned())
+        .context("no Version: line in the spec")
+}
+
+/// The version in the newest `%changelog` entry (`… - 0.1.5-1` gives `0.1.5`).
+fn spec_changelog_version(spec: &str) -> Result<String> {
+    let entry = spec
+        .lines()
+        .skip_while(|l| l.trim() != "%changelog")
+        .skip(1)
+        .find(|l| !l.trim().is_empty())
+        .context("no %changelog entry in the spec")?;
+    let (_, version_release) = entry
+        .rsplit_once(" - ")
+        .with_context(|| format!("spec %changelog entry has no ' - version-release': {entry}"))?;
+    let (version, _) = version_release
+        .trim()
+        .rsplit_once('-')
+        .with_context(|| format!("spec %changelog entry has no release: {entry}"))?;
+    Ok(version.to_owned())
+}
+
+/// The `version` of the first (newest) `<release>` in the metainfo.
+fn metainfo_release(xml: &str) -> Result<String> {
+    let marker = "<release version=\"";
+    let start = xml
+        .find(marker)
+        .context("no <release version=\"…\"> in the metainfo")?
+        + marker.len();
+    let len = xml[start..]
+        .find('"')
+        .context("unterminated <release> version in the metainfo")?;
+    Ok(xml[start..start + len].to_owned())
+}
+
+/// The extension's `version-name`.
+fn extension_version_name(json: &str) -> Result<String> {
+    let value: serde_json::Value =
+        serde_json::from_str(json).context("parsing the extension's metadata.json")?;
+    value["version-name"]
+        .as_str()
+        .map(str::to_owned)
+        .context("no version-name in the extension's metadata.json")
+}
+
+/// Every place a release states its version, against the crates' version.
+fn check_versions(expected: &str, found: &[(&str, String)]) -> Result<()> {
+    let mismatches: Vec<String> = found
+        .iter()
+        .filter(|(_, v)| v != expected)
+        .map(|(place, v)| format!("  {place}: {v} (expected {expected})"))
+        .collect();
     ensure!(
-        run("git", &["status", "--porcelain"], repo)?
-            .trim()
-            .is_empty(),
-        "commit or stash your changes first: the tarball is built from HEAD"
+        mismatches.is_empty(),
+        "release versions disagree with Cargo.toml:\n{}",
+        mismatches.join("\n")
     );
-    let version = version(repo)?;
+    Ok(())
+}
+
+/// The spec's `License:` tag against the shipped crates; returns the dependency list.
+fn check_license_tag(repo: &Path) -> Result<String> {
     let (expression, dependency_list) = licenses(repo)?;
     let declared = spec_license(repo)?;
     // SPDX AND lists are unordered: compare the sets of terms.
@@ -134,6 +194,47 @@ pub fn run_dist(repo: &Path, binary_rpms: bool) -> Result<()> {
         terms(&declared) == terms(&expression),
         "the spec's License tag is out of date.\n  spec:     {declared}\n  computed: {expression}"
     );
+    Ok(dependency_list)
+}
+
+/// The one path for all release checks; returns the version and the dependency list.
+fn check_release_inner(repo: &Path) -> Result<(String, String)> {
+    let version = version(repo)?;
+    let read =
+        |path: &str| fs::read_to_string(repo.join(path)).with_context(|| format!("reading {path}"));
+    let spec = read(SPEC)?;
+    let metainfo = read(METAINFO)?;
+    let extension = read(EXTENSION_METADATA)?;
+    check_versions(
+        &version,
+        &[
+            ("spec Version", spec_version(&spec)?),
+            ("spec %changelog", spec_changelog_version(&spec)?),
+            ("metainfo <release>", metainfo_release(&metainfo)?),
+            (
+                "extension version-name",
+                extension_version_name(&extension)?,
+            ),
+        ],
+    )?;
+    let dependency_list = check_license_tag(repo)?;
+    Ok((version, dependency_list))
+}
+
+/// Check that every place a release states its version agrees with `Cargo.toml` and that
+/// the spec's License tag matches the shipped crates; returns the version.
+pub fn check_release(repo: &Path) -> Result<String> {
+    check_release_inner(repo).map(|(version, _)| version)
+}
+
+pub fn run_dist(repo: &Path, binary_rpms: bool) -> Result<()> {
+    ensure!(
+        run("git", &["status", "--porcelain"], repo)?
+            .trim()
+            .is_empty(),
+        "commit or stash your changes first: the tarball is built from HEAD"
+    );
+    let (version, dependency_list) = check_release_inner(repo)?;
 
     let dist = repo.join("target/dist");
     let tarball = build_tarball(
@@ -302,7 +403,48 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::license_terms;
+    use super::{
+        check_versions, extension_version_name, license_terms, metainfo_release,
+        spec_changelog_version, spec_version,
+    };
+
+    const SPEC_SAMPLE: &str = "Name: x\nVersion:        0.1.5\nRelease: 1\n%changelog\n\n* Sat Oct 10 2026 A B <a@b> - 0.1.5-1\n- thing\n* Fri Oct 09 2026 A B <a@b> - 0.1.4-1\n";
+
+    #[test]
+    fn extracts_versions() {
+        assert_eq!(spec_version(SPEC_SAMPLE).unwrap(), "0.1.5");
+        assert_eq!(spec_changelog_version(SPEC_SAMPLE).unwrap(), "0.1.5");
+        let xml = "<releases>\n<release version=\"0.1.5\" date=\"x\">\n<release version=\"0.1.4\">";
+        assert_eq!(metainfo_release(xml).unwrap(), "0.1.5");
+        let json = r#"{"name": "x", "version-name": "0.1.5"}"#;
+        assert_eq!(extension_version_name(json).unwrap(), "0.1.5");
+    }
+
+    #[test]
+    fn missing_versions_are_errors() {
+        assert!(spec_version("Name: x\n").is_err());
+        assert!(spec_changelog_version("Version: 1\n").is_err());
+        assert!(spec_changelog_version("%changelog\n\n").is_err());
+        assert!(spec_changelog_version("%changelog\n* no separator\n").is_err());
+        assert!(metainfo_release("<releases/>").is_err());
+        assert!(extension_version_name("{}").is_err());
+        assert!(extension_version_name("not json").is_err());
+    }
+
+    #[test]
+    fn check_versions_lists_every_mismatch() {
+        let same = [("a", "1.0.0".to_owned()), ("b", "1.0.0".to_owned())];
+        assert!(check_versions("1.0.0", &same).is_ok());
+        let mixed = [
+            ("a", "0.9.0".to_owned()),
+            ("b", "1.0.0".to_owned()),
+            ("c", "0.8.0".to_owned()),
+        ];
+        let message = check_versions("1.0.0", &mixed).unwrap_err().to_string();
+        assert!(message.contains("  a: 0.9.0 (expected 1.0.0)"), "{message}");
+        assert!(message.contains("  c: 0.8.0 (expected 1.0.0)"), "{message}");
+        assert!(!message.contains("  b:"), "{message}");
+    }
 
     #[test]
     fn normalizes_license_expressions() {
