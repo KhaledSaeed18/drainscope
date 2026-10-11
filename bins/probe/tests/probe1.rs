@@ -148,6 +148,7 @@ async fn reports_visible_cgroups_by_path() {
     let (_, generation, wakeups) = peer.proxy().await.read_wakeups().await.unwrap();
     // The other user's slice is hidden; the removed cgroup (99) is dropped. Sorted by path.
     assert_eq!(wakeups, [(NETWORK.to_owned(), 5), (FIREFOX.to_owned(), 7)]);
+    assert_eq!(names.0.lock().unwrap().1, 1);
 
     // A new cgroup triggers one refresh of the names.
     names.0.lock().unwrap().0.insert(13, "init.scope".into());
@@ -155,9 +156,53 @@ async fn reports_visible_cgroups_by_path() {
     let (_, again, wakeups) = peer.proxy().await.read_wakeups().await.unwrap();
     assert_eq!(again, generation);
     assert!(wakeups.contains(&("init.scope".to_owned(), 2)));
-    // Listed once at first, then once for the new ID (99 is still unknown, so every read
-    // relists; that is bounded by the rate limit).
-    assert!(names.0.lock().unwrap().1 >= 2);
+    // Listed once at first, then once for the new ID (99 is remembered as unknown and
+    // causes no listing).
+    assert_eq!(names.0.lock().unwrap().1, 2);
+}
+
+#[tokio::test]
+async fn removed_cgroups_dont_relist_on_every_read() {
+    let (counts, names) = fixtures();
+    let peer = serve(true, unlimited(), &counts, &names).await;
+    let proxy = peer.proxy().await;
+    for _ in 0..3 {
+        proxy.read_wakeups().await.unwrap();
+    }
+    assert_eq!(names.0.lock().unwrap().1, 1);
+}
+
+/// Like `Network`, plus received bytes of a removed cgroup (98).
+struct StaleNetwork;
+
+impl NetworkSource for StaleNetwork {
+    fn read(&self) -> anyhow::Result<Traffic> {
+        Ok(Traffic {
+            received: BTreeMap::from([(10, 1000), (11, 500), (98, 7)]),
+            sent: BTreeMap::from([(10, 50)]),
+            softirq_ns: (30_000, 70_000),
+        })
+    }
+}
+
+#[tokio::test]
+async fn read_all_stops_listing_once_both_maps_are_known() {
+    let (counts, names) = fixtures();
+    let peer = serve_with(
+        Some(Box::new(StaleNetwork)),
+        true,
+        unlimited(),
+        &counts,
+        &names,
+    )
+    .await;
+    let proxy = peer.proxy().await;
+    proxy.read_all().await.unwrap();
+    // Wakeups (99) and traffic (98) each list once, because their stale IDs differ.
+    assert_eq!(names.0.lock().unwrap().1, 2);
+    proxy.read_all().await.unwrap();
+    proxy.read_all().await.unwrap();
+    assert_eq!(names.0.lock().unwrap().1, 2);
 }
 
 #[tokio::test]

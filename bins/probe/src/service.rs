@@ -1,6 +1,6 @@
 //! The `Probe1` D-Bus interface.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -75,7 +75,13 @@ struct State {
     denials: DenialGate,
     /// Cgroup paths by ID, refreshed when a counter's cgroup is unknown.
     names: BTreeMap<u64, String>,
+    /// IDs that were still unknown after the last listing: removed cgroups whose counts stay
+    /// in the LRU maps until evicted. They don't trigger another listing.
+    unknown: BTreeSet<u64>,
 }
+
+/// Cap on remembered unknown IDs (twice the two maps' 16 384 entries each, with room).
+const MAX_UNKNOWN: usize = 65_536;
 
 pub struct Probe {
     source: Box<dyn WakeupSource>,
@@ -112,6 +118,7 @@ impl Probe {
                 limiter: RateLimiter::new(config.min_interval),
                 denials: DenialGate::new(DENIAL_WINDOW),
                 names: BTreeMap::new(),
+                unknown: BTreeSet::new(),
             }),
             last_call: LastCall::now(),
             network_failing: AtomicBool::new(false),
@@ -158,9 +165,25 @@ impl Probe {
         zero: T,
     ) -> BTreeMap<String, T> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if values.keys().any(|id| !state.names.contains_key(id)) {
+        if values
+            .keys()
+            .any(|id| !state.names.contains_key(id) && !state.unknown.contains(id))
+        {
             match self.cgroups.ids() {
-                Ok(names) => state.names = names,
+                Ok(names) => {
+                    state.names = names;
+                    let still_unknown: Vec<u64> = values
+                        .keys()
+                        .copied()
+                        .filter(|id| !state.names.contains_key(id))
+                        .collect();
+                    state.unknown.extend(still_unknown);
+                    let State { names, unknown, .. } = &mut *state;
+                    unknown.retain(|id| !names.contains_key(id));
+                    if state.unknown.len() > MAX_UNKNOWN {
+                        state.unknown.clear();
+                    }
+                }
                 Err(err) => tracing::warn!(%err, "listing cgroups failed"),
             }
         }
