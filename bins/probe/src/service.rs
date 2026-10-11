@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use drainscope_access::{Authorizer, RateLimiter, caller_uid};
+use drainscope_access::{Authorizer, DENIAL_WINDOW, DenialGate, RateLimiter, caller_uid};
 use drainscope_dbus::probe::ProbeError;
 use drainscope_sys::{SysRoot, cgroup_ids};
 use zbus::message::Header;
@@ -72,6 +72,7 @@ impl LastCall {
 
 struct State {
     limiter: RateLimiter,
+    denials: DenialGate,
     /// Cgroup paths by ID, refreshed when a counter's cgroup is unknown.
     names: BTreeMap<u64, String>,
 }
@@ -109,6 +110,7 @@ impl Probe {
             generation: monotonic_ns(),
             state: Mutex::new(State {
                 limiter: RateLimiter::new(config.min_interval),
+                denials: DenialGate::new(DENIAL_WINDOW),
                 names: BTreeMap::new(),
             }),
             last_call: LastCall::now(),
@@ -129,9 +131,10 @@ impl Probe {
         connection: &zbus::Connection,
         method: &str,
     ) -> Result<Option<u32>, ProbeError> {
-        self.last_call.touch();
         let caller = header.sender().map(|name| name.as_str().to_owned());
         let uid = self.authorize(connection, caller.as_deref()).await?;
+        // Only authorized calls keep the service from exiting when idle.
+        self.last_call.touch();
         let key = match uid {
             Some(uid) => format!("uid:{uid}:{method}"),
             None => format!("peer:{method}"),
@@ -198,25 +201,46 @@ impl Probe {
         connection: &zbus::Connection,
         caller: Option<&str>,
     ) -> Result<Option<u32>, ProbeError> {
+        let uid = match caller_uid(connection, caller).await {
+            Ok(Some(uid)) => Some(uid),
+            Ok(None) => self.config.peer_uid,
+            Err(err) => {
+                tracing::error!(%err, caller, "looking up the caller's uid failed");
+                return Err(ProbeError::Failed("identifying the caller failed".into()));
+            }
+        };
+        let not_authorized = || {
+            ProbeError::NotAuthorized("not allowed by polkit (active local sessions only)".into())
+        };
+        if let Some(uid) = uid {
+            let refused = self
+                .state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .denials
+                .refused(uid, Instant::now());
+            if refused {
+                tracing::debug!(uid, "refused without asking polkit");
+                return Err(not_authorized());
+            }
+        }
         let authorized = self.authorizer.authorize(caller).await.map_err(|err| {
             // Logged here; callers only learn that the check failed.
             tracing::error!(%err, "polkit check failed");
             ProbeError::Failed("authorization check failed".into())
         })?;
         if !authorized {
-            tracing::warn!(caller = caller.unwrap_or("peer"), "denied by polkit");
-            return Err(ProbeError::NotAuthorized(
-                "not allowed by polkit (active local sessions only)".into(),
-            ));
-        }
-        match caller_uid(connection, caller).await {
-            Ok(Some(uid)) => Ok(Some(uid)),
-            Ok(None) => Ok(self.config.peer_uid),
-            Err(err) => {
-                tracing::error!(%err, caller, "looking up the caller's uid failed");
-                Err(ProbeError::Failed("identifying the caller failed".into()))
+            if let Some(uid) = uid {
+                self.state
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .denials
+                    .deny(uid, Instant::now());
             }
+            tracing::warn!(caller = caller.unwrap_or("peer"), "denied by polkit");
+            return Err(not_authorized());
         }
+        Ok(uid)
     }
 }
 

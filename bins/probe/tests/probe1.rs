@@ -6,10 +6,11 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use drainscope_access::Fixed;
+use drainscope_access::{AuthFuture, Authorizer, Fixed};
 use drainscope_dbus::probe::{BUS_NAME, INTERFACE, OBJECT_PATH, Probe1Proxy, ProbeError};
 use drainscope_probe::service::CgroupNames;
 use drainscope_probe::{Config, NetworkSource, Probe, Traffic, WakeupSource};
@@ -96,6 +97,21 @@ async fn serve_with(
         Box::new(Fixed(authorized)),
         config,
     );
+    serve_probe(probe).await
+}
+
+/// Refuses everyone, counting how often it was asked.
+#[derive(Clone, Default)]
+struct CountingRefusal(Arc<AtomicUsize>);
+
+impl Authorizer for CountingRefusal {
+    fn authorize<'a>(&'a self, _caller: Option<&'a str>) -> AuthFuture<'a> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move { Ok(false) })
+    }
+}
+
+async fn serve_probe(probe: Probe) -> Peer {
     let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
     let server = Builder::unix_stream(server_end)
         .server(zbus::Guid::generate())
@@ -228,6 +244,44 @@ async fn refuses_unauthorized_callers() {
     let peer = serve(false, unlimited(), &counts, &names).await;
     let err = peer.proxy().await.read_wakeups().await.unwrap_err();
     assert!(matches!(err, ProbeError::NotAuthorized(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn refused_users_are_not_checked_again() {
+    let (counts, names) = fixtures();
+    let authorizer = CountingRefusal::default();
+    let probe = Probe::new(
+        Box::new(counts.clone()),
+        Some(Box::new(Network)),
+        Box::new(names.clone()),
+        Box::new(authorizer.clone()),
+        unlimited(),
+    );
+    let peer = serve_probe(probe).await;
+    let proxy = peer.proxy().await;
+    for _ in 0..2 {
+        let err = proxy.read_wakeups().await.unwrap_err();
+        assert!(matches!(err, ProbeError::NotAuthorized(_)), "{err:?}");
+    }
+    assert_eq!(authorizer.0.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn unauthorized_calls_do_not_keep_the_service_alive() {
+    let (counts, names) = fixtures();
+    let probe = Probe::new(
+        Box::new(counts.clone()),
+        Some(Box::new(Network)),
+        Box::new(names.clone()),
+        Box::new(Fixed(false)),
+        unlimited(),
+    );
+    let last_call = probe.last_call();
+    let peer = serve_probe(probe).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let err = peer.proxy().await.read_wakeups().await.unwrap_err();
+    assert!(matches!(err, ProbeError::NotAuthorized(_)), "{err:?}");
+    assert!(last_call.idle_for() >= Duration::from_millis(50));
 }
 
 #[tokio::test]
