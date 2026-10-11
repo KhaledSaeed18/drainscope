@@ -87,10 +87,10 @@ Fixes collect here and ship after the maintainer's own testing.
 No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–6 are done and no known bugs remain.
 
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.5 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Soak test:** two days of normal use on the dev machine with 0.1.5: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log.
+2. **Soak test:** two days of normal use on the dev machine with 0.1.5: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log. Measured with `cargo xtask cost`.
 3. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once.
 4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test). First pass done on 2026-10-11 (five fixes, see Unreleased).
-5. **Optimization:** measure the 0.1.5 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow.
+5. **Optimization:** measure the 0.1.5 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow. Query times with the `query_times` benchmark (crates/store/tests).
 6. **User docs:** README install and usage checked against 0.1.5 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
 
 ## After 1.0
