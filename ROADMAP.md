@@ -83,6 +83,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - Extension: says why the daemon can't answer (not running, history unreadable, not answering) instead of always "Daemon not running"; the extension and the app's refreshes no longer restart a daemon that was stopped (only opening the app starts it).
 - Daemon: a RAPL read refused by the sampler's per-user rate limit (e.g. while drainscope doctor runs) is retried once; it lost RAPL for two ticks.
 - Daemon: attribution pauses from suspend until resume; a tick right after waking, before the resume was reported, could measure across the sleep.
+- Model v4: in a window where some ticks had no RAPL (sampler starting, stopping or refusing), their battery energy is shared by CPU time instead of all going to Display & devices; a switch from one battery to the other no longer turns a battery window into an AC one. Needs a validate run on battery before release.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
@@ -97,7 +98,7 @@ No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shippe
 
 ## After 1.0
 
-- Model v4: charge the cost of waking the machine ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work; the first replay of option A only helped the 250 Hz timer (median 12% under both v3 and A, against a 60% goal). Next: a second run on the home network with the harness's fixed exit totals.
+- Model v5: charge the cost of waking the machine ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work; the first replay of option A only helped the 250 Hz timer (median 12% under both v3 and A, against a 60% goal). Next: a second run on the home network with the harness's fixed exit totals.
 - Exit capture for cgroups that come and go between ticks ([ADR 0010](docs/adr/0010-exit-capture.md), proposed): about 0.5% of attributable energy on the dev machine now lands in `exited:*`. Design: the probe records exiting threads' CPU time by cgroup (`sched_process_exit`), the model moves it from the parent's `Exited` to the cgroup's own consumer. Needs approval for the probe program and a Probe1 method.
 - Intel xe driver (`drm-cycles-*`) and an AMD integrated-GPU part (ADR 0005); needs that hardware for validation.
 - Flatpak for the app on Flathub (the daemon stays an RPM).
@@ -107,6 +108,6 @@ No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shippe
 
 ## Known limitations
 
-- Light, bursty activity is undercharged by proportional sharing (model v4, after 1.0; see docs/attribution-model.md).
+- Light, bursty activity is undercharged by proportional sharing (model v5, after 1.0; see docs/attribution-model.md).
 - AMD integrated-GPU energy is split by CPU time; xe GPUs aren't split per app (ADR 0005).
 - Validated on one machine (i7-8550U, i915, Wi-Fi). Results on other hardware are welcome as `validate` reports.
