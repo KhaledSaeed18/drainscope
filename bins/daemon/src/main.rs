@@ -487,9 +487,17 @@ async fn main() -> anyhow::Result<()> {
             .ok(),
         None => None,
     };
-    let sleep_signals = match &logind {
-        Some(logind) => Some(logind.receive_prepare_for_sleep().await?),
-        None => None,
+    // Without the signal nothing would release a sleep inhibitor (every suspend would wait
+    // logind's InhibitDelayMaxSec), so a failed subscription drops logind altogether.
+    let (logind, sleep_signals) = match logind {
+        Some(logind) => match logind.receive_prepare_for_sleep().await {
+            Ok(signals) => (Some(logind), Some(signals)),
+            Err(err) => {
+                tracing::warn!(%err, "no PrepareForSleep signal; sleep sessions won't be recorded");
+                (None, None)
+            }
+        },
+        None => (None, None),
     };
 
     let mut daemon = Daemon {

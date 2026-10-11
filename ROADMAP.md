@@ -77,6 +77,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - Daemon: ticks once right after starting; for up to 15 s, until its first tick, `drainscope status` said "battery only: no RAPL sampler" although the sampler worked.
 - Daemon: a restarted service's wakeups and network traffic count again at once; its new cgroup's counters started at zero, which read as no activity until they passed the old totals (for a busy service, hours).
 - Daemon: a cgroup or battery removed while it was being read (ENODEV) is skipped; it failed the whole tick.
+- Daemon: starts when it can't subscribe to logind's suspend signal (only sleep tracking is lost); it exited and restarted every 10 s.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
