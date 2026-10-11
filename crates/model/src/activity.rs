@@ -22,7 +22,7 @@ impl Resolver<'_> {
     /// The consumer to charge for time measured in `path` itself.
     #[must_use]
     pub fn consumer(&self, path: &CgroupPath) -> ConsumerKey {
-        match classify(path, self.own_uid) {
+        named(match classify(path, self.own_uid) {
             CgroupIdentity::Consumer(key) => key,
             CgroupIdentity::Terminal { .. } => ConsumerKey::Terminal(
                 self.terminal_labels
@@ -32,7 +32,31 @@ impl Resolver<'_> {
             ),
             // A slice runs nothing itself: its own time is from children that exited.
             CgroupIdentity::Slice(name) => ConsumerKey::Exited(name),
+        })
+    }
+}
+
+/// Name placeholder for a consumer whose name came out empty (an `app--1.scope`).
+const UNNAMED: &str = "unnamed";
+
+/// `key`, with an empty name replaced. Its stored form must parse back (`FromStr` rejects
+/// `term:`), or one row would fail every history query over its range.
+fn named(key: ConsumerKey) -> ConsumerKey {
+    match key {
+        ConsumerKey::Terminal(label) if label.is_empty() => {
+            ConsumerKey::Terminal(UNLABELLED_TERMINAL.to_owned())
         }
+        ConsumerKey::App(name) if name.is_empty() => ConsumerKey::App(UNNAMED.to_owned()),
+        ConsumerKey::Session(name) if name.is_empty() => ConsumerKey::Session(UNNAMED.to_owned()),
+        ConsumerKey::SystemUnit(name) if name.is_empty() => {
+            ConsumerKey::SystemUnit(UNNAMED.to_owned())
+        }
+        ConsumerKey::UserUnit(name) if name.is_empty() => ConsumerKey::UserUnit(UNNAMED.to_owned()),
+        ConsumerKey::Container(name) if name.is_empty() => {
+            ConsumerKey::Container(UNNAMED.to_owned())
+        }
+        ConsumerKey::Exited(name) if name.is_empty() => ConsumerKey::Exited(UNNAMED.to_owned()),
+        key => key,
     }
 }
 
@@ -138,6 +162,55 @@ mod tests {
 
     fn firefox() -> ConsumerKey {
         ConsumerKey::App("org.mozilla.firefox".into())
+    }
+
+    #[test]
+    fn an_empty_terminal_label_becomes_the_placeholder() {
+        let path = CgroupPath::new(&format!("{MANAGER}/app.slice/vte-spawn-0f3c.scope"));
+        let labels = BTreeMap::from([(path.clone(), String::new())]);
+        let resolver = Resolver {
+            own_uid: 1000,
+            terminal_labels: &labels,
+        };
+        assert_eq!(
+            resolver.consumer(&path),
+            ConsumerKey::Terminal("terminal".into())
+        );
+    }
+
+    #[test]
+    fn an_empty_app_id_gets_a_name() {
+        let path = CgroupPath::new(&format!("{MANAGER}/app.slice/app--1.scope"));
+        let labels = BTreeMap::new();
+        let resolver = Resolver {
+            own_uid: 1000,
+            terminal_labels: &labels,
+        };
+        let key = resolver.consumer(&path);
+        assert_ne!(key, ConsumerKey::App(String::new()));
+        assert_eq!(key.to_string().parse::<ConsumerKey>(), Ok(key.clone()));
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn every_consumer_key_parses_back(
+            segments in proptest::collection::vec(
+                proptest::sample::select(vec![
+                    "user.slice", "user-1000.slice", "user@1000.service", "app.slice",
+                    "app--1.scope", "app-gnome-org.x-12.scope", "session-.scope",
+                    "vte-spawn-1.scope", "machine.slice", "system.slice", "x.service",
+                    "dbus-:1.2-@0.service",
+                ]),
+                0..=5,
+            ),
+            label in "[a-z]{0,3}",
+        ) {
+            let path = CgroupPath::new(&segments.join("/"));
+            let labels = BTreeMap::from([(path.clone(), label)]);
+            let resolver = Resolver { own_uid: 1000, terminal_labels: &labels };
+            let key = resolver.consumer(&path);
+            proptest::prop_assert_eq!(key.to_string().parse::<ConsumerKey>(), Ok(key));
+        }
     }
 
     #[test]
