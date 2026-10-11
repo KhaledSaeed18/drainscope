@@ -111,8 +111,12 @@ impl SleepTracker {
             (Some(was), Some(now)) => Some((was.0 - now.0) / 3600.0),
             _ => None,
         };
-        let percent_lost = match (before.level.percent(), level.percent()) {
-            (Some(was), Some(now)) => Some(was - now),
+        // Against the capacity before sleep: firmware may re-learn `energy_full` at resume, and
+        // the difference of two percentages would then move with no energy used.
+        let percent_lost = match (before.level.energy, level.energy, before.level.capacity) {
+            (Some(was), Some(now), Some(capacity)) if capacity.0 > 0.0 => {
+                Some((was.0 - now.0) / capacity.0 * 100.0)
+            }
             _ => None,
         };
         Some(SleepSession {
@@ -307,5 +311,20 @@ mod tests {
         assert!((session.wh_lost.unwrap() - 0.8).abs() < 1e-9);
         assert!((session.percent_lost.unwrap() - 2.0).abs() < 1e-9);
         assert_eq!(session.mem_sleep.as_deref(), Some("deep"));
+    }
+
+    #[test]
+    fn sleep_loss_ignores_a_capacity_relearned_at_resume() {
+        // Dev machine, 2026-10-12: 0.01 Wh lost in 27 s showed as 0.90% (120%/h) because the
+        // full-charge capacity changed across the resume.
+        let before = BatteryLevel::of(&[battery("BAT0", BatteryStatus::Discharging, 30.0, 40.0)]);
+        let after = BatteryLevel::of(&[battery("BAT0", BatteryStatus::Discharging, 29.99, 40.5)]);
+        let mut tracker = SleepTracker::default();
+        tracker.before_sleep(1_000, before, Some("deep".into()), WakeupSources::new());
+        let session = tracker
+            .after_resume(28_000, after, &WakeupSources::new(), None)
+            .unwrap();
+        assert!((session.wh_lost.unwrap() - 0.01).abs() < 1e-9);
+        assert!((session.percent_lost.unwrap() - 0.025).abs() < 1e-9);
     }
 }

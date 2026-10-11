@@ -88,6 +88,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - App: switching the range or grouping while a load is in flight no longer shows the old rows; the timeline follows a new unplug at once; the banner no longer shows "On battery for 20000 d" when no unplug was recorded.
 - App: the 7-day view reloads its usage once a minute instead of every 5 s (its coverage query took ~15 ms each time).
 - Docs: the probe's privacy promise is now exact: other users' own cgroups are never exposed, but a system service's network bytes include connections it accepted for anyone (e.g. sshd), which another user can see at one-minute resolution (ADR 0006 addendum).
+- Daemon: the battery lost while asleep is a percentage of the capacity before sleep; when the firmware re-learned the full-charge capacity at resume, a 27 s sleep could show 0.9% lost (120%/h) for 0.01 Wh.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
