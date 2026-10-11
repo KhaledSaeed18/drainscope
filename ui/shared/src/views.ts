@@ -1,7 +1,7 @@
 /** View models for the desktop app's history and sleep pages. */
 
 import { describeConsumer, parseConsumer, type Consumer } from './consumers';
-import type { FocusRow, HealthReading, Network, SleepSession, UsageRow, Wakeups } from './monitor';
+import type { FocusRow, HealthReading, Network, SleepSession, Summary, UsageRow, Wakeups } from './monitor';
 import { formatByteRate, formatDuration, formatEnergy, formatPercent, formatWatts, joulesToWattHours } from './units';
 
 export interface EnergyPart {
@@ -255,6 +255,22 @@ export function rangeQuery(
     return sinceUnplug > 0 ? { since: sinceUnplug, until: nowSeconds, source: 'battery' } : undefined;
   }
   return { since: nowSeconds - RANGE_SECONDS[range], until: nowSeconds, source: 'any' };
+}
+
+/** The history window's banner: the current or last discharge. */
+export function bannerTitle(summary: Summary, nowSeconds: number): string {
+  // batteryPercent is the share of the battery used since unplugging, not its level.
+  const used = formatPercent(summary.batteryPercent);
+  if (summary.onBattery) {
+    if (summary.sinceUnplug === 0) {
+      return 'On battery · measuring since drainscope started';
+    }
+    return `On battery for ${formatDuration(nowSeconds - summary.sinceUnplug)} · ${used} used`;
+  }
+  if (summary.sinceUnplug > 0) {
+    return `Plugged in · the last discharge used ${used}`;
+  }
+  return 'Plugged in';
 }
 
 export interface HealthEntry {

@@ -45,6 +45,7 @@ export {
   joulesToWattHours,
 } from './units';
 export {
+  bannerTitle,
   buildHealth,
   buildNetwork,
   buildSleep,

@@ -10,7 +10,16 @@ import {
   decodeWakeups,
   focusAppId,
 } from './monitor';
-import { buildHealth, buildNetwork, buildSleep, buildUsage, buildWakeups, daemonProblem, rangeQuery } from './views';
+import {
+  bannerTitle,
+  buildHealth,
+  buildNetwork,
+  buildSleep,
+  buildUsage,
+  buildWakeups,
+  daemonProblem,
+  rangeQuery,
+} from './views';
 
 const appNames = (id: string): string | undefined => (id === 'org.mozilla.firefox' ? 'Firefox' : undefined);
 
@@ -161,6 +170,24 @@ describe('rangeQuery', () => {
     expect(rangeQuery('unplug', 5000, 4000)).toEqual({ since: 4000, until: 5000, source: 'battery' });
     expect(rangeQuery('unplug', 5000, 0)).toBeUndefined();
     expect(rangeQuery('hour', 5000, 4000)).toEqual({ since: 1400, until: 5000, source: 'any' });
+  });
+});
+
+describe('bannerTitle', () => {
+  const summary = { onBattery: true, sinceUnplug: 4000, batteryPercent: 12, top: [] };
+  it('describes the current discharge', () => {
+    expect(bannerTitle(summary, 4000 + 3600)).toBe('On battery for 1 h · 12% used');
+  });
+  it('does not count from the epoch when no unplug was recorded', () => {
+    const title = bannerTitle({ ...summary, sinceUnplug: 0 }, 1_800_000_000);
+    expect(title).toBe('On battery · measuring since drainscope started');
+    expect(title).not.toMatch(/\d+ d\b/);
+  });
+  it('describes the last discharge when plugged in', () => {
+    expect(bannerTitle({ ...summary, onBattery: false }, 9000)).toBe('Plugged in · the last discharge used 12%');
+  });
+  it('is plain when there was no discharge', () => {
+    expect(bannerTitle({ ...summary, onBattery: false, sinceUnplug: 0 }, 9000)).toBe('Plugged in');
   });
 });
 

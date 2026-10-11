@@ -4,6 +4,7 @@ import GObject from 'gi://GObject';
 import Gtk from 'gi://Gtk?version=4.0';
 
 import {
+  bannerTitle,
   buildHealth,
   buildNetwork,
   buildSleep,
@@ -11,8 +12,6 @@ import {
   buildUsage,
   buildWakeups,
   daemonProblem,
-  formatDuration,
-  formatPercent,
   RANGES,
   rangeQuery,
   type Range,
@@ -245,16 +244,7 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
   }
 
   private updateBanner(summary: Summary): void {
-    // batteryPercent is the share of the battery used since unplugging, not its level.
-    const used = formatPercent(summary.batteryPercent);
-    if (summary.onBattery) {
-      const since = formatDuration(nowSeconds() - summary.sinceUnplug);
-      this.banner.set_title(`On battery for ${since} · ${used} used`);
-    } else if (summary.sinceUnplug > 0) {
-      this.banner.set_title(`Plugged in · the last discharge used ${used}`);
-    } else {
-      this.banner.set_title('Plugged in');
-    }
+    this.banner.set_title(bannerTitle(summary, nowSeconds()));
     this.banner.set_revealed(true);
   }
 
