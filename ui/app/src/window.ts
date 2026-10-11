@@ -10,6 +10,7 @@ import {
   buildTimeline,
   buildUsage,
   buildWakeups,
+  daemonProblem,
   formatDuration,
   formatPercent,
   RANGES,
@@ -206,12 +207,11 @@ export class DrainscopeWindow extends Adw.ApplicationWindow {
     });
   }
 
+  /** The daemon is gone (`error` empty), or a call to it failed with `error`. */
   private showNotRunning(error: string): void {
+    const problem = daemonProblem(error === '' ? 'org.freedesktop.DBus.Error.NameHasNoOwner' : error);
     const detail = error === '' ? '' : `\n\n${GLib.markup_escape_text(error, -1)}`;
-    this.showStatus(
-      'drainscope isn’t running',
-      `Start it with <tt>systemctl --user enable --now drainscope.service</tt>${detail}`,
-    );
+    this.showStatus(problem.title, `${problem.action} <tt>${problem.command}</tt>${detail}`);
   }
 
   private showStatus(title: string, description: string): void {

@@ -115,6 +115,10 @@ fn hint_for(error_name: Option<&str>) -> &'static str {
         Some("org.freedesktop.DBus.Error.ServiceUnknown") => {
             "the drainscope daemon isn't running (systemctl --user enable --now drainscope.service)"
         }
+        // It answered: reading its history failed.
+        Some("org.freedesktop.DBus.Error.Failed") => {
+            "the drainscope daemon couldn't read its history; see why: journalctl --user -u drainscope.service -n 20"
+        }
         // Installed but failing to start, or not answering: the reason is in its log.
         _ => {
             "the drainscope daemon didn't answer; see why: journalctl --user -u drainscope.service -n 20"
@@ -878,6 +882,8 @@ mod tests {
             hint_for(Some("org.freedesktop.DBus.Error.Spawn.ChildExited")).contains("journalctl")
         );
         assert!(hint_for(None).contains("journalctl"));
+        let failed = hint_for(Some("org.freedesktop.DBus.Error.Failed"));
+        assert!(failed.contains("history") && failed.contains("journalctl"));
     }
 
     fn row(label: &str, joules: f64) -> Row {

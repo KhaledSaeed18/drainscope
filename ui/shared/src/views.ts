@@ -367,3 +367,29 @@ export function buildNetwork(
     };
   });
 }
+
+/** Why the daemon couldn't answer, and what to do about it. */
+export interface DaemonProblem {
+  title: string;
+  /** What to do, followed by `command`. */
+  action: string;
+  command: string;
+}
+
+const START = 'systemctl --user enable --now drainscope.service';
+const LOG = 'journalctl --user -u drainscope.service -n 20';
+
+/**
+ * Classifies a failed `Monitor1` call by its D-Bus error name (Gio puts it in the message as
+ * `GDBus.Error:<name>: …`). Only a name nobody can start means drainscope isn't running; the
+ * daemon answering with an error, or failing to start, is explained in its log. Matches the CLI.
+ */
+export function daemonProblem(error: string): DaemonProblem {
+  if (error.includes('org.freedesktop.DBus.Error.ServiceUnknown') || error.includes('org.freedesktop.DBus.Error.NameHasNoOwner')) {
+    return { title: 'drainscope isn’t running', action: 'Start it with', command: START };
+  }
+  if (error.includes('org.freedesktop.DBus.Error.Failed')) {
+    return { title: 'drainscope couldn’t read its history', action: 'Its log says why:', command: LOG };
+  }
+  return { title: 'drainscope isn’t answering', action: 'Its log says why:', command: LOG };
+}

@@ -10,7 +10,7 @@ import {
   decodeWakeups,
   focusAppId,
 } from './monitor';
-import { buildHealth, buildNetwork, buildSleep, buildUsage, buildWakeups, rangeQuery } from './views';
+import { buildHealth, buildNetwork, buildSleep, buildUsage, buildWakeups, daemonProblem, rangeQuery } from './views';
 
 const appNames = (id: string): string | undefined => (id === 'org.mozilla.firefox' ? 'Firefox' : undefined);
 
@@ -231,5 +231,23 @@ describe('buildNetwork', () => {
     ]);
     expect(buildNetwork({ available: false, rates: [] }, 5, appNames)).toBeUndefined();
     expect(decodeNetwork([true, [['x', 1]]]).ok).toBe(false);
+  });
+});
+
+describe('daemonProblem', () => {
+  it('says not running only when nothing can answer', () => {
+    expect(
+      daemonProblem('GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name is not activatable').title,
+    ).toBe('drainscope isn’t running');
+    // Running, but its history query failed.
+    expect(daemonProblem('GDBus.Error:org.freedesktop.DBus.Error.Failed: reading usage history failed')).toEqual({
+      title: 'drainscope couldn’t read its history',
+      action: 'Its log says why:',
+      command: 'journalctl --user -u drainscope.service -n 20',
+    });
+    // Enabled, but exiting at start (e.g. a database from a newer drainscope).
+    expect(daemonProblem('GDBus.Error:org.freedesktop.systemd1.UnitFailed: Unit drainscope.service failed').title).toBe(
+      'drainscope isn’t answering',
+    );
   });
 });
