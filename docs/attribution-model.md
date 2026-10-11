@@ -35,6 +35,8 @@ v2 adds one step, before step 2. The probe's network softirq time for the tick (
 
 Without the probe, or across a probe restart (new counter generation), v2 attributes exactly like v1. The trace-replay golden test, which has no probe data, gives identical numbers.
 
+A cgroup created again under the same path (a restarted service) has new counters that start at zero; its bytes count from there, like a new cgroup's.
+
 ## Model v3 (ADR 0008)
 
 Some network drivers handle their interrupts in a kernel thread, `irq/<n>-<driver>` (the dev machine's Wi-Fi: `irq/135-iwlwifi`). That time is Kernel's own time but not softirq time, so v2 left it with Kernel. During a download it added about 30% to the softirq time.

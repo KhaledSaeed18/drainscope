@@ -75,6 +75,7 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 Fixes collect here and ship after the maintainer's own testing.
 
 - Daemon: ticks once right after starting; for up to 15 s, until its first tick, `drainscope status` said "battery only: no RAPL sampler" although the sampler worked.
+- Daemon: a restarted service's wakeups and network traffic count again at once; its new cgroup's counters started at zero, which read as no activity until they passed the old totals (for a busy service, hours).
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 

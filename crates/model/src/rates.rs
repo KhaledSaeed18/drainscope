@@ -13,7 +13,9 @@ use crate::consumer::ConsumerKey;
 pub const RATE_WINDOW: Duration = Duration::from_secs(60);
 
 /// Increases of cumulative per-cgroup counters from the probe, grouped by consumer. A cgroup
-/// absent `before` counts from zero: the probe lists every cgroup with a count.
+/// absent `before` counts from zero: the probe lists every cgroup with a count. So does a
+/// count below the last one: the cgroup at that path was removed and created again (a
+/// restarted service), and the new one's counters started at zero.
 #[must_use]
 pub fn deltas_by_consumer(
     before: &BTreeMap<CgroupPath, u64>,
@@ -22,7 +24,8 @@ pub fn deltas_by_consumer(
 ) -> BTreeMap<ConsumerKey, u64> {
     let mut by_consumer: BTreeMap<ConsumerKey, u64> = BTreeMap::new();
     for (path, count) in after {
-        let delta = count.saturating_sub(before.get(path).copied().unwrap_or(0));
+        let was = before.get(path).copied().unwrap_or(0);
+        let delta = if *count >= was { count - was } else { *count };
         if delta > 0 {
             *by_consumer.entry(resolver.consumer(path)).or_default() += delta;
         }
@@ -190,5 +193,34 @@ mod tests {
         assert!((tracker.rates()[0].1 - 1.0).abs() < 1e-9);
         tracker.reset();
         assert_eq!(tracker.rates(), Vec::new());
+    }
+
+    #[test]
+    fn a_recreated_cgroup_counts_from_zero() {
+        let labels = BTreeMap::new();
+        let resolver = Resolver {
+            own_uid: 1000,
+            terminal_labels: &labels,
+        };
+        let nm = ConsumerKey::SystemUnit("NetworkManager.service".into());
+        // NetworkManager restarted: same path, a new cgroup whose count starts at zero.
+        let deltas = deltas_by_consumer(&counts(&[(NM, 50_000)]), &counts(&[(NM, 30)]), &resolver);
+        assert_eq!(deltas.get(&nm), Some(&30));
+    }
+
+    #[test]
+    fn rates_follow_a_restarted_service() {
+        let labels = BTreeMap::new();
+        let resolver = Resolver {
+            own_uid: 1000,
+            terminal_labels: &labels,
+        };
+        let mut tracker = RateTracker::default();
+        let five = Duration::from_secs(5);
+        tracker.observe(1, counts(&[(NM, 50_000)]), five, &resolver);
+        tracker.observe(1, counts(&[(NM, 10)]), five, &resolver);
+        tracker.observe(1, counts(&[(NM, 20)]), five, &resolver);
+        // 10 counted after the restart, then 10 more: 20 over 10 s.
+        assert!((tracker.rates()[0].1 - 2.0).abs() < 1e-9);
     }
 }
