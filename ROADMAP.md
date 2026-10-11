@@ -75,6 +75,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - Daemon: without a reachable probe, network counting is reported unavailable (`drainscope network` said "No network traffic measured yet", or kept showing the last rates after the probe stopped).
 - Daemon: starts even when the history can't be written (a full disk, starting on battery) or the stored calibration can't be read; both used to stop it and restart it every 10 s forever.
 - CLI: `drainscope top` updates every 5 s again; it didn't count as watching, so it followed the 15 s idle tick.
+- Daemon: "since unplugged" starts again after the batteries were charged while the machine was off or the daemon stopped (it kept the previous discharge, often showing 0% used).
 - CLI and app: a suspend while charging shows the charge gained ("charged", "+12.30 Wh"), not a negative loss.
 - App: says "isn't running" only when nothing can start drainscope; a failed history query or a daemon failing at start points to its log instead of telling to enable it. The CLI's hint for a failed query says the same.
 
