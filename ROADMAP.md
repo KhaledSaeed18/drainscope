@@ -86,6 +86,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - Model v4: in a window where some ticks had no RAPL (sampler starting, stopping or refusing), their battery energy is shared by CPU time instead of all going to Display & devices; a switch from one battery to the other no longer turns a battery window into an AC one. Needs a validate run on battery before release.
 - Daemon: a consumer with an empty name (a terminal whose process has no name, an `app--1.scope`) gets a placeholder name; a stored key that can't be read back is skipped instead of failing every history query over its range.
 - App: switching the range or grouping while a load is in flight no longer shows the old rows; the timeline follows a new unplug at once; the banner no longer shows "On battery for 20000 d" when no unplug was recorded.
+- App: the 7-day view reloads its usage once a minute instead of every 5 s (its coverage query took ~15 ms each time).
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
