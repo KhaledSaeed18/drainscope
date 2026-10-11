@@ -616,12 +616,16 @@ pub async fn usage(
 
 pub async fn top(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()> {
     let monitor = connect(bus).await?;
-    // Fail early with a useful message if the daemon isn't there.
-    monitor.status().await.map_err(daemon_hint)?;
+    // The daemon ticks every 5 s only while clients keep calling it (the Tick signal alone
+    // doesn't count), every 15 s otherwise. GetWakeups is the cheapest call: no history query.
+    // The first one also fails early with a useful message if the daemon isn't there.
+    monitor.get_wakeups().await.map_err(daemon_hint)?;
     let mut ticks = monitor.receive_tick().await?;
     let mut names = Names::default();
     println!("Waiting for the next measurement…");
     while let Some(tick) = ticks.next().await {
+        // Only keeps the live tick going; a failure shows when the ticks stop.
+        let _ = monitor.get_wakeups().await;
         let args = tick.args()?;
         let mut rows: Vec<Row> = args
             .usage()
