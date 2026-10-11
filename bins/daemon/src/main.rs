@@ -545,6 +545,11 @@ async fn serve(
     let session_bus = daemon.session.clone();
     let shared = daemon.shared.clone();
     let ticker = Ticker::new(IDLE_TICK).context("creating the tick timer")?;
+    // First tick at once: until then the status can only guess that RAPL is missing, and
+    // `drainscope status` said "battery only" for up to 15 s after every start.
+    ticker
+        .set_period(IDLE_TICK, Duration::ZERO)
+        .context("arming the first tick")?;
     let mut period = IDLE_TICK;
     let mut last_tick = Instant::now();
     loop {

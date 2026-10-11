@@ -103,8 +103,8 @@ impl Shared {
         })
     }
 
-    /// The batteries' state before the first tick; the status assumes no RAPL until a tick
-    /// reads it.
+    /// The batteries' state before the first tick (right after start); the status assumes no
+    /// RAPL until that tick reads it.
     pub fn set_battery(&self, level: &BatteryLevel) {
         let mut live = self.live.lock().unwrap_or_else(PoisonError::into_inner);
         live.on_battery = level.on_battery;
