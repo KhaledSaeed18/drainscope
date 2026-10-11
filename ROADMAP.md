@@ -1,6 +1,6 @@
 # Roadmap
 
-What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-10-10.
+What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-10-11.
 
 ## Released
 
@@ -72,16 +72,22 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 Fixes collect here and ship after the maintainer's own testing.
 
+- Daemon: without a reachable probe, network counting is reported unavailable (`drainscope network` said "No network traffic measured yet", or kept showing the last rates after the probe stopped).
+- Daemon: starts even when the history can't be written (a full disk, starting on battery) or the stored calibration can't be read; both used to stop it and restart it every 10 s forever.
+- CLI: `drainscope top` updates every 5 s again; it didn't count as watching, so it followed the 15 s idle tick.
+- CLI and app: a suspend while charging shows the charge gained ("charged", "+12.30 Wh"), not a negative loss.
+- App: says "isn't running" only when nothing can start drainscope; a failed history query or a daemon failing at start points to its log instead of telling to enable it. The CLI's hint for a failed query says the same.
+
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
 No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–6 are done and no known bugs remain.
 
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.5 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Soak test:** two days of normal use on the dev machine with 0.1.4: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log.
+2. **Soak test:** two days of normal use on the dev machine with 0.1.5: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log.
 3. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once.
-4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test).
-5. **Optimization:** measure the 0.1.4 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow.
-6. **User docs:** README install and usage checked against 0.1.4 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
+4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test). First pass done on 2026-10-11 (five fixes, see Unreleased).
+5. **Optimization:** measure the 0.1.5 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow.
+6. **User docs:** README install and usage checked against 0.1.5 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
 
 ## After 1.0
 
