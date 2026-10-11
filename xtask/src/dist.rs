@@ -85,8 +85,9 @@ fn license_terms(expression: &str) -> Vec<String> {
 /// The SPDX expression for the shipped binaries and everything they link, plus the
 /// per-crate list for `LICENSE.dependencies`.
 fn licenses(repo: &Path) -> Result<(String, String)> {
+    // Parsed, not shown: colors (CARGO_TERM_COLOR=always in CI) would end up in the terms.
     let mut args = vec![
-        "tree", "-e", "normal", "--prefix", "none", "--format", "{p}\t{l}",
+        "tree", "--color", "never", "-e", "normal", "--prefix", "none", "--format", "{p}\t{l}",
     ];
     for package in SHIPPED {
         args.extend(["-p", package]);
