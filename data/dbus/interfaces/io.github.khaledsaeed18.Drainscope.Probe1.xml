@@ -32,8 +32,9 @@
     <!--
       ReadNetwork: like ReadWakeups, for network traffic outside loopback.
         traffic  (cgroup path, cumulative bytes received, cumulative bytes sent) by the cgroup
-                 of the socket's owner. Fails with Unsupported when the network programs
-                 couldn't be attached.
+                 the socket was created in; an accepted connection keeps its listener's (so
+                 sshd.service carries every user's SSH sessions). Fails with Unsupported when
+                 the network programs couldn't be attached.
     -->
     <method name="ReadNetwork">
       <arg name="monotonic_ns" type="t" direction="out"/>

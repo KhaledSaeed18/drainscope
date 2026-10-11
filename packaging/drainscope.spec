@@ -74,7 +74,8 @@ Counts with eBPF how often each app and service wakes the processor from idle an
 many bytes each sends and receives (loopback excluded; no addresses or contents), as a
 dedicated system user with only CAP_BPF, CAP_PERFMON and CAP_NET_ADMIN in an empty
 network namespace, and serves per-cgroup totals over D-Bus to the active local session
-(polkit). Other users' activity is never exposed. Started on demand; exits when idle.
+(polkit). Other users' own cgroups are never exposed; system services' totals include
+traffic they carry for anyone (e.g. sshd). Started on demand; exits when idle.
 
 %package -n gnome-shell-extension-%{name}
 Summary:        GNOME Shell quick-settings tile for drainscope

@@ -1,4 +1,6 @@
 //! Which cgroups a caller may see: everything except other users' slices (ADR 0006).
+//! Network bytes are counted by socket cgroup, so a system service's include connections
+//! it accepted for other users (sshd); that is documented, not filtered (ADR 0006 addendum).
 
 /// Whether a caller with `uid` (`None`: unknown) may see counters of the cgroup at `path`
 /// (relative to the cgroupfs root).
