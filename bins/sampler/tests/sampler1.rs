@@ -67,6 +67,10 @@ async fn serve(authorized: bool, config: Config, counters: &Counters) -> Peer {
         config,
     )
     .unwrap();
+    serve_sampler(sampler).await
+}
+
+async fn serve_sampler(sampler: Sampler) -> Peer {
     let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
     let server = Builder::unix_stream(server_end)
         .server(zbus::Guid::generate())
@@ -133,6 +137,25 @@ async fn unauthorized_callers_are_denied() {
         peer.proxy().await.read_counters().await,
         Err(SamplerError::NotAuthorized(_))
     ));
+}
+
+#[tokio::test]
+async fn unauthorized_calls_do_not_keep_the_service_alive() {
+    let counters = Counters(Arc::new(Mutex::new(0)));
+    let sampler = Sampler::new(
+        Box::new(counters.clone()),
+        Box::new(Fixed(false)),
+        unlimited(),
+    )
+    .unwrap();
+    let last_call = sampler.last_call();
+    let peer = serve_sampler(sampler).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(matches!(
+        peer.proxy().await.read_counters().await,
+        Err(SamplerError::NotAuthorized(_))
+    ));
+    assert!(last_call.idle_for() >= Duration::from_millis(50));
 }
 
 #[tokio::test]

@@ -8,7 +8,7 @@ use drainscope_sys::{PowercapZone, SysError, SysRoot, read_zones};
 use zbus::message::Header;
 
 use crate::accumulator::Accumulator;
-use drainscope_access::{Authorizer, RateLimiter, caller_uid, quantize};
+use drainscope_access::{Authorizer, DENIAL_WINDOW, DenialGate, RateLimiter, caller_uid, quantize};
 
 /// Where counters come from: powercap in production, fixtures in tests.
 pub trait CounterSource: Send + Sync {
@@ -67,6 +67,7 @@ impl LastCall {
 struct State {
     accumulator: Accumulator,
     limiter: RateLimiter,
+    denials: DenialGate,
 }
 
 pub struct Sampler {
@@ -106,6 +107,7 @@ impl Sampler {
             state: Mutex::new(State {
                 accumulator,
                 limiter: RateLimiter::new(config.min_interval),
+                denials: DenialGate::new(DENIAL_WINDOW),
             }),
             last_call: LastCall::now(),
         })
@@ -124,21 +126,17 @@ fn monotonic_ns() -> u64 {
     secs.saturating_mul(1_000_000_000).saturating_add(nanos)
 }
 
-/// Rate limits apply per user, not per connection: every new connection gets a new unique
-/// name, so limiting by name would let a caller reconnect around the limit. Peer-to-peer
-/// connections (tests) have no bus to ask and share one key.
-async fn rate_limit_key(
+/// The caller's UID, or `None` on peer-to-peer connections (tests), which have no bus to ask.
+/// Rate limits and the denial gate apply per user, not per connection: every new connection
+/// gets a new unique name, so keying by name would let a caller reconnect around them.
+async fn caller_uid_or_failed(
     connection: &zbus::Connection,
     caller: Option<&str>,
-) -> Result<String, SamplerError> {
-    match caller_uid(connection, caller).await {
-        Ok(Some(uid)) => Ok(format!("uid:{uid}")),
-        Ok(None) => Ok("peer".to_owned()),
-        Err(err) => {
-            tracing::error!(%err, caller, "looking up the caller's uid failed");
-            Err(SamplerError::Failed("identifying the caller failed".into()))
-        }
-    }
+) -> Result<Option<u32>, SamplerError> {
+    caller_uid(connection, caller).await.map_err(|err| {
+        tracing::error!(%err, caller, "looking up the caller's uid failed");
+        SamplerError::Failed("identifying the caller failed".into())
+    })
 }
 
 #[zbus::interface(name = "io.github.khaledsaeed18.Drainscope.Sampler1")]
@@ -151,8 +149,23 @@ impl Sampler {
         #[zbus(header)] header: Header<'_>,
         #[zbus(connection)] connection: &zbus::Connection,
     ) -> Result<(u64, u64, Vec<(String, u64)>), SamplerError> {
-        self.last_call.touch();
         let caller = header.sender().map(|name| name.as_str().to_owned());
+        let uid = caller_uid_or_failed(connection, caller.as_deref()).await?;
+        let not_authorized = || {
+            SamplerError::NotAuthorized("not allowed by polkit (active local sessions only)".into())
+        };
+        if let Some(uid) = uid {
+            let refused = self
+                .state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .denials
+                .refused(uid, Instant::now());
+            if refused {
+                tracing::debug!(uid, "refused without asking polkit");
+                return Err(not_authorized());
+            }
+        }
         let authorized = self
             .authorizer
             .authorize(caller.as_deref())
@@ -163,16 +176,23 @@ impl Sampler {
                 SamplerError::Failed("authorization check failed".into())
             })?;
         if !authorized {
+            if let Some(uid) = uid {
+                self.state
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .denials
+                    .deny(uid, Instant::now());
+            }
             tracing::warn!(
                 caller = caller.as_deref().unwrap_or("peer"),
                 "denied by polkit"
             );
-            return Err(SamplerError::NotAuthorized(
-                "not allowed by polkit (active local sessions only)".into(),
-            ));
+            return Err(not_authorized());
         }
+        // Only authorized calls keep the service from exiting when idle.
+        self.last_call.touch();
 
-        let limit_key = rate_limit_key(connection, caller.as_deref()).await?;
+        let limit_key = uid.map_or_else(|| "peer".to_owned(), |uid| format!("uid:{uid}"));
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state
             .limiter
