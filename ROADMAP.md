@@ -84,6 +84,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - Daemon: a RAPL read refused by the sampler's per-user rate limit (e.g. while drainscope doctor runs) is retried once; it lost RAPL for two ticks.
 - Daemon: attribution pauses from suspend until resume; a tick right after waking, before the resume was reported, could measure across the sleep.
 - Model v4: in a window where some ticks had no RAPL (sampler starting, stopping or refusing), their battery energy is shared by CPU time instead of all going to Display & devices; a switch from one battery to the other no longer turns a battery window into an AC one. Needs a validate run on battery before release.
+- Daemon: a consumer with an empty name (a terminal whose process has no name, an `app--1.scope`) gets a placeholder name; a stored key that can't be read back is skipped instead of failing every history query over its range.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
