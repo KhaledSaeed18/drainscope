@@ -10,8 +10,8 @@
     local session, without authentication; never remote or inactive sessions.
   -->
   <action id="io.github.khaledsaeed18.Drainscope.read-activity">
-    <description>Read how often apps wake the processor</description>
-    <message>Authentication is required to read how often apps wake the processor</message>
+    <description>Read how often apps wake the processor and how much network traffic they use</description>
+    <message>Authentication is required to read how often apps wake the processor and how much network traffic they use</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>

@@ -70,10 +70,11 @@ Summary:        Sandboxed eBPF activity probe for drainscope
 Requires:       (%{name}-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 
 %description probe
-Counts how often each app and service wakes the processor from idle with an eBPF program,
-as a dedicated system user with only CAP_BPF and CAP_PERFMON in a tight sandbox, and serves
-per-cgroup totals over D-Bus to the active local session (polkit). Other users' activity is
-never exposed. Started on demand; exits when idle.
+Counts with eBPF how often each app and service wakes the processor from idle and how
+many bytes each sends and receives (loopback excluded; no addresses or contents), as a
+dedicated system user with only CAP_BPF, CAP_PERFMON and CAP_NET_ADMIN in an empty
+network namespace, and serves per-cgroup totals over D-Bus to the active local session
+(polkit). Other users' activity is never exposed. Started on demand; exits when idle.
 
 %package -n gnome-shell-extension-%{name}
 Summary:        GNOME Shell quick-settings tile for drainscope
