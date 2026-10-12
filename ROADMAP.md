@@ -4,6 +4,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 ## Released
 
+**v0.1.7** (2026-10-12): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.7) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Failure modes: the 1.0 checklist run and documented ([docs/failure-modes.md](docs/failure-modes.md)); the daemon starts on a full disk (in-memory history until the file opens), without logind's suspend signal, and gives up after 5 failed starts in 2 minutes; restarted services' counters count from zero; negative battery current and power are read as magnitudes; ENODEV reads are skipped; the first tick runs at start; the CLI no longer blames a missing service when polkit refused; the License tag covers the bundled SQLite.
+
 **v0.1.6** (2026-10-12): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.6) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Stabilization, second pass: model v4 shares the energy of ticks without RAPL by CPU time (validated: 79–98% of isolated loads' active energy); the daemon starts without a writable history or a readable calibration, pauses attribution across suspend, restarts "since unplugged" after charging while off and measures sleep loss against the capacity before sleep; an unnamed consumer no longer breaks history queries; polkit approvals expire after a minute; the extension and app say why the daemon can't answer and no longer restart a stopped one; no stale rows in the app; the 7-day view reloads once a minute; the probe's privacy promise made exact (ADR 0006 addendum); release metadata checked in CI (`cargo xtask check-release`).
 
 **v0.1.5** (2026-10-10): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.5) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Stabilization: no flickering lists; "% used" is the batteries' real drop; the app follows the daemon stopping and restarting; the daemon keeps measuring on a full disk, recovers from an unreadable database and stops cleanly on a newer one; correct state from start-up; wake reasons only when reliable; foreground/background without RAPL; upgrades restart the daemon; history queries 4–5× faster (the daemon's cost with the app open: 7% → 1.45% of one CPU); clearer CLI errors and names.
@@ -54,8 +56,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] SELinux modules for the sampler and the probe, enforcing, no denials; `drainscope-selinux` package.
 - [x] RPM spec with seven packages; `cargo xtask dist` builds the tarball, SRPM, RPMs and extension zip.
 - [x] AMD support from fixtures and docs (ADR 0005); `doctor` explains GPU and RAPL support.
-- [x] GitHub releases v0.1.0 to v0.1.6.
-- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.6 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
+- [x] GitHub releases v0.1.0 to v0.1.7.
+- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.7 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (v0.1.2).
 - [x] Daemon self-cost, first pass (v0.1.3): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
@@ -74,25 +76,16 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 Fixes collect here and ship after the maintainer's own testing.
 
-- Daemon: ticks once right after starting; for up to 15 s, until its first tick, `drainscope status` said "battery only: no RAPL sampler" although the sampler worked.
-- Daemon: a restarted service's wakeups and network traffic count again at once; its new cgroup's counters started at zero, which read as no activity until they passed the old totals (for a busy service, hours).
-- Daemon: a cgroup or battery removed while it was being read (ENODEV) is skipped; it failed the whole tick.
-- Daemon: starts when it can't subscribe to logind's suspend signal (only sleep tracking is lost); it exited and restarted every 10 s.
-- Batteries that report discharge as a negative current or power (many ARM laptops and Chromebooks) are measured; their draw read as 0 W.
-- Daemon unit: a daemon that fails at every start gives up after 5 tries in 2 minutes (its log says "Start request repeated too quickly"); it restarted every 10 s for the whole session.
-- Daemon: starts on a full disk; it measures without recording and opens the history once there is room (checked every minute). Opening the history failed and the daemon exited, so nothing was measured at all.
-- CLI: `status`, `wakeups` and `network` no longer say the sampler or probe is missing when polkit refused them; they say the counters are unavailable and that `drainscope doctor` says why.
-
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
 No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–6 are done and no known bugs remain.
 
-1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.6 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Soak test:** two days of normal use on the dev machine with 0.1.6: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log. Measured with `cargo xtask cost`.
-3. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once. Done on 2026-10-12 ([docs/failure-modes.md](docs/failure-modes.md)): every case gives a clear message and recovers without a restart; the two problems it found (the daemon couldn't start on a full disk, and the CLI blamed a missing service when polkit refused) are fixed in Unreleased.
-4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test). First pass done on 2026-10-11 (five fixes, released in v0.1.6).
-5. **Optimization:** measure the 0.1.6 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow. Query times with the `query_times` benchmark (crates/store/tests).
-6. **User docs:** README install and usage checked against 0.1.6 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
+1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.7 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
+2. **Soak test:** two days of normal use on the dev machine with 0.1.7: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log. Measured with `cargo xtask cost`.
+3. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once. Done on 2026-10-12 ([docs/failure-modes.md](docs/failure-modes.md)): every case gives a clear message and recovers without a restart; the two problems it found (the daemon couldn't start on a full disk, and the CLI blamed a missing service when polkit refused) are fixed in v0.1.7.
+4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test). First pass done on 2026-10-11 (five fixes, released in v0.1.6); second pass on 2026-10-12 (seven fixes from the remaining audit findings, released in v0.1.7).
+5. **Optimization:** measure the 0.1.7 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow. Query times with the `query_times` benchmark (crates/store/tests).
+6. **User docs:** README install and usage checked against 0.1.7 on a clean Fedora 44 and 45, and a troubleshooting section built around `drainscope doctor`.
 
 ## After 1.0
 

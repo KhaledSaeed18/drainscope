@@ -8,7 +8,7 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 
 | Channel | Status | Account | Keys / tokens | Cost | Review |
 |---|---|---|---|---|---|
-| GitHub Releases | **Done** (v0.1.6) | GitHub | `gh` CLI login (already set up) | free | none |
+| GitHub Releases | **Done** (v0.1.7) | GitHub | `gh` CLI login (already set up) | free | none |
 | COPR (Fedora RPM repo) | **Done** (Fedora 44, 45, rawhide) | Fedora Account (FAS) | COPR API token | free | none (automatic builds) |
 | extensions.gnome.org | **In review** (v0.1.2, submitted 2026-10-09) | EGO account | none | free | human review, days to weeks |
 | Flathub (the app only) | Later | GitHub | none (Flathub signs) | free | human review of the manifest |
@@ -18,13 +18,13 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 ## 1. GitHub Releases (done)
 
 - Repository: https://github.com/KhaledSaeed18/drainscope (public).
-- Each release (latest: v0.1.6) holds the source tarball, the SRPM, the binary RPMs and the extension zip. The spec's `Source0` points at the tarball there, so COPR can fetch it.
+- Each release (latest: v0.1.7) holds the source tarball, the SRPM, the binary RPMs and the extension zip. The spec's `Source0` points at the tarball there, so COPR can fetch it.
 - To release again: bump the versions (packaging/README.md, "Releasing"), run `cargo xtask dist --rpm`, then `git tag -a vX.Y.Z` and `gh release create`.
 - The RPMs on GitHub are **unsigned**. `dnf install ./file.rpm` accepts that for local files, but users should prefer COPR, whose packages are signed (below).
 
 ## 2. COPR: Fedora package repository (done)
 
-Live at https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/ since 2026-10-06; v0.1.6 (2026-10-12) for Fedora 44, 45 and rawhide (x86_64). Verified on Fedora 45: `dnf copr enable` plus `dnf install` imports the project key and installs RSA/SHA256-signed packages.
+Live at https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/ since 2026-10-06; v0.1.7 (2026-10-12) for Fedora 44, 45 and rawhide (x86_64). Verified on Fedora 45: `dnf copr enable` plus `dnf install` imports the project key and installs RSA/SHA256-signed packages.
 
 Users get `sudo dnf copr enable khaledsaeed18/drainscope` and updates through `dnf upgrade`.
 
