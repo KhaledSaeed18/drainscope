@@ -74,7 +74,9 @@ systemctl --user enable --now drainscope.service
 drainscope doctor
 ```
 
-The packages are signed with the COPR project's key, which `dnf` imports on first install. Updates arrive through `dnf upgrade`.
+The packages are signed with the COPR project's key, which `dnf` imports on first install. Updates arrive through `dnf upgrade`, which also restarts the running daemon.
+
+Log out and back in to load the GNOME Shell extension (Wayland loads extensions at login), then turn it on with `gnome-extensions enable drainscope@khaledsaeed18.github.io` or in the Extensions app. The desktop app is "drainscope" in the app grid.
 
 ## Installing from the release
 
@@ -88,7 +90,41 @@ systemctl --user enable --now drainscope.service
 drainscope doctor
 ```
 
-The sampler and the probe are optional: without them drainscope falls back to battery-only measurement and shows no wakeup or network data. Log out and back in to load the GNOME Shell extension, then enable it with `gnome-extensions enable drainscope@khaledsaeed18.github.io`.
+The sampler and the probe are optional: without them drainscope falls back to battery-only measurement and shows no wakeup or network data. Turn on the GNOME Shell extension as above, after logging out and back in.
+
+## Removing
+
+```bash
+systemctl --user disable --now drainscope.service
+sudo dnf remove drainscope drainscope-sampler drainscope-probe drainscope-selinux drainscope-app gnome-shell-extension-drainscope
+sudo dnf copr disable khaledsaeed18/drainscope   # if installed from COPR
+```
+
+Your history stays in `~/.local/state/drainscope/`; delete that directory to remove it too.
+
+## Troubleshooting
+
+Start with `drainscope doctor`: it checks each part and prints what to do for anything that fails (✗) or is missing (!). The common cases:
+
+| `drainscope doctor` says | What it means, and what to do |
+|---|---|
+| ✗ the drainscope daemon isn't running | It isn't enabled: `systemctl --user enable --now drainscope.service`. The Quick Settings tile says "Not running" and the app "drainscope isn't running" in this case too. |
+| ✗ the drainscope daemon doesn't start | Its log says why: `journalctl --user -u drainscope.service -n 20`. A history written by a newer drainscope stops it on purpose: install that version again, or move `~/.local/state/drainscope/drainscope.db` away to start a new history. After 5 failed starts in 2 minutes systemd stops retrying; once the cause is fixed, `systemctl --user reset-failed drainscope.service` and start it again. |
+| ✗ the RAPL sampler isn't installed | Install `drainscope-sampler`. Until then, battery energy is split by CPU time and nothing is measured on AC. |
+| ✗ polkit refused access to the energy counters | Only the user at the machine's own seat may read them: SSH sessions and a session you switched away from are refused by design. `drainscope status` then says the counters are unavailable. |
+| ✗ sampler failed: … | `journalctl -u drainscope-sampler.service` |
+| ! the eBPF probe isn't installed | Optional: install `drainscope-probe` for `drainscope wakeups`, `drainscope network` and the share of network work charged to apps. |
+| ! probe failed: … | `journalctl -u drainscope-probe.service`. The probe needs a kernel with BPF and cgroup v2. |
+| ! no RAPL energy counters on this machine | Virtual machines and some ARM laptops: drainscope uses battery readings split by CPU time. |
+| ! no system battery found | A desktop: energy is still measured with RAPL, but there is no battery usage to report. |
+| ! …: reports GPU cycles, not busy time / no per-app GPU statistics | GPU energy counts as idle instead of going to the app that used the GPU (ADR 0005). |
+| ✗ no cgroup v2 CPU accounting | drainscope needs the unified cgroup v2 hierarchy, the default on current distributions. |
+
+Other things that can look wrong:
+
+- **The tile says "Can’t read history" or "Not answering".** The daemon is running but failing; its log says why (`journalctl --user -u drainscope.service -n 20`).
+- **The disk is full.** drainscope keeps measuring but can't record; the log says so once, and recording resumes when there is room again (checked every minute).
+- **No in-use/background split for apps.** It needs the GNOME Shell extension turned on: it reports which app has focus. Energy from while it wasn't reporting is left out of the split ("while focus wasn't reported").
 
 ## Installing (development)
 
