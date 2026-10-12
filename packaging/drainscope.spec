@@ -4,7 +4,7 @@
 %global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
-Version:        0.1.6
+Version:        0.1.7
 Release:        1%{?dist}
 Summary:        Per-app battery and energy usage for the Linux desktop
 
@@ -244,6 +244,17 @@ fi
 %{_datadir}/icons/hicolor/symbolic/apps/%{app_id}-symbolic.svg
 
 %changelog
+* Mon Oct 12 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.7-1
+- Daemon: starts on a full disk, measuring without recording until the history opens;
+  starts without logind's suspend signal; ticks once right after starting
+- Daemon: a restarted service's wakeups and traffic count again at once; a cgroup or
+  battery removed mid-read no longer fails the tick
+- Batteries that report discharge as a negative current or power are measured
+- Unit: a daemon failing at every start gives up after 5 tries in 2 minutes
+- CLI: says counters are unavailable (and that drainscope doctor says why) instead of
+  blaming a missing service when polkit refused
+- Packaging: the License tag includes the bundled SQLite (blessing)
+
 * Mon Oct 12 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.6-1
 - Model v4: energy of ticks without RAPL is shared by CPU time; a switch between
   batteries no longer counts as AC

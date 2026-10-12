@@ -58,6 +58,11 @@
     <color type="primary" scheme_preference="dark">#15282f</color>
   </branding>
   <releases>
+    <release version="0.1.7" date="2026-10-12">
+      <description>
+        <p>Failures handled: drainscope starts and keeps measuring on a full disk, after a failed start it stops retrying instead of looping, restarted services are counted again at once, batteries that report a negative current are measured, and the command line no longer blames a missing service when access was refused.</p>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-10-12">
       <description>
         <p>A sturdier release: the daemon starts and keeps measuring when its history or calibration can't be used, attribution is more accurate when the energy counters are briefly missing, the app and the quick settings tile say why drainscope can't answer and no longer restart it after you stop it, and the 7-day view costs far less to keep open.</p>
