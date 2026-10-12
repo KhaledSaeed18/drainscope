@@ -466,8 +466,12 @@ pub fn render_health(rows: &[HealthRow]) -> String {
 fn describe_status(status: &str) -> &str {
     match status {
         "full" => "full (RAPL energy counters, plus the battery when unplugged)",
-        "battery-only" => "battery only: no RAPL sampler, so battery energy is split by CPU time",
-        "time-only" => "CPU time only: on AC without the RAPL sampler, energy isn't measured",
+        "battery-only" => {
+            "battery only: no RAPL energy counters (drainscope doctor says why), so battery energy is split by CPU time"
+        }
+        "time-only" => {
+            "CPU time only: on AC without RAPL energy counters (drainscope doctor says why), energy isn't measured"
+        }
         other => other,
     }
 }
@@ -673,8 +677,8 @@ pub async fn top(bus: &zbus::Connection, limit: usize) -> anyhow::Result<()> {
 #[must_use]
 pub fn render_wakeups(available: bool, rows: &[(String, f64)], limit: usize) -> String {
     if !available {
-        return "Wakeup counts need the drainscope-probe service (eBPF); it isn't installed or \
-                reachable.\n"
+        return "Wakeup counts need the drainscope-probe service (eBPF), which this session \
+                can't use right now; drainscope doctor says why.\n"
             .to_owned();
     }
     if rows.is_empty() {
@@ -723,8 +727,8 @@ pub async fn wakeups(bus: &zbus::Connection, limit: usize, format: Format) -> an
 #[must_use]
 pub fn render_network(available: bool, rows: &[(String, f64, f64)], limit: usize) -> String {
     if !available {
-        return "Network counts need the drainscope-probe service (eBPF) with network counting; \
-                it isn't installed or reachable.\n"
+        return "Network counts need the drainscope-probe service (eBPF) with network counting, \
+                which this session can't use right now; drainscope doctor says why.\n"
             .to_owned();
     }
     if rows.is_empty() {
@@ -1102,6 +1106,8 @@ mod tests {
              \nAverage over the last minute, excluding loopback.\n"
         );
         assert!(render_network(false, &rows, 5).contains("drainscope-probe"));
+        assert!(render_network(false, &rows, 5).contains("drainscope doctor"));
+        assert!(!render_network(false, &rows, 5).contains("isn't installed or reachable"));
     }
 
     #[test]
@@ -1118,6 +1124,17 @@ mod tests {
              \nTimes per second each one woke the processor from idle, over the last minute.\n"
         );
         assert!(render_wakeups(false, &rows, 5).contains("drainscope-probe"));
+        assert!(render_wakeups(false, &rows, 5).contains("drainscope doctor"));
+        assert!(!render_wakeups(false, &rows, 5).contains("isn't installed or reachable"));
+    }
+
+    #[test]
+    fn statuses_without_rapl_point_to_doctor() {
+        for status in ["battery-only", "time-only"] {
+            let text = describe_status(status);
+            assert!(text.contains("drainscope doctor"), "{text}");
+            assert!(!text.contains("no RAPL sampler"), "{text}");
+        }
     }
 
     #[test]

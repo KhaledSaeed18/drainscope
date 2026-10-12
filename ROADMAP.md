@@ -81,6 +81,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - Batteries that report discharge as a negative current or power (many ARM laptops and Chromebooks) are measured; their draw read as 0 W.
 - Daemon unit: a daemon that fails at every start gives up after 5 tries in 2 minutes (its log says "Start request repeated too quickly"); it restarted every 10 s for the whole session.
 - Daemon: starts on a full disk; it measures without recording and opens the history once there is room (checked every minute). Opening the history failed and the daemon exited, so nothing was measured at all.
+- CLI: `status`, `wakeups` and `network` no longer say the sampler or probe is missing when polkit refused them; they say the counters are unavailable and that `drainscope doctor` says why.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 
