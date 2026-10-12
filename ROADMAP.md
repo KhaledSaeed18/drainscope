@@ -80,6 +80,7 @@ Fixes collect here and ship after the maintainer's own testing.
 - Daemon: starts when it can't subscribe to logind's suspend signal (only sleep tracking is lost); it exited and restarted every 10 s.
 - Batteries that report discharge as a negative current or power (many ARM laptops and Chromebooks) are measured; their draw read as 0 W.
 - Daemon unit: a daemon that fails at every start gives up after 5 tries in 2 minutes (its log says "Start request repeated too quickly"); it restarted every 10 s for the whole session.
+- Daemon: starts on a full disk; it measures without recording and opens the history once there is room (checked every minute). Opening the history failed and the daemon exited, so nothing was measured at all.
 
 ## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
 

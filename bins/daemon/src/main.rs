@@ -46,6 +46,8 @@ const TICK: Duration = Duration::from_secs(5);
 const IDLE_TICK: Duration = Duration::from_secs(15);
 const SAVE_EVERY: Duration = Duration::from_secs(300);
 const PRUNE_EVERY: Duration = Duration::from_secs(6 * 3600);
+/// How often to try opening a history that couldn't be opened at start.
+const HISTORY_RETRY: Duration = Duration::from_secs(60);
 
 struct Daemon {
     shared: Arc<Shared>,
@@ -74,6 +76,10 @@ struct Daemon {
     health: Vec<BatteryHealth>,
     /// Whether the last write to the history failed (e.g. a full disk), to log only changes.
     store_failing: bool,
+    /// The history's path while it couldn't be opened (e.g. a full disk at start): measuring
+    /// runs on an in-memory store and housekeeping tries the file again every minute.
+    history_pending: Option<PathBuf>,
+    last_history_try: Instant,
 }
 
 impl Daemon {
@@ -214,8 +220,37 @@ impl Daemon {
         Ok(())
     }
 
+    /// Opens the history file once it can be (space freed after a full disk at start). What
+    /// was recorded in memory until then is dropped, like writes that fail.
+    fn retry_history(&mut self) {
+        let Some(path) = self.history_pending.clone() else {
+            return;
+        };
+        if self.last_history_try.elapsed() < HISTORY_RETRY {
+            return;
+        }
+        self.last_history_try = Instant::now();
+        let stamp = (wall_now_ms() / 1000).to_string();
+        match database::open(&path, &stamp) {
+            Ok(Opened::Ready { store, .. }) => {
+                *self.store() = store;
+                tracing::info!(database = %path.display(), "the history opened; recording from now on");
+                self.history_pending = None;
+            }
+            Ok(Opened::TooNew(err)) => {
+                tracing::error!(%err, "the history is from a newer drainscope; going on without recording");
+                self.history_pending = None;
+            }
+            Ok(Opened::Unavailable(err)) => {
+                tracing::debug!(%err, "the history still can't be opened");
+            }
+            Err(err) => tracing::debug!(%err, "the history still can't be opened"),
+        }
+    }
+
     /// Saves calibration and prunes old history when they're due.
     fn housekeeping(&mut self, wall_ms: i64) {
+        self.retry_history();
         if self.last_save.elapsed() >= SAVE_EVERY {
             self.save_state();
         }
@@ -426,6 +461,8 @@ async fn next_sleep_signal(stream: &mut Option<PrepareForSleepStream>) -> Option
     }
 }
 
+// The composition root: straight-line wiring of every part.
+#[allow(clippy::too_many_lines)]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     init_logging();
@@ -437,13 +474,21 @@ async fn main() -> anyhow::Result<()> {
         std::process::exit(EXIT_ALREADY_RUNNING);
     };
     let stamp = (wall_now_ms() / 1000).to_string();
-    let store = match database::open(&path, &stamp)
+    let (store, history_pending) = match database::open(&path, &stamp)
         .with_context(|| format!("opening {}", path.display()))?
     {
-        Opened::Ready { store, .. } => store,
+        Opened::Ready { store, .. } => (store, None),
         Opened::TooNew(err) => {
             tracing::error!(%err, database = %path.display(), "the history is from a newer drainscope: install that version again, or move the database away to start a new history");
             std::process::exit(EXIT_DATABASE_TOO_NEW);
+        }
+        // A full disk mustn't stop measuring (and restart the daemon until systemd gives up).
+        Opened::Unavailable(err) => {
+            tracing::warn!(%err, database = %path.display(), "the history can't be opened; measuring without recording, and trying again every minute");
+            (
+                Store::open_in_memory().context("opening an in-memory history")?,
+                Some(path.clone()),
+            )
         }
     };
     let calibration = database::load_calibration(&store);
@@ -521,6 +566,8 @@ async fn main() -> anyhow::Result<()> {
         health: Vec::new(),
         last_prune: None,
         store_failing: false,
+        history_pending,
+        last_history_try: Instant::now(),
     };
     daemon.take_inhibitor().await;
     // Like any other write: a full disk mustn't stop the daemon (and restart it forever).

@@ -1,6 +1,7 @@
 //! Opening the history at start-up. A database from a newer drainscope stops the daemon for
 //! good (the data is valid for that version), and one SQLite can't read is set aside so a new
-//! history can start; restarting would otherwise fail the same way forever.
+//! history can start; restarting would otherwise fail the same way forever. Any other failure (a
+//! full disk) starts the daemon without a history, to be opened later.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -23,13 +24,16 @@ pub enum Opened {
     },
     /// Written by a newer drainscope.
     TooNew(StoreError),
+    /// Couldn't be opened for another reason (a full disk, an I/O error, permissions): the
+    /// daemon measures without recording and tries again later.
+    Unavailable(StoreError),
 }
 
 /// Opens the history at `path`. An unreadable database is renamed, with its `-wal` and `-shm`
 /// files, to `<path>.unreadable-<stamp>` and a new one started.
 ///
 /// # Errors
-/// Errors other than the two above, and failures to set the database aside.
+/// Failures to set an unreadable database aside, and to reopen it.
 pub fn open(path: &Path, stamp: &str) -> anyhow::Result<Opened> {
     match Store::open(path) {
         Ok(store) => Ok(Opened::Ready {
@@ -45,7 +49,7 @@ pub fn open(path: &Path, stamp: &str) -> anyhow::Result<Opened> {
                 set_aside: Some(aside),
             })
         }
-        Err(err) => Err(err.into()),
+        Err(err) => Ok(Opened::Unavailable(err)),
     }
 }
 
@@ -150,5 +154,15 @@ mod tests {
         let mut bytes = fs::read(path).unwrap();
         bytes[60..64].copy_from_slice(&99_u32.to_be_bytes());
         fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn a_history_that_cant_be_opened_is_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory where the database file should be: SQLite can't open it.
+        let path = dir.path().join("drainscope.db");
+        fs::create_dir(&path).unwrap();
+        assert!(matches!(open(&path, "x").unwrap(), Opened::Unavailable(_)));
+        assert!(path.is_dir(), "nothing is moved or deleted");
     }
 }
