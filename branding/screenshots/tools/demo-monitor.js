@@ -165,6 +165,17 @@ function health(since) {
   return readings;
 }
 
+/** Per app: the share of its energy used while it had focus, and its share of the measured time in focus. */
+const FOCUS = {
+  'app:org.mozilla.firefox': [0.58, 0.4],
+  'app:libreoffice-writer': [0.92, 0.25],
+  'app:org.gnome.Showtime': [0.97, 0.17],
+  'app:org.gnome.Ptyxis': [0.85, 0.06],
+  'app:org.gnome.TextEditor': [0.4, 0.04],
+  'app:org.gnome.Nautilus': [0.7, 0.03],
+  'app:org.gnome.Software': [0.2, 0.01],
+};
+
 const service = {
   GetSummary() {
     const rows = usageRows(UNPLUG, Math.floor(Date.now() / 1000), 'consumer', 'battery');
@@ -209,11 +220,23 @@ const service = {
       ['unit:NetworkManager.service', 410, 190],
     ]];
   },
+  GetFocus(since, until, filter) {
+    const { totals, measured } = integrate(since, until, filter);
+    return Object.entries(FOCUS)
+      .filter(([key]) => totals.has(key))
+      .map(([key, [energy, time]]) => {
+        const [cpu, gpu, other] = totals.get(key);
+        return [key, (cpu + gpu + other) * energy, 0, Math.round(measured * time)];
+      });
+  },
+  // The extension reports focus; the stand-in has nothing to record.
+  SetFocus() {},
+  EndFocus() {},
   get Status() {
     return 'running';
   },
   get ModelVersion() {
-    return 2;
+    return 4;
   },
   get Domains() {
     return ['package', 'core', 'uncore', 'dram'];

@@ -72,16 +72,25 @@ export default class Capture extends Extension {
           await wait(1);
           break;
         case 'tidy': {
-          // Real values leak in from the host's system bus: the Wi-Fi network name and the
-          // battery level. Replace them with neutral ones that match the demo data.
+          // Real values leak in from the host's system bus: the Wi-Fi network name, the battery
+          // level and, on AC, a charging battery icon. Replace them with neutral ones that match
+          // the demo data, which is on battery.
           const labels = [];
+          const icons = [];
           const walk = (actor) => {
             if (actor instanceof St.Label) labels.push(actor);
+            if (actor instanceof St.Icon) icons.push(actor);
             for (const child of actor.get_children()) walk(child);
           };
+          walk(quick);
           walk(quick.menu.box);
           for (const label of labels) {
             if (/^\d+\s?%$/.test(label.text)) label.text = step.battery;
+          }
+          for (const icon of icons) {
+            const names = icon.gicon instanceof Gio.ThemedIcon ? icon.gicon.get_names() : [icon.icon_name ?? ''];
+            if (step.batteryIcon && names.some((n) => /^battery-.*charg/.test(n)))
+              icon.gicon = new Gio.ThemedIcon({ name: step.batteryIcon });
           }
           for (const item of quick.menu._grid.get_children()) {
             if (item.title === 'Wi-Fi') item.subtitle = step.wifi;

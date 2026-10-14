@@ -28,7 +28,7 @@ THEMES = {
              'shadow': (0, 0, 0), 'shadow_alpha': 0.45, 'outline': (255, 255, 255, 26)},
 }
 WINDOW_RADIUS = 15  # libadwaita window corners, logical pixels
-CAPTION = 'Illustrative data · drainscope 0.1.2 · GNOME 50 · 200% scale'
+CAPTION = 'Illustrative data · GNOME 50'
 
 # (capture, file stem, title, body)
 FEATURES = [
@@ -36,8 +36,8 @@ FEATURES = [
      'Every app, terminal command and service gets its share of the energy used since you '
      'unplugged, on a timeline you can read at a glance.'),
     ('app-detail', 'detail', 'Know what each app costs.',
-     'Open any entry to see its energy, its average power, and how that energy splits '
-     'between the processor, graphics and the display.'),
+     'Open any entry to see its energy while in use and in the background, and how that '
+     'energy splits between the processor, graphics and the display.'),
     ('app-activity', 'activity', 'Find what keeps your laptop busy.',
      'Wakeups and network traffic per app, over the last minute, reveal the background work '
      'that drains a battery while you are not looking.'),

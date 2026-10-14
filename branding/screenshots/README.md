@@ -6,14 +6,14 @@ Screenshots of the drainscope app and GNOME Shell extension, in light and dark, 
 
 | | |
 |---|---|
-| drainscope | 0.1.2 (COPR packages) |
+| drainscope | 0.1.7 (COPR packages) |
 | GNOME | Shell 50.5, libadwaita 1.9, GTK 4.22 (Fedora 44 toolbox) |
 | Display | 2880 × 1800 virtual monitor at 200% (1440 × 900 logical) |
 | Theme | Adwaita, teal accent, light and dark |
 | Wallpaper | GNOME "blobs" (light and dark) |
-| Captured | 7 October 2026 |
+| Captured | 14 October 2026 |
 
-The Quick Settings shots replace two values that come from the capturing machine: the Wi-Fi network name shows "Home" and the battery level shows 67% (matching 33% used).
+The Quick Settings shots replace values that come from the capturing machine: the Wi-Fi network name shows "Home", the battery level shows 67%, and a charging battery icon becomes a discharging one, to match the demo data's time on battery. The demo service also reports which apps had focus, so the app shows each app's energy while in use and in the background.
 
 ## Files
 
@@ -22,7 +22,7 @@ The Quick Settings shots replace two values that come from the capturing machine
 | File | Use |
 |---|---|
 | `exports/hero-{light,dark}.png` (2400 × 1500) | README, website hero: the app with Quick Settings beside it |
-| `exports/features/*-{light,dark}.png` (2400 × 1500) | Feature cards with a title and a sentence: `usage`, `detail`, `activity`, `sleep-health`, `week`, `quick-settings` |
+| `exports/features/*-{light,dark}.png` (2400 × 1500) | Feature cards with a title and a sentence: `usage`, `detail`, `activity`, `sleep-health`, `week`, `quick-settings`. The README shows `detail`, `activity` and `sleep-health` |
 | `exports/cutouts/*-{light,dark}.png` | The app window alone with transparent rounded corners, and the Quick Settings inset: AppStream screenshots, docs, slides |
 | `exports/desktop-{light,dark}.png` (1920 × 1200) | The whole desktop: app and open Quick Settings on the wallpaper |
 
