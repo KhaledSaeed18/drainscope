@@ -4,7 +4,7 @@
 %global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
-Version:        0.1.7
+Version:        1.0.0
 Release:        1%{?dist}
 Summary:        Per-app battery and energy usage for the Linux desktop
 
@@ -244,6 +244,11 @@ fi
 %{_datadir}/icons/hicolor/symbolic/apps/%{app_id}-symbolic.svg
 
 %changelog
+* Wed Oct 14 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 1.0.0-1
+- First stable release: the code of 0.1.7, after a 48-hour soak test (the daemon
+  averaged 0.18% of one CPU and 14 MB at most, with no warnings in the journal)
+- Docs: a new README, architecture, install and troubleshooting pages
+
 * Mon Oct 12 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 0.1.7-1
 - Daemon: starts on a full disk, measuring without recording until the history opens;
   starts without logind's suspend signal; ticks once right after starting

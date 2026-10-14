@@ -58,6 +58,11 @@
     <color type="primary" scheme_preference="dark">#15282f</color>
   </branding>
   <releases>
+    <release version="1.0.0" date="2026-10-14">
+      <description>
+        <p>The first stable release. It has the same features and fixes as 0.1.7, now tested over two days of everyday use: drainscope used less than 0.2% of one processor core on average.</p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-10-12">
       <description>
         <p>Failures handled: drainscope starts and keeps measuring on a full disk, after a failed start it stops retrying instead of looping, restarted services are counted again at once, batteries that report a negative current are measured, and the command line no longer blames a missing service when access was refused.</p>
