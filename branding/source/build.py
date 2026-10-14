@@ -108,12 +108,18 @@ save('social/github-social-light.svg',social(1280,640),1280,640,'drainscope GitH
 save('social/github-social-dark.svg',social(1280,640,True),1280,640,'drainscope dark GitHub social preview')
 save('social/website-social-light.svg',social(1200,630),1200,630,'drainscope website social card')
 save('social/website-social-dark.svg',social(1200,630,True),1200,630,'drainscope dark website social card')
-banner = f'<rect width="1280" height="360" rx="20" fill="{MIST}"/>'
-banner += f'<g transform="translate(56 34) scale(.68)">{horizontal()}</g>'
-banner += lettering('See where your battery goes.',56,208,52,INK,'semibold')
-banner += lettering('Battery and energy usage by app, for the Linux desktop.',56,262,25,SLATE)
-banner += f'<g transform="translate(1000 88) scale(1.6)">{mark()}</g>'
-save('social/readme-header.svg',banner,1280,360,'drainscope README header')
+def banner(dark=False):
+    bg, fg, secondary = (INK,WHITE,'#A5B7BF') if dark else (MIST,INK,SLATE)
+    ring, shares = (CYAN,(CYAN,'#93DCE1',WHITE)) if dark else (TEAL,None)
+    body = f'<rect width="1280" height="360" rx="20" fill="{bg}"/>'
+    body += f'<g transform="translate(56 34) scale(.68)">{horizontal(fg,ring,shares)}</g>'
+    body += lettering('See where your battery goes.',56,208,52,fg,'semibold')
+    body += lettering('Battery and energy usage by app, for the Linux desktop.',56,262,25,secondary)
+    body += f'<g transform="translate(1000 88) scale(1.6)">{mark(ring,shares)}</g>'
+    return body
+
+save('social/readme-header.svg',banner(),1280,360,'drainscope README header')
+save('social/readme-header-dark.svg',banner(True),1280,360,'drainscope dark README header')
 
 board = f'<rect width="1600" height="1120" fill="{WHITE}"/>'
 board += lettering('drainscope',64,77,36,INK,'semibold')+lettering('Energy shares / Identity v1',1038,74,22,SLATE)

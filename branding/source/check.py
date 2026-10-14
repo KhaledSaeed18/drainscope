@@ -39,7 +39,7 @@ for file in (root/'exports').rglob('*.png'):
     image=Image.open(file);image.verify();png_count+=1
     if file.parent.name=='logo':
         image=Image.open(file).convert('RGBA');assert image.getpixel((0,0))[3]==0,file
-expected={'github-social-light.png':(1280,640),'github-social-dark.png':(1280,640),'website-social-light.png':(1200,630),'website-social-dark.png':(1200,630),'readme-header.png':(1280,360)}
+expected={'github-social-light.png':(1280,640),'github-social-dark.png':(1280,640),'website-social-light.png':(1200,630),'website-social-dark.png':(1200,630),'readme-header.png':(1280,360),'readme-header-dark.png':(1280,360)}
 for file,size in expected.items():assert Image.open(root/'exports/social'/file).size==size,file
 assert Image.open(root/'exports/web/apple-touch-icon.png').size==(180,180)
 assert Image.open(root/'exports/web/favicon.ico').size==(48,48)

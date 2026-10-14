@@ -27,7 +27,7 @@ async function main() {
   await raster('web/apple-touch-icon.svg',180,'web/apple-touch-icon.png');
   await raster('web/apple-touch-icon.svg',192,'web/icon-192.png');
   await raster('web/apple-touch-icon.svg',512,'web/icon-512.png');
-  for(const name of ['github-social-light','github-social-dark','website-social-light','website-social-dark','readme-header'])
+  for(const name of ['github-social-light','github-social-dark','website-social-light','website-social-dark','readme-header','readme-header-dark'])
     await raster(`social/${name}.svg`,name.startsWith('website')?1200:1280,`social/${name}.png`);
   await raster('preview/brand-overview.svg',1600,'preview/brand-overview.png');
   // ICO with embedded PNG payloads: supported by modern desktop browsers.
