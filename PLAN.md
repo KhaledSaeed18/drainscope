@@ -3,7 +3,7 @@
 > Per-app battery and energy usage for the Linux desktop.
 > "Firefox used 14% of your battery since you unplugged." Windows, macOS and Android have had this for years; Linux has not.
 
-Status: **v0.1.7 released** (2026-10-12; GitHub and COPR). M0–M2 are done; M3–M5 are done apart from the items in [ROADMAP.md](ROADMAP.md), which tracks status and what's next. Features are frozen until 1.0 (2026-10-10): the ROADMAP lists the stabilization work. This file keeps the architecture, the privilege model and the original milestone scopes.
+Status: **v1.0.0 released** (2026-10-14; GitHub and COPR). M0–M2 are done; M3–M5 are done apart from the items in [ROADMAP.md](ROADMAP.md), which tracks status and what's next. The feature freeze for 1.0 (2026-10-10 to 2026-10-14) is over; the ROADMAP's "After 1.0" lists what comes next. This file keeps the architecture, the privilege model and the original milestone scopes.
 
 The selected Energy shares brand identity is maintained in [branding/](branding/README.md). Its application/package integration and Linux verification are tracked in [docs/branding-handoff.md](docs/branding-handoff.md).
 
@@ -363,7 +363,7 @@ Each task is small and has a concrete **Verify** step. Order matters: the model 
 
 | Artifact | Contents | Channel |
 |---|---|---|
-| `drainscope` RPM | daemon, CLI, user unit, Monitor1 activation file, D-Bus interface XML | GitHub Releases (v0.1.7); COPR (`khaledsaeed18/drainscope`, Fedora 44, 45, rawhide) |
+| `drainscope` RPM | daemon, CLI, user unit, Monitor1 activation file, D-Bus interface XML | GitHub Releases (v1.0.0); COPR (`khaledsaeed18/drainscope`, Fedora 44, 45, rawhide) |
 | `drainscope-sampler` RPM | sampler binary in `/usr/libexec`, system unit, sysusers.d entry, D-Bus system policy + activation file, polkit policy | same; recommended by `drainscope` |
 | `drainscope-probe` RPM | eBPF probe in `/usr/libexec`, system unit, sysusers.d entry, D-Bus policy + activation file, polkit policy | same; recommended by `drainscope` |
 | `drainscope-selinux` RPM (noarch) | policy modules for the sampler and the probe | same; pulled in by the sampler and probe on SELinux systems |

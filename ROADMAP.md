@@ -1,8 +1,10 @@
 # Roadmap
 
-What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-10-11.
+What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-10-14.
 
 ## Released
+
+**v1.0.0** (2026-10-14): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v1.0.0) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). The first stable release: the code of 0.1.7 after the stabilization work below, including a 48-hour soak test (daemon 0.18% of one CPU, 14 MB peak, no warnings). New user docs: the README as a product page, docs/architecture.md, docs/install.md, docs/troubleshooting.md and CONTRIBUTING.md; screenshots recaptured with 0.1.7.
 
 **v0.1.7** (2026-10-12): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.7) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). Failure modes: the 1.0 checklist run and documented ([docs/failure-modes.md](docs/failure-modes.md)); the daemon starts on a full disk (in-memory history until the file opens), without logind's suspend signal, and gives up after 5 failed starts in 2 minutes; restarted services' counters count from zero; negative battery current and power are read as magnitudes; ENODEV reads are skipped; the first tick runs at start; the CLI no longer blames a missing service when polkit refused; the License tag covers the bundled SQLite.
 
@@ -56,8 +58,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] SELinux modules for the sampler and the probe, enforcing, no denials; `drainscope-selinux` package.
 - [x] RPM spec with seven packages; `cargo xtask dist` builds the tarball, SRPM, RPMs and extension zip.
 - [x] AMD support from fixtures and docs (ADR 0005); `doctor` explains GPU and RAPL support.
-- [x] GitHub releases v0.1.0 to v0.1.7.
-- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v0.1.7 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
+- [x] GitHub releases v0.1.0 to v0.1.7, and v1.0.0.
+- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v1.0.0 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (v0.1.2).
 - [x] Daemon self-cost, first pass (v0.1.3): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
@@ -76,12 +78,12 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 
 Fixes collect here and ship after the maintainer's own testing.
 
-## Next: stabilization for 1.0 (feature freeze since 2026-10-10)
+## Stabilization for 1.0 (done; released as v1.0.0 on 2026-10-14)
 
-No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shipped, fixes and optimizations. 1.0 is released when items 2–6 are done and no known bugs remain.
+No new features from 2026-10-10 until 1.0 (maintainer): only finishing what's shipped, fixes and optimizations. 1.0 was released when items 2–6 were done and no known bugs remained; item 1 was never a gate.
 
 1. **extensions.gnome.org review:** v0.1.2 submitted on 2026-10-09 ([listing](https://extensions.gnome.org/extension/11189/drainscope/)), waiting for the reviewers. Once approved, upload the v0.1.7 zip (the extension changed in 0.1.3 and 0.1.4) and link it from the README install section ([docs/distribution.md](docs/distribution.md)).
-2. **Soak test:** two days of normal use on the dev machine with 0.1.7: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log. Measured with `cargo xtask cost`.
+2. **Soak test:** two days of normal use on the dev machine with 0.1.7: the daemon's average CPU (target under 0.5% of one CPU) and peak memory from `/proc`, database and WAL growth and pruning, and warnings in the journal and GNOME Shell's log. Measured with `cargo xtask cost`. Done on 2026-10-14 (48 h from 2026-10-12 13:52, with one 56-minute suspend): the daemon averaged 0.179% of one CPU with a 14.1 MB peak (sampler 0.017%, 5.3 MB; probe 0.096%, 46.5 MB); no warnings from the daemon, sampler or probe, no extension errors and no SELinux denials. The database grew 14.9 → 29.7 MB: raw windows were pruned at 48 h as designed, and the growth is minute rollups, which are first pruned 30 days after the history began (early November); the laptop ran about 23 h a day during the soak, against 1.5–8.5 h before. Details in [docs/performance.md](docs/performance.md).
 3. **Failure modes:** every missing or failing part gives a clear message and recovers without a restart: no sampler, no probe, polkit denial, sampler rate limit, daemon stopped or restarted under the app and extension, extension disabled, GNOME Shell restarted, a database from a newer version, a full disk. A checklist, each case run once. Done on 2026-10-12 ([docs/failure-modes.md](docs/failure-modes.md)): every case gives a clear message and recovers without a restart; the two problems it found (the daemon couldn't start on a full disk, and the CLI blamed a missing service when polkit refused) are fixed in v0.1.7.
 4. **Review and fixes:** a read-through of the daemon, store, CLI, app and extension for correctness and error handling, fixing what turns up (each fix with a test). First pass done on 2026-10-11 (five fixes, released in v0.1.6); second pass on 2026-10-12 (seven fixes from the remaining audit findings, released in v0.1.7).
 5. **Optimization:** measure the 0.1.7 daemon's tick cost, query times for the 7-day and 30-day views, and the app's start-up; fix what's slow. Query times with the `query_times` benchmark (crates/store/tests). Measured on 2026-10-12 ([docs/performance.md](docs/performance.md)): the daemon costs 0.17% of one CPU idle and 0.6–0.7% with the app open, 11 MB resident; history queries over D-Bus take 2–35 ms; the app shows its data 0.9 s after launch. Nothing needs fixing before 1.0; the slowest query (covered time over 7 days, 35 ms, once a minute) would need a schema change.
@@ -89,6 +91,7 @@ No new features until 1.0 (maintainer, 2026-10-10): only finishing what's shippe
 
 ## After 1.0
 
+- extensions.gnome.org: v0.1.2 is still in review (stabilization item 1). Once approved, upload the v1.0.0 zip and link the listing from the README.
 - Model v5: charge the cost of waking the machine ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work; the first replay of option A only helped the 250 Hz timer (median 12% under both v3 and A, against a 60% goal). Next: a second run on the home network with the harness's fixed exit totals.
 - Exit capture for cgroups that come and go between ticks ([ADR 0010](docs/adr/0010-exit-capture.md), proposed): about 0.5% of attributable energy on the dev machine now lands in `exited:*`. Design: the probe records exiting threads' CPU time by cgroup (`sched_process_exit`), the model moves it from the parent's `Exited` to the cgroup's own consumer. Needs approval for the probe program and a Probe1 method.
 - Intel xe driver (`drm-cycles-*`) and an AMD integrated-GPU part (ADR 0005); needs that hardware for validation.
