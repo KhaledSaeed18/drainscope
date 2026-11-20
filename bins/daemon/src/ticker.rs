@@ -33,9 +33,12 @@ impl Ticker {
             TimerfdFlags::NONBLOCK | TimerfdFlags::CLOEXEC,
         )?;
         arm(&timer, period, period)?;
-        Ok(Self {
-            timer: AsyncFd::new(timer)?,
-        })
+        // `new` is deprecated for wrappers whose fd may be closed or swapped under tokio
+        // (tokio#8587); an `OwnedFd` owned by the `AsyncFd` can't be. Its replacement,
+        // `register`, is `unsafe`, which this crate forbids.
+        #[allow(deprecated)]
+        let timer = AsyncFd::new(timer)?;
+        Ok(Self { timer })
     }
 
     /// Fires next after `first` (at once if zero), then every `period`.

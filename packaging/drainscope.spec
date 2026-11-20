@@ -16,8 +16,8 @@ URL:            https://github.com/KhaledSaeed18/drainscope
 # bundled GNOME Shell extension.
 Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 
-BuildRequires:  cargo >= 1.88
-BuildRequires:  rust >= 1.88
+BuildRequires:  cargo >= 1.89
+BuildRequires:  rust >= 1.89
 BuildRequires:  gcc
 # The probe's eBPF program (bins/probe/bpf/) is compiled with clang.
 BuildRequires:  clang
