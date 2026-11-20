@@ -8,7 +8,7 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 
 | Channel | Status | Account | Keys / tokens | Cost | Review |
 |---|---|---|---|---|---|
-| GitHub Releases | **Done** (v1.0.0) | GitHub | `gh` CLI login (already set up) | free | none |
+| GitHub Releases | **Done** (v1.0.1) | GitHub | `gh` CLI login (already set up) | free | none |
 | COPR (Fedora RPM repo) | **Done** (Fedora 44, 45, rawhide) | Fedora Account (FAS) | COPR API token | free | none (automatic builds) |
 | extensions.gnome.org | **Done** (v0.1.2 approved 2026-11-18; v1.0.0 in review since 2026-11-20) | EGO account | none | free | human review, days to weeks |
 | Flathub (the app only) | Later | GitHub | none (Flathub signs) | free | human review of the manifest |
@@ -18,13 +18,13 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 ## 1. GitHub Releases (done)
 
 - Repository: https://github.com/KhaledSaeed18/drainscope (public).
-- Each release (latest: v1.0.0) holds the source tarball, the SRPM, the binary RPMs and the extension zip. The spec's `Source0` points at the tarball there, so COPR can fetch it.
+- Each release (latest: v1.0.1) holds the source tarball, the SRPM, the binary RPMs and the extension zip. The spec's `Source0` points at the tarball there, so COPR can fetch it.
 - To release again: bump the versions (packaging/README.md, "Releasing"), run `cargo xtask dist --rpm`, then `git tag -a vX.Y.Z` and `gh release create`.
 - The RPMs on GitHub are **unsigned**. `dnf install ./file.rpm` accepts that for local files, but users should prefer COPR, whose packages are signed (below).
 
 ## 2. COPR: Fedora package repository (done)
 
-Live at https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/ since 2026-10-06; v1.0.0 (2026-10-14) for Fedora 44, 45 and rawhide (x86_64). Verified on Fedora 45: `dnf copr enable` plus `dnf install` imports the project key and installs RSA/SHA256-signed packages.
+Live at https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/ since 2026-10-06; v1.0.1 (2026-11-20, build 11366906) for Fedora 44, 45 and rawhide (x86_64). Verified on Fedora 45: `dnf copr enable` plus `dnf install` imports the project key and installs RSA/SHA256-signed packages.
 
 Users get `sudo dnf copr enable khaledsaeed18/drainscope` and updates through `dnf upgrade`.
 
@@ -68,7 +68,7 @@ Listing: https://extensions.gnome.org/extension/11189/drainscope/ (extension 111
 | 0.1.2 | 2026-10-09 | [76130](https://extensions.gnome.org/review/76130) | **Approved** 2026-11-18, no comments (the first review took six weeks) |
 | 1.0.0 | 2026-11-20 | [78752](https://extensions.gnome.org/review/78752) | In review; Shexli found no issues |
 
-v0.1.2 was uploaded with the description below, the Quick Settings feature card as its screenshot and the 128 px app icon. Each later release with extension changes needs its zip uploaded again, and is reviewed again. The 0.1.3 to 0.1.7 zips were never uploaded, so the first review wasn't held up (maintainer, 2026-10-10); 1.0.0 was uploaded once 0.1.2 was approved. Since 0.1.2 the extension follows Tick only while its menu is open (0.1.3) and reports the focused app's ID to the daemon (0.1.4, ADR 0011). If a reviewer asks: it sends only the focused app's desktop ID to the drainscope daemon on the session bus (`Shell.WindowTracker` `notify::focus-app`), never auto-starts the daemon, and disconnects everything in `disable()`.
+v0.1.2 was uploaded with the description below, the Quick Settings feature card as its screenshot and the 128 px app icon. Each later release with extension changes needs its zip uploaded again, and is reviewed again. The 0.1.3 to 0.1.7 zips were never uploaded, so the first review wasn't held up (maintainer, 2026-10-10); 1.0.0 was uploaded once 0.1.2 was approved. 1.0.1 changed only the extension's `version-name`, so its zip wasn't uploaded: a new upload would replace 1.0.0 in the review queue for no gain. Since 0.1.2 the extension follows Tick only while its menu is open (0.1.3) and reports the focused app's ID to the daemon (0.1.4, ADR 0011). If a reviewer asks: it sends only the focused app's desktop ID to the drainscope daemon on the session bus (`Shell.WindowTracker` `notify::focus-app`), never auto-starts the daemon, and disconnects everything in `disable()`.
 
 Shexli, the site's automatic checker, flagged `shell-version: ["50", "51"]` on 0.1.2 as an implausible future release (EGO-M-004), while GNOME 51 was still new; the reviewer approved it anyway, and it found nothing on 1.0.0.
 
@@ -134,5 +134,5 @@ COPR covers Fedora users well in the meantime.
 ## What I need from you, in order
 
 1. ~~**COPR:** Fedora account and API token.~~ Done; renew the token every 180 days (COPR emails before it expires).
-2. ~~**EGO:** register and upload.~~ Done (0.1.2 approved 2026-11-18; 1.0.0 uploaded 2026-11-20). Answer the reviewers when their email arrives, and upload each new release's zip (then restore the listing description, §3).
+2. ~~**EGO:** register and upload.~~ Done (0.1.2 approved 2026-11-18; 1.0.0 uploaded 2026-11-20). Answer the reviewers when their email arrives, and upload the zip of each release that changes the extension's code (then restore the listing description, §3).
 3. **Optional:** a GPG key for signed tags and tarballs, if you want "Verified" releases.

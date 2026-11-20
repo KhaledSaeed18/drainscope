@@ -28,11 +28,11 @@ Accounts, keys and tokens for each channel (GitHub, COPR, extensions.gnome.org, 
 2. `cargo xtask dist --rpm` and install the RPMs on a test machine
    (`sudo dnf install target/dist/rpmbuild/RPMS/*/*.rpm`; remove a development install first with `sudo target/release/xtask uninstall-dev`).
 3. Tag and publish the GitHub release with the tarball (the spec's `Source0` points there):
-   `git tag -a vX.Y.Z -m "drainscope X.Y.Z" && git push origin vX.Y.Z && gh release create vX.Y.Z <tarball, SRPM, RPMs, zip>` (v0.1.0 to v0.1.7 and v1.0.0 were published this way)
+   `git tag -a vX.Y.Z -m "drainscope X.Y.Z" && git push origin vX.Y.Z && gh release create vX.Y.Z <tarball, SRPM, RPMs, zip>` (v0.1.0 to v0.1.7, v1.0.0 and v1.0.1 were published this way)
 4. COPR (once: a Fedora account and an API token in `~/.config/copr`; see docs/distribution.md):
    `copr-cli build drainscope target/dist/rpmbuild/SRPMS/drainscope-X.Y.Z-1.*.src.rpm` (the project exists: https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/)
 5. Validate the COPR packages on each Fedora version with `packaging/validate-copr.sh X.Y.Z` in a toolbox (instructions at the top of the script): versions, signatures, file integrity, the database lock and the extension in a nested GNOME Shell.
-6. extensions.gnome.org: upload the zip at https://extensions.gnome.org/upload/. Uploading replaces the listing's description with the one-line `description` from `metadata.json`, so afterwards put the full listing description back (click it on the listing page to edit; the text is in docs/distribution.md §3). It must say that the extension needs the drainscope daemon (packaged separately).
+6. extensions.gnome.org, when the release changes the extension's code (not just its `version-name`): upload the zip at https://extensions.gnome.org/upload/. Uploading replaces the listing's description with the one-line `description` from `metadata.json`, so afterwards put the full listing description back (click it on the listing page to edit; the text is in docs/distribution.md §3). It must say that the extension needs the drainscope daemon (packaged separately).
 
 Users then install with:
 

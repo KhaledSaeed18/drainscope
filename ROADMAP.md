@@ -1,8 +1,10 @@
 # Roadmap
 
-What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-10-14.
+What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) holds the architecture and the original milestone scopes; this file tracks status. Last updated 2026-11-20.
 
 ## Released
+
+**v1.0.1** (2026-11-20): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v1.0.1) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). A security update: the bundled SQLite 3.54.1 (rusqlite 0.41) fixes CVE-2026-119375, plus tokio 1.54 (RUSTSEC-2026-0386) and rustix 1.1.6 (RUSTSEC-2026-0486); D-Bus moves to zbus 6 with unchanged interfaces; building needs Rust 1.89. The extension's code is that of 1.0.0, so its zip wasn't uploaded to extensions.gnome.org.
 
 **v1.0.0** (2026-10-14): [GitHub release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v1.0.0) and [COPR](https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/) (Fedora 44, 45, rawhide). The first stable release: the code of 0.1.7 after the stabilization work below, including a 48-hour soak test (daemon 0.18% of one CPU, 14 MB peak, no warnings). New user docs: the README as a product page, docs/architecture.md, docs/install.md, docs/troubleshooting.md and CONTRIBUTING.md; screenshots recaptured with 0.1.7.
 
@@ -58,8 +60,8 @@ What's done, what's in progress, and what to work on next. [PLAN.md](PLAN.md) ho
 - [x] SELinux modules for the sampler and the probe, enforcing, no denials; `drainscope-selinux` package.
 - [x] RPM spec with seven packages; `cargo xtask dist` builds the tarball, SRPM, RPMs and extension zip.
 - [x] AMD support from fixtures and docs (ADR 0005); `doctor` explains GPU and RAPL support.
-- [x] GitHub releases v0.1.0 to v0.1.7, and v1.0.0.
-- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v1.0.0 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
+- [x] GitHub releases v0.1.0 to v0.1.7, v1.0.0 and v1.0.1.
+- [x] COPR `khaledsaeed18/drainscope`: Fedora 44, 45 and rawhide, signed. v1.0.1 validated from COPR on Fedora 44 (GNOME 50.5) and 45 (GNOME 51.0) with `packaging/validate-copr.sh`; the dev machine runs the COPR packages.
 - [x] Daemon single instance per database: exclusive `flock` on `drainscope.db.lock`, exit status 3 when held (v0.1.1).
 - [x] Daemon stops when its session bus closes (`Connection::closed()`), saving state and exiting with status 0; previously a daemon D-Bus-activated outside systemd outlived its bus (v0.1.2).
 - [x] Daemon self-cost, first pass (v0.1.3): a timerfd tick (tokio's timer wheel woke a 5 s sleep three times), the tick's sampler, probe and sysfs reads in flight together, and an allocation-free cgroup walk with relative opens. Measured on battery: 3.0 → 2.0 context switches/s, 0.82–1.0% → 0.72% of one CPU. The extension subscribes to Tick only while its menu is open.
@@ -91,7 +93,7 @@ No new features from 2026-10-10 until 1.0 (maintainer): only finishing what's sh
 
 ## After 1.0
 
-- extensions.gnome.org: v0.1.2 approved on 2026-11-18; the v1.0.0 zip was uploaded on 2026-11-20 and waits for review (stabilization item 1). Answer the reviewers if they comment.
+- extensions.gnome.org: v0.1.2 approved on 2026-11-18; the v1.0.0 zip was uploaded on 2026-11-20 and waits for review (stabilization item 1). Answer the reviewers if they comment. 1.0.1 didn't change the extension's code, so its zip isn't uploaded.
 - Model v5: charge the cost of waking the machine ([draft ADR 0009](docs/adr/0009-model-v4-wake-cost.md)). CPU-time sharing undercharges light, bursty work; the first replay of option A only helped the 250 Hz timer (median 12% under both v3 and A, against a 60% goal). Next: a second run on the home network with the harness's fixed exit totals.
 - Exit capture for cgroups that come and go between ticks ([ADR 0010](docs/adr/0010-exit-capture.md), proposed): about 0.5% of attributable energy on the dev machine now lands in `exited:*`. Design: the probe records exiting threads' CPU time by cgroup (`sched_process_exit`), the model moves it from the parent's `Exited` to the cgroup's own consumer. Needs approval for the probe program and a Probe1 method.
 - Intel xe driver (`drm-cycles-*`) and an AMD integrated-GPU part (ADR 0005); needs that hardware for validation.
