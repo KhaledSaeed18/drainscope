@@ -6,7 +6,7 @@
 <p align="center">
   <a href="https://github.com/KhaledSaeed18/drainscope/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/KhaledSaeed18/drainscope?color=087F8C&label=release"></a>
   <a href="https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/"><img alt="Fedora COPR" src="https://img.shields.io/badge/Fedora%2044%20%7C%2045-COPR-51A2DA?logo=fedora&logoColor=white"></a>
-  <img alt="GNOME 50 and 51" src="https://img.shields.io/badge/GNOME-50%20%7C%2051-4A86CF?logo=gnome&logoColor=white">
+  <a href="https://extensions.gnome.org/extension/11189/drainscope/"><img alt="GNOME 50 and 51, on extensions.gnome.org" src="https://img.shields.io/badge/GNOME-50%20%7C%2051-4A86CF?logo=gnome&logoColor=white"></a>
   <a href="https://github.com/KhaledSaeed18/drainscope/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/KhaledSaeed18/drainscope/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-60747C"></a>
 </p>
@@ -86,6 +86,8 @@ drainscope doctor
 ```
 
 Log out and back in, then turn on the extension in the Extensions app (or run `gnome-extensions enable drainscope@khaledsaeed18.github.io`). The desktop app is **drainscope** in the app grid. Updates arrive through `dnf upgrade`.
+
+The extension is also on [extensions.gnome.org](https://extensions.gnome.org/extension/11189/drainscope/). It still needs the daemon from the packages above; without it, the tile reads "Daemon not running".
 
 For the release RPMs, building from source, or removing drainscope, see [Installing](docs/install.md).
 

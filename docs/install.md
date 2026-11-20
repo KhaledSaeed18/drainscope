@@ -24,6 +24,10 @@ The packages are signed with the COPR project's key, which `dnf` imports on firs
 
 Log out and back in to load the GNOME Shell extension (Wayland loads extensions at login), then turn it on in the Extensions app or with `gnome-extensions enable drainscope@khaledsaeed18.github.io`. The desktop app is **drainscope** in the app grid.
 
+### The extension from extensions.gnome.org
+
+The extension is also published on [extensions.gnome.org](https://extensions.gnome.org/extension/11189/drainscope/), for GNOME 50 and 51. Install it there instead of `gnome-shell-extension-drainscope` if you prefer; it still needs the daemon (`drainscope`, plus the sampler and probe for full readings). Use one or the other: a copy installed from the website goes to `~/.local/share/gnome-shell/extensions/` and overrides the RPM's. New versions reach the website after GNOME's review, so it can lag behind the RPM for a while.
+
 ## From a release
 
 Prefer COPR, which gives you signed packages and updates. To install without it, download the six binary RPMs (not the `.src.rpm`) from the [latest release](https://github.com/KhaledSaeed18/drainscope/releases/latest) into an empty directory. They're built for Fedora 44. Then:

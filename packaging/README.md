@@ -32,7 +32,7 @@ Accounts, keys and tokens for each channel (GitHub, COPR, extensions.gnome.org, 
 4. COPR (once: a Fedora account and an API token in `~/.config/copr`; see docs/distribution.md):
    `copr-cli build drainscope target/dist/rpmbuild/SRPMS/drainscope-X.Y.Z-1.*.src.rpm` (the project exists: https://copr.fedorainfracloud.org/coprs/khaledsaeed18/drainscope/)
 5. Validate the COPR packages on each Fedora version with `packaging/validate-copr.sh X.Y.Z` in a toolbox (instructions at the top of the script): versions, signatures, file integrity, the database lock and the extension in a nested GNOME Shell.
-6. extensions.gnome.org: upload the zip at https://extensions.gnome.org/upload/. Its description must say that the extension needs the drainscope daemon (packaged separately).
+6. extensions.gnome.org: upload the zip at https://extensions.gnome.org/upload/. Uploading replaces the listing's description with the one-line `description` from `metadata.json`, so afterwards put the full listing description back (click it on the listing page to edit; the text is in docs/distribution.md §3). It must say that the extension needs the drainscope daemon (packaged separately).
 
 Users then install with:
 

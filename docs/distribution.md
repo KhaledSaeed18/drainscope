@@ -10,7 +10,7 @@ What each distribution channel needs: accounts, keys and tokens, who holds them,
 |---|---|---|---|---|---|
 | GitHub Releases | **Done** (v1.0.0) | GitHub | `gh` CLI login (already set up) | free | none |
 | COPR (Fedora RPM repo) | **Done** (Fedora 44, 45, rawhide) | Fedora Account (FAS) | COPR API token | free | none (automatic builds) |
-| extensions.gnome.org | **In review** (v0.1.2, submitted 2026-10-09) | EGO account | none | free | human review, days to weeks |
+| extensions.gnome.org | **Done** (v0.1.2 approved 2026-11-18; v1.0.0 in review since 2026-11-20) | EGO account | none | free | human review, days to weeks |
 | Flathub (the app only) | Later | GitHub | none (Flathub signs) | free | human review of the manifest |
 | Fedora official repositories | Optional, long-term | FAS + packager group | Kerberos, SSH key, FAS 2FA | free | package review |
 | Release signing | Optional | — | GPG key (or Sigstore) | free | — |
@@ -61,13 +61,36 @@ For each new release, only the `copr-cli build` line is needed. When a new Fedor
 
 ## 3. extensions.gnome.org (EGO)
 
-Listing: https://extensions.gnome.org/extension/11189/drainscope/ (extension 11189). v0.1.2 was uploaded on 2026-10-09 with the description below, the Quick Settings feature card as its screenshot and the 128 px app icon; it awaits its first review. Each later release with extension changes needs its zip uploaded again, and is reviewed again. The extension changed in 0.1.3 (it follows Tick only while its menu is open) and again in 0.1.4 (it reports the focused app's ID to the daemon, ADR 0011). The 0.1.3 and 0.1.4 zips were never uploaded; upload the latest zip (v0.1.5: same code as 0.1.4, version-name 0.1.5), attached to the [v0.1.5 release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.5), once 0.1.2 is approved, so the first review isn't held up (maintainer, 2026-10-10). Review note: it sends only the focused app's desktop ID to the drainscope daemon on the session bus (`Shell.WindowTracker` `notify::focus-app`), never auto-starts the daemon, and disconnects everything in `disable()`.
+Listing: https://extensions.gnome.org/extension/11189/drainscope/ (extension 11189).
+
+| Version | Uploaded | Review | Result |
+|---|---|---|---|
+| 0.1.2 | 2026-10-09 | [76130](https://extensions.gnome.org/review/76130) | **Approved** 2026-11-18, no comments (the first review took six weeks) |
+| 1.0.0 | 2026-11-20 | [78752](https://extensions.gnome.org/review/78752) | In review; Shexli found no issues |
+
+v0.1.2 was uploaded with the description below, the Quick Settings feature card as its screenshot and the 128 px app icon. Each later release with extension changes needs its zip uploaded again, and is reviewed again. The 0.1.3 to 0.1.7 zips were never uploaded, so the first review wasn't held up (maintainer, 2026-10-10); 1.0.0 was uploaded once 0.1.2 was approved. Since 0.1.2 the extension follows Tick only while its menu is open (0.1.3) and reports the focused app's ID to the daemon (0.1.4, ADR 0011). If a reviewer asks: it sends only the focused app's desktop ID to the drainscope daemon on the session bus (`Shell.WindowTracker` `notify::focus-app`), never auto-starts the daemon, and disconnects everything in `disable()`.
+
+Shexli, the site's automatic checker, flagged `shell-version: ["50", "51"]` on 0.1.2 as an implausible future release (EGO-M-004), while GNOME 51 was still new; the reviewer approved it anyway, and it found nothing on 1.0.0.
+
+**Uploading replaces the listing description** with the one-line `description` from `metadata.json`. After each upload, click the description on the listing page and paste the full text back:
+
+```text
+See which apps used your battery since you unplugged, right in Quick Settings.
+
+This extension shows data from the drainscope daemon, which does the measuring. Install it first. On Fedora 44 and 45, from COPR:
+
+sudo dnf copr enable khaledsaeed18/drainscope
+sudo dnf install drainscope drainscope-sampler drainscope-probe
+systemctl --user enable --now drainscope.service
+
+Other distributions: build from source, https://github.com/KhaledSaeed18/drainscope. Without the daemon, the tile shows "Daemon not running".
+```
 
 ### Account
 - Register at https://extensions.gnome.org/accounts/register/. This is separate from GitLab and the Fedora account. No keys are involved.
 
 ### Before uploading
-- **Zip:** the one attached to the [v0.1.2 release](https://github.com/KhaledSaeed18/drainscope/releases/tag/v0.1.2) (also `target/dist/` after `cargo xtask dist`). It supports GNOME 50 and 51. Don't upload the v0.1.0 zip: it predates the review fixes.
+- **Zip:** `drainscope@khaledsaeed18.github.io.shell-extension.zip` from the release being published (also `target/dist/` after `cargo xtask dist`). Upload only a version newer than the listing's latest; EGO numbers uploads itself (0.1.2 is version 1, 1.0.0 is version 2).
 - **Screenshot:** `branding/screenshots/exports/features/quick-settings-light.png` (or the plain `cutouts/quick-settings-light.png`): the Battery menu open in Quick Settings, illustrative data. EGO shows it on the listing.
 - **Description:** must say the extension needs the drainscope daemon, installed from COPR or from source; without it, the tile just reads "Daemon not running". Link the README's install section.
 
@@ -76,8 +99,8 @@ Before adding a GNOME version to `shell-version`, run the extension in a nested 
 
 ### Review
 - The review checks: GPL-compatible license (ours is GPL-3.0-or-later), unminified code, nothing created before `enable()`, everything cleaned up in `disable()`, and no synchronous I/O in the Shell process. The extension was written to these rules.
-- Expect days to a few weeks for the first review. Each new version (including each new GNOME release added to `shell-version`) is reviewed again.
-- Reviewers may ask questions in the upload's review thread. Their comments arrive by email.
+- Expect days to a few weeks for the first review (0.1.2 took six weeks). Each new version (including each new GNOME release added to `shell-version`) is reviewed again.
+- Reviewers may ask questions in the upload's review thread. Their comments arrive by email; an approval without comments arrives as a short status email, and the review page just shows the version as Active.
 
 ## 4. Flathub (the desktop app; later)
 
@@ -111,5 +134,5 @@ COPR covers Fedora users well in the meantime.
 ## What I need from you, in order
 
 1. ~~**COPR:** Fedora account and API token.~~ Done; renew the token every 180 days (COPR emails before it expires).
-2. ~~**EGO:** register and upload.~~ Done (2026-10-09). Answer the reviewers when their email arrives, and upload each new release's zip.
+2. ~~**EGO:** register and upload.~~ Done (0.1.2 approved 2026-11-18; 1.0.0 uploaded 2026-11-20). Answer the reviewers when their email arrives, and upload each new release's zip (then restore the listing description, §3).
 3. **Optional:** a GPG key for signed tags and tarballs, if you want "Verified" releases.
