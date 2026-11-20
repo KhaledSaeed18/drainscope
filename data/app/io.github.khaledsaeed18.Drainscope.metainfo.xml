@@ -58,6 +58,11 @@
     <color type="primary" scheme_preference="dark">#15282f</color>
   </branding>
   <releases>
+    <release version="1.0.1" date="2026-11-20" urgency="medium">
+      <description>
+        <p>A security update. The history database now uses SQLite 3.54.1, which fixes CVE-2026-119375, and the libraries drainscope uses to talk over D-Bus and to the kernel are updated too. Nothing else changes.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-10-14">
       <description>
         <p>The first stable release. It has the same features and fixes as 0.1.7, now tested over two days of everyday use: drainscope used less than 0.2% of one processor core on average.</p>

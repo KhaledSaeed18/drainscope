@@ -4,7 +4,7 @@
 %global selinux_modules drainscope_sampler drainscope_probe
 
 Name:           drainscope
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        Per-app battery and energy usage for the Linux desktop
 
@@ -244,6 +244,12 @@ fi
 %{_datadir}/icons/hicolor/symbolic/apps/%{app_id}-symbolic.svg
 
 %changelog
+* Fri Nov 20 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 1.0.1-1
+- Security: bundled SQLite 3.54.1 (rusqlite 0.41), fixing CVE-2026-119375; also
+  tokio 1.54 (RUSTSEC-2026-0386) and rustix 1.1.6 (RUSTSEC-2026-0486)
+- D-Bus: zbus 6; the services and interfaces are unchanged
+- Building from source needs Rust 1.89
+
 * Wed Oct 14 2026 Khaled Saeed <147975926+KhaledSaeed18@users.noreply.github.com> - 1.0.0-1
 - First stable release: the code of 0.1.7, after a 48-hour soak test (the daemon
   averaged 0.18% of one CPU and 14 MB at most, with no warnings in the journal)
