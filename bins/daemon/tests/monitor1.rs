@@ -128,13 +128,11 @@ async fn serve() -> Peer {
 
 async fn serve_shared(shared: Arc<Shared>) -> Peer {
     let monitor = Monitor::new(shared, now);
-    let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
+    let (server_end, client_end) = std::os::unix::net::UnixStream::pair().unwrap();
     let server = Builder::unix_stream(server_end)
         .server(zbus::Guid::generate())
-        .unwrap()
         .p2p()
         .serve_at(OBJECT_PATH, monitor)
-        .unwrap()
         .build();
     let client = Builder::unix_stream(client_end).p2p().build();
     let (server, client) = tokio::join!(server, client);
@@ -147,7 +145,6 @@ async fn serve_shared(shared: Arc<Shared>) -> Peer {
 async fn proxy(peer: &Peer) -> Monitor1Proxy<'_> {
     Monitor1Proxy::builder(&peer.client)
         .path(OBJECT_PATH)
-        .unwrap()
         .build()
         .await
         .unwrap()
@@ -335,18 +332,15 @@ fn describe(interface: &zbus_xml::Interface<'_>) -> Vec<String> {
     };
     let mut lines: Vec<String> = interface
         .methods()
-        .iter()
         .map(|m| format!("method {}({})", m.name(), args(m.args())))
         .chain(
             interface
                 .signals()
-                .iter()
                 .map(|s| format!("signal {}({})", s.name(), args(s.args()))),
         )
         .chain(
             interface
                 .properties()
-                .iter()
                 .map(|p| format!("property {}: {:?} {:?}", p.name(), p.ty(), p.access())),
         )
         .collect();
@@ -364,9 +358,7 @@ async fn served_interface_matches_the_contract() {
     let peer = serve().await;
     let introspectable = zbus::fdo::IntrospectableProxy::builder(&peer.client)
         .destination(BUS_NAME)
-        .unwrap()
         .path(OBJECT_PATH)
-        .unwrap()
         .build()
         .await
         .unwrap();
@@ -435,9 +427,10 @@ async fn only_gnome_shell_may_report_focus() {
         monitor.set_focus("org.mozilla.firefox").await,
         monitor.end_focus().await,
     ] {
-        let Err(zbus::Error::MethodError(name, _, _)) = result else {
+        let Err(err) = &result else {
             panic!("expected AccessDenied, got {result:?}");
         };
+        let (name, _) = drainscope_dbus::error_reply(err).unwrap();
         assert_eq!(name.as_str(), "org.freedesktop.DBus.Error.AccessDenied");
     }
     let focus = shared.focus.lock().unwrap_or_else(PoisonError::into_inner);

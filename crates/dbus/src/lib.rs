@@ -170,3 +170,35 @@ pub mod monitor {
         fn domains(&self) -> zbus::Result<Vec<String>>;
     }
 }
+
+/// The name and description of the D-Bus error reply `err` carries, if it is one. zbus reports
+/// the `org.freedesktop.DBus.Error.*` names as [`zbus::Error::FDO`] and others as
+/// [`zbus::Error::MethodError`]; match on the name rather than the variant.
+#[must_use]
+pub fn error_reply(err: &zbus::Error) -> Option<(zbus::names::ErrorName<'_>, Option<&str>)> {
+    use zbus::DBusError;
+    match err {
+        zbus::Error::MethodError(name, description, _) => {
+            Some((name.as_ref(), description.as_deref()))
+        }
+        zbus::Error::FDO(fdo) => Some((fdo.name(), fdo.description())),
+        zbus::Error::DBus(error) => Some((error.name(), error.description())),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standard_error_names_read_like_any_other() {
+        let unknown = zbus::Error::FDO(Box::new(zbus::fdo::Error::ServiceUnknown(
+            "no such name".into(),
+        )));
+        let (name, description) = error_reply(&unknown).unwrap();
+        assert_eq!(name.as_str(), "org.freedesktop.DBus.Error.ServiceUnknown");
+        assert_eq!(description, Some("no such name"));
+        assert!(error_reply(&zbus::Error::InvalidReply).is_none());
+    }
+}

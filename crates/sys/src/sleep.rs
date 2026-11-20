@@ -17,13 +17,7 @@ use crate::root::SysRoot;
 pub trait Login1Manager {
     /// Takes an inhibitor lock; it is held until the returned fd is closed. A `delay` lock on
     /// `sleep` gives the holder time to act on `PrepareForSleep(true)` before suspending.
-    fn inhibit(
-        &self,
-        what: &str,
-        who: &str,
-        why: &str,
-        mode: &str,
-    ) -> zbus::Result<zbus::zvariant::OwnedFd>;
+    fn inhibit(&self, what: &str, who: &str, why: &str, mode: &str) -> zbus::Result<zbus::OwnedFd>;
 
     /// `true` just before suspending, `false` after resuming.
     #[zbus(signal)]

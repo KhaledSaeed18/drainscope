@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::time::Duration;
 
+use drainscope_dbus::error_reply;
 use drainscope_dbus::monitor::Monitor1Proxy;
 use drainscope_dbus::probe::{Probe1Proxy, ProbeError};
 use drainscope_dbus::sampler::{Sampler1Proxy, SamplerError};
@@ -258,8 +259,8 @@ async fn sampler(system: Option<&zbus::Connection>) -> Check {
                 "only the user at the machine's own seat may read them; remote sessions are refused by design",
             ),
         ),
-        Err(SamplerError::ZBus(zbus::Error::MethodError(name, ..)))
-            if name.as_str() == "org.freedesktop.DBus.Error.ServiceUnknown" =>
+        Err(SamplerError::ZBus(err))
+            if is_named(&err, "org.freedesktop.DBus.Error.ServiceUnknown") =>
         {
             check(
                 Level::Fail,
@@ -294,8 +295,8 @@ async fn probe(system: Option<&zbus::Connection>) -> Check {
             "polkit refused access to wakeup counts",
             Some("only the user at the machine's own seat may read them"),
         ),
-        Err(ProbeError::ZBus(zbus::Error::MethodError(name, ..)))
-            if name.as_str() == "org.freedesktop.DBus.Error.ServiceUnknown" =>
+        Err(ProbeError::ZBus(err))
+            if is_named(&err, "org.freedesktop.DBus.Error.ServiceUnknown") =>
         {
             check(
                 Level::Warn,
@@ -309,6 +310,11 @@ async fn probe(system: Option<&zbus::Connection>) -> Check {
             Some("see: journalctl -u drainscope-probe.service"),
         ),
     }
+}
+
+/// Whether `err` is a D-Bus error reply named `name`.
+fn is_named(err: &zbus::Error, name: &str) -> bool {
+    error_reply(err).is_some_and(|(reply, _)| reply.as_str() == name)
 }
 
 /// Why asking the daemon failed: not installed or enabled (`ServiceUnknown`), or installed
@@ -343,11 +349,12 @@ async fn daemon(session: Option<&zbus::Connection>) -> Check {
             format!("daemon running (measurement: {status})"),
             None,
         ),
-        Err(zbus::Error::MethodError(name, detail, _)) => daemon_failure(
-            Some(name.as_str()),
-            detail.as_deref().unwrap_or(name.as_str()),
-        ),
-        Err(err) => daemon_failure(None, &err.to_string()),
+        Err(err) => match error_reply(&err) {
+            Some((name, detail)) => {
+                daemon_failure(Some(name.as_str()), detail.unwrap_or(name.as_str()))
+            }
+            None => daemon_failure(None, &err.to_string()),
+        },
     }
 }
 

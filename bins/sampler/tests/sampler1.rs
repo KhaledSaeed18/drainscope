@@ -53,7 +53,6 @@ impl Peer {
     async fn proxy(&self) -> Sampler1Proxy<'_> {
         Sampler1Proxy::builder(&self.client)
             .path(OBJECT_PATH)
-            .unwrap()
             .build()
             .await
             .unwrap()
@@ -71,13 +70,11 @@ async fn serve(authorized: bool, config: Config, counters: &Counters) -> Peer {
 }
 
 async fn serve_sampler(sampler: Sampler) -> Peer {
-    let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
+    let (server_end, client_end) = std::os::unix::net::UnixStream::pair().unwrap();
     let server = Builder::unix_stream(server_end)
         .server(zbus::Guid::generate())
-        .unwrap()
         .p2p()
         .serve_at(OBJECT_PATH, sampler)
-        .unwrap()
         .build();
     let client = Builder::unix_stream(client_end).p2p().build();
     let (server, client) = tokio::join!(server, client);
@@ -185,18 +182,15 @@ fn describe(interface: &zbus_xml::Interface<'_>) -> Vec<String> {
     };
     let mut lines: Vec<String> = interface
         .methods()
-        .iter()
         .map(|m| format!("method {}({})", m.name(), args(m.args())))
         .chain(
             interface
                 .signals()
-                .iter()
                 .map(|s| format!("signal {}({})", s.name(), args(s.args()))),
         )
         .chain(
             interface
                 .properties()
-                .iter()
                 .map(|p| format!("property {}: {:?} {:?}", p.name(), p.ty(), p.access())),
         )
         .collect();
@@ -216,9 +210,7 @@ async fn served_interface_matches_the_contract() {
     let peer = serve(true, unlimited(), &counters).await;
     let introspectable = zbus::fdo::IntrospectableProxy::builder(&peer.client)
         .destination(BUS_NAME)
-        .unwrap()
         .path(OBJECT_PATH)
-        .unwrap()
         .build()
         .await
         .unwrap();

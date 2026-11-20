@@ -69,7 +69,7 @@ struct Daemon {
     sleep: SleepTracker,
     logind: Option<Login1ManagerProxy<'static>>,
     /// Held to delay suspend until the battery level is recorded; closing it releases it.
-    inhibitor: Option<zbus::zvariant::OwnedFd>,
+    inhibitor: Option<zbus::OwnedFd>,
     last_save: Instant,
     last_prune: Option<Instant>,
     /// From the latest snapshot; saved with the calibration.

@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
+use drainscope_dbus::error_reply;
 use drainscope_dbus::probe::{All, Probe1Proxy, ProbeError, Traffic, Wakeups};
 use drainscope_model::CgroupPath;
 
@@ -91,12 +92,8 @@ pub struct ProbeClient {
 /// An older probe without the method (e.g. still running across an upgrade).
 fn is_unknown_method(err: &ProbeError) -> bool {
     match err {
-        ProbeError::ZBus(zbus::Error::MethodError(name, ..)) => {
-            name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod"
-        }
-        ProbeError::ZBus(zbus::Error::FDO(fdo)) => {
-            matches!(**fdo, zbus::fdo::Error::UnknownMethod(_))
-        }
+        ProbeError::ZBus(err) => error_reply(err)
+            .is_some_and(|(name, _)| name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod"),
         _ => false,
     }
 }
@@ -414,13 +411,11 @@ mod tests {
         path: &str,
         probe: impl zbus::object_server::Interface,
     ) -> (zbus::Connection, ProbeClient) {
-        let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
+        let (server_end, client_end) = std::os::unix::net::UnixStream::pair().unwrap();
         let server = Builder::unix_stream(server_end)
             .server(zbus::Guid::generate())
-            .unwrap()
             .p2p()
             .serve_at(path, probe)
-            .unwrap()
             .build();
         let client = Builder::unix_stream(client_end).p2p().build();
         let (server, client) = tokio::join!(server, client);

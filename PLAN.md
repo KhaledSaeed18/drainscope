@@ -125,7 +125,7 @@ drainscope/
 |---|---|---|---|
 | Daemons + CLI | **Rust** (edition 2024, stable) | Low overhead is a product requirement (an energy monitor must not burn energy); privileged code should be memory-safe; best D-Bus library available (zbus); single static-ish binaries | **Node:** D-Bus libs unmaintained (`dbus-next` last release 2022), ~40 MB idle RSS. **Go:** viable, but weaker D-Bus server ergonomics and codegen than zbus. |
 | Async runtime | tokio | zbus `tokio` feature; mature ecosystem | async-std (deprecated), smol (fine, smaller ecosystem) |
-| D-Bus | **zbus 5.x** (pure Rust) | Typed interfaces via macros, proxy codegen from XML (`zbus-xmlgen`), works on system + session bus, p2p connections for tests | dbus-rs (libdbus binding, C dependency) |
+| D-Bus | **zbus 6.x** (pure Rust) | Typed interfaces via macros, proxy codegen from XML (`zbus-xmlgen`), works on system + session bus, p2p connections for tests | dbus-rs (libdbus binding, C dependency) |
 | Storage | **SQLite via rusqlite** (bundled), WAL mode, migrations tracked with `PRAGMA user_version` (no extra crate) | Local, single-file, zero-admin, great for time-series rollups at this scale | sqlx (compile-time DB needed, async not required), embedded TSDBs (overkill) |
 | /proc parsing | `procfs` crate for `/proc/stat`, `/proc/<pid>/*`; plain `std::fs` for sysfs/cgroupfs | Native, structured | shelling out to `ps`/`cat` |
 | CLI | clap 4 (derive) | standard | |

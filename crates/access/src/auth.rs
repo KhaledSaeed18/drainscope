@@ -7,7 +7,7 @@ use std::pin::Pin;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use zbus::zvariant::Value;
+use zbus::Variant;
 
 pub type AuthFuture<'a> = Pin<Box<dyn Future<Output = zbus::Result<bool>> + Send + 'a>>;
 
@@ -35,7 +35,7 @@ impl Authorizer for Fixed {
 trait Authority {
     fn check_authorization(
         &self,
-        subject: &(&str, HashMap<&str, Value<'_>>),
+        subject: &(&str, HashMap<&str, Variant<'_>>),
         action_id: &str,
         details: HashMap<&str, &str>,
         flags: u32,
@@ -110,7 +110,7 @@ impl Polkit {
         }
         let subject = (
             "system-bus-name",
-            HashMap::from([("name", Value::from(caller))]),
+            HashMap::from([("name", Variant::from(caller))]),
         );
         let (authorized, _challenge, _details) = self
             .authority

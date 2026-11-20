@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
+use drainscope_dbus::error_reply;
 use drainscope_dbus::monitor::Monitor1Proxy;
 use futures_util::StreamExt;
 
@@ -66,8 +67,10 @@ async fn focus_by_key(
                 )
             })
             .collect()),
-        Err(zbus::Error::MethodError(name, ..))
-            if name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod" =>
+        Err(err)
+            if error_reply(&err).is_some_and(|(name, _)| {
+                name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod"
+            }) =>
         {
             Ok(HashMap::new())
         }
@@ -128,11 +131,17 @@ fn hint_for(error_name: Option<&str>) -> &'static str {
 
 /// Explains a failed call to the daemon.
 fn daemon_hint(err: zbus::Error) -> anyhow::Error {
-    let hint = hint_for(match &err {
-        zbus::Error::MethodError(name, ..) => Some(name.as_str()),
-        _ => None,
-    });
-    anyhow::Error::new(err).context(hint)
+    let Some((name, detail)) = error_reply(&err) else {
+        return anyhow::Error::new(err).context(hint_for(None));
+    };
+    let hint = hint_for(Some(name.as_str()));
+    // Not the zbus error itself: for the standard names its source is the same error again,
+    // which `{:#}` would print twice.
+    let reply = match detail {
+        Some(detail) => anyhow::anyhow!("{name}: {detail}"),
+        None => anyhow::anyhow!("{name}"),
+    };
+    reply.context(hint)
 }
 
 /// The top `limit` rows, the rest folded into one line, as table rows with shares of the
@@ -888,6 +897,17 @@ mod tests {
         assert!(hint_for(None).contains("journalctl"));
         let failed = hint_for(Some("org.freedesktop.DBus.Error.Failed"));
         assert!(failed.contains("history") && failed.contains("journalctl"));
+    }
+
+    #[test]
+    fn a_daemon_error_reads_once() {
+        let err = zbus::Error::FDO(Box::new(zbus::fdo::Error::SpawnChildExited(
+            "exited with status 3".into(),
+        )));
+        let shown = format!("{:#}", daemon_hint(err));
+        assert_eq!(shown.matches("exited with status 3").count(), 1, "{shown}");
+        assert!(shown.contains("org.freedesktop.DBus.Error.Spawn.ChildExited"));
+        assert!(shown.contains("journalctl"));
     }
 
     fn row(label: &str, joules: f64) -> Row {

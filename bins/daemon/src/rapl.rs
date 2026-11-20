@@ -176,13 +176,11 @@ mod tests {
             calls: calls.clone(),
             limited_first,
         };
-        let (server_end, client_end) = tokio::net::UnixStream::pair().unwrap();
+        let (server_end, client_end) = std::os::unix::net::UnixStream::pair().unwrap();
         let server = Builder::unix_stream(server_end)
             .server(zbus::Guid::generate())
-            .unwrap()
             .p2p()
             .serve_at(OBJECT_PATH, fake)
-            .unwrap()
             .build();
         let client = Builder::unix_stream(client_end).p2p().build();
         let (server, client) = tokio::join!(server, client);
